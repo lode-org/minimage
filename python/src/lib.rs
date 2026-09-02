@@ -44,6 +44,7 @@ impl PyCell {
     }
 
     #[staticmethod]
+    #[pyo3(signature = (a, b, c, origin=None))]
     fn from_vectors(
         a: &Bound<'_, PyAny>,
         b: &Bound<'_, PyAny>,
