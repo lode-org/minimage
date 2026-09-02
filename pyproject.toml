@@ -1,0 +1,34 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "minimage"
+version = "0.1.0"
+description = "Minimum-image convention for periodic parallelepiped cells"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Rohit Goswami", email = "rgoswami@ieee.org" }]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.urls]
+Homepage = "https://github.com/lode-org/minimage"
+Repository = "https://github.com/lode-org/minimage"
+Documentation = "https://docs.rs/minimage"
+
+[tool.maturin]
+manifest-path = "python/Cargo.toml"
+module-name = "minimage._lib"
+python-source = "."
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]

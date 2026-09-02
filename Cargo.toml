@@ -1,0 +1,33 @@
+[package]
+name = "minimage"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Minimum-image convention for periodic parallelepiped cells"
+license = "MIT"
+repository = "https://github.com/lode-org/minimage"
+homepage = "https://github.com/lode-org/minimage"
+documentation = "https://docs.rs/minimage"
+keywords = ["molecular-dynamics", "periodic", "minimum-image", "pbc"]
+categories = ["science", "algorithms"]
+readme = "README.md"
+
+[workspace]
+members = ["python"]
+resolver = "2"
+
+[lib]
+name = "minimage"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[features]
+default = ["capi"]
+capi = []
+
+[[test]]
+name = "abi"
+required-features = ["capi"]
+
+[profile.release]
+lto = true
+codegen-units = 1
