@@ -135,7 +135,7 @@ impl Cell {
         let cx = lz * cos_b;
         let cy = lz * (cos_a - cos_b * cos_g) / sin_g;
         let cz2 = lz * lz - cx * cx - cy * cy;
-        if !(cz2 > 0.0) {
+        if cz2 <= 0.0 {
             return Err(Error::BadBox);
         }
         Self::from_vectors(a, b, [cx, cy, cz2.sqrt()], [0.0, 0.0, 0.0])
@@ -151,6 +151,7 @@ impl Cell {
     ///
     /// Recovers the same H and origin as a dump ITEM BOX BOUNDS line
     /// whose bound lo/hi already include the tilt padding.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_lammps(
         xlo: f64,
         xhi: f64,
@@ -171,6 +172,7 @@ impl Cell {
     /// `xy, xz, yz` are the tilt factors. `xlo_b, ylo_b, zlo_b` are
     /// the bound lo. Inverse of
     /// `xlo_bound = xlo + min(0, xy, xz, xy+xz)`.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_lammps_bounds(
         xspan: f64,
         yspan: f64,
@@ -321,6 +323,7 @@ impl Cell {
 
 /// Recover restricted-triclinic H (columns a, b, c) and origin from a
 /// LAMMPS dump bound box.
+#[allow(clippy::too_many_arguments)]
 pub fn dump_bounds_to_h(
     xspan: f64,
     yspan: f64,
