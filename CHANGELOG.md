@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.1
+
+Orthorhombic signed wrap keeps `-L/2` and maps `+L/2` onto `-L/2`,
+matching dump `relDist`.
+
 ## 0.1.0
 
 First release. `Cell` holds H and a dump-cell origin. Constructors

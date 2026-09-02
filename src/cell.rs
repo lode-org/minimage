@@ -356,9 +356,22 @@ fn wrap01(mut s: f64) -> f64 {
     }
 }
 
+/// Orthorhombic signed wrap into `[-L/2, L/2)`.
+///
+/// Keeps `-L/2` and maps `+L/2` onto `-L/2`, matching the dump
+/// `relDist` half-box test. Squared distance agrees with
+/// `abs` then `round`.
 #[inline]
 fn wrap_half(d: f64, length: f64) -> f64 {
-    d - length * (d / length).round()
+    let half = 0.5 * length;
+    let mut w = d;
+    if w < -half {
+        w += length;
+    }
+    if w >= half {
+        w -= length;
+    }
+    w
 }
 
 #[inline]
