@@ -1,0 +1,23 @@
+@PACKAGE_INIT@
+
+set_and_check(MINIMAGE_INCLUDE_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@")
+
+if(WIN32)
+  set_and_check(MINIMAGE_LIBRARY "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_BINDIR@/@MINIMAGE_SHARED_NAME@")
+  set_and_check(MINIMAGE_IMPLIB "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/@MINIMAGE_IMPLIB_NAME@")
+else()
+  set_and_check(MINIMAGE_LIBRARY "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/@MINIMAGE_SHARED_NAME@")
+endif()
+
+if(NOT TARGET minimage::minimage)
+  add_library(minimage::minimage SHARED IMPORTED)
+  set_target_properties(minimage::minimage PROPERTIES
+    IMPORTED_LOCATION "${MINIMAGE_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${MINIMAGE_INCLUDE_DIR}")
+  if(WIN32)
+    set_target_properties(minimage::minimage PROPERTIES
+      IMPORTED_IMPLIB "${MINIMAGE_IMPLIB}")
+  endif()
+endif()
+
+check_required_components(minimage)

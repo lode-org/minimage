@@ -1,0 +1,155 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
+  header-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cbindgen --version 0.29.4
+      - run: scripts/regen-capi-headers.sh --check
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-py-${{ hashFiles('Cargo.lock', 'python/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-py-
+      - name: Install Python test deps
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install maturin pytest
+      - name: maturin develop
+        run: |
+          . .venv/bin/activate
+          maturin develop
+      - name: pytest
+        run: |
+          . .venv/bin/activate
+          pytest tests/python -q
+
+  cargo:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        crate:
+          - name: default
+            flags: ""
+          - name: serial
+            flags: --no-default-features --features capi
+    name: cargo (${{ matrix.os }}, ${{ matrix.crate.name }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - run: cargo test --locked --workspace --exclude minimage-python ${{ matrix.crate.flags }}
+      - run: cargo clippy --locked --workspace --exclude minimage-python --all-targets ${{ matrix.crate.flags }} -- -D warnings
+
+  meson:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install meson ninja
+      - run: meson setup build
+      - run: meson compile -C build
+      - run: meson test -C build --print-errorlogs
+      - run: meson install -C build --destdir "$PWD/destdir"
+      - name: pkg-config after meson install
+        run: |
+          prefix="$PWD/destdir/usr/local"
+          export PKG_CONFIG_PATH="$prefix/lib/x86_64-linux-gnu/pkgconfig:$prefix/lib/pkgconfig"
+          pkg-config --exists --print-errors minimage
+          pkg-config --modversion minimage
+          pkg-config --cflags --libs minimage
+          test -f "$prefix/include/minimage.h"
+          test -f "$prefix/include/minimage.hpp"
+          test -f "$prefix/lib/x86_64-linux-gnu/libminimage.a" \
+            -o -f "$prefix/lib/libminimage.a"
+          test -f "$prefix/lib/x86_64-linux-gnu/libminimage.so" \
+            -o -f "$prefix/lib/libminimage.so" \
+            -o -f "$prefix/lib/libminimage.dylib"
+
+  cmake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - run: cmake -S . -B build -DCMAKE_INSTALL_PREFIX="$PWD/prefix"
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
+      - run: cmake --install build
+      - name: find_package and pkg-config after cmake install
+        run: |
+          test -f prefix/include/minimage.h
+          test -f prefix/lib/libminimage.a
+          test -f prefix/lib/libminimage.so -o -f prefix/lib/libminimage.dylib
+          test -f prefix/lib/pkgconfig/minimage.pc
+          test -f prefix/lib/cmake/minimage/minimageConfig.cmake
+          export PKG_CONFIG_PATH="$PWD/prefix/lib/pkgconfig"
+          pkg-config --exists --print-errors minimage
+          pkg-config --modversion minimage
+          cmake -S tests/cmake-consumer -B find-build \
+            -DCMAKE_PREFIX_PATH="$PWD/prefix" \
+            -DMINIMAGE_EXAMPLE="$PWD/examples/wrap_pair.cpp"
+          cmake --build find-build
+          export LD_LIBRARY_PATH="$PWD/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export DYLD_LIBRARY_PATH="$PWD/prefix/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          ./find-build/find_mi

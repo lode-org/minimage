@@ -1,0 +1,6 @@
+# Package version is Cargo.toml [package].version; meson.project_version()
+# must stay equal to that string. These options only gate tests/examples.
+option('with_tests', type: 'boolean', value: true,
+  description: 'Run cargo test from meson test')
+option('with_examples', type: 'boolean', value: true,
+  description: 'Build C and C++ example programs')

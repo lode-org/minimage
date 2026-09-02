@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+title: minimage
+message: If you use this software, please cite it as below.
+type: software
+authors:
+  - family-names: Goswami
+    given-names: Rohit
+    orcid: https://orcid.org/0000-0002-2393-8056
+license: MIT
+version: 0.1.0
+date-released: "2026-09-02"
+repository-code: "https://github.com/lode-org/minimage"
+url: "https://github.com/lode-org/minimage"
+abstract: >-
+  Minimum-image convention for periodic parallelepiped
+  cells. Rust implementation, C ABI, C++ typed header,
+  Python module.

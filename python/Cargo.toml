@@ -1,0 +1,16 @@
+[package]
+name = "minimage-python"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+license = "MIT"
+publish = false
+description = "Python bindings for minimage"
+
+[lib]
+name = "_lib"
+crate-type = ["cdylib"]
+
+[dependencies]
+minimage = { path = ".." }
+pyo3 = { version = "0.23", features = ["extension-module"] }
