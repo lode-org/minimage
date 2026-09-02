@@ -167,6 +167,7 @@ pub unsafe extern "C" fn mi_cell_from_vectors(
 }
 
 /// Fill `out` from LAMMPS `xlo xhi ylo yhi zlo zhi` and tilts.
+#[allow(clippy::too_many_arguments)]
 #[no_mangle]
 pub extern "C" fn mi_cell_from_lammps(
     xlo: f64,
