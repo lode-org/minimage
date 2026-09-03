@@ -19,6 +19,10 @@ It is a LODE library. The Rust crate is the implementation. The C ABI
 [readcon-core](https://github.com/lode-org/readcon-core). C++ is a
 RAII header over that ABI.
 
+Docs (orgmode first, HTML export):
+[lode-org.github.io/minimage](https://lode-org.github.io/minimage/).
+Org catalog: [lode-org.github.io](https://lode-org.github.io/).
+
 ## Install
 
 Rust:

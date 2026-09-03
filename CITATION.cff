@@ -10,7 +10,7 @@ license: MIT
 version: 0.1.1
 date-released: "2026-09-02"
 repository-code: "https://github.com/lode-org/minimage"
-url: "https://github.com/lode-org/minimage"
+url: "https://lode-org.github.io/minimage/"
 abstract: >-
   Minimum-image convention for periodic parallelepiped
   cells. Rust implementation, C ABI, C++ typed header,

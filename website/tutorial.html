@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>A wrapped pair</title>
+<meta name="description" content="Two points near opposite faces, and the sheared LAMMPS a-image." />
+<meta name="generator" content="Org Mode" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/site.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="index.html"> UP </a>
+ |
+ <a accesskey="H" href="index.html"> HOME </a>
+</div><div id="content" class="content">
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+
+<p>
+Two points near opposite faces of a 10-wide box sit 9.2 apart in
+Cartesian space and 0.8 apart under the minimum image.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">use minimage::Cell;
+
+let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+assert!((cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() &lt; 1e-12);
+</pre>
+</div>
+
+<p>
+A sheared LAMMPS dump uses bound spans, not <code>lx, ly, lz</code>. The a-image
+pair <code>(0.2, 0.1, 1)</code> and <code>(9.7, 0.1, 1)</code> on
+</p>
+
+<div class="org-src-container">
+<pre class="src src-text">box = 15  8.660254037844386  10  5  0  0
+</pre>
+</div>
+
+<p>
+has squared distance 0.25.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">let sheared = Cell::from_lammps_bounds(
+    15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+)?;
+assert!((sheared.dist2([0.2, 0.1, 1.0], [9.7, 0.1, 1.0]) - 0.25).abs() &lt; 1e-12);
+</pre>
+</div>
+
+<p>
+vesin can list a particle as its own neighbour through an image.
+<code>reduce_pairs</code> keeps each ordered pair once and drops the self image.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">use minimage::reduce_pairs;
+
+let pairs = [[0, 1], [0, 0], [0, 1]];
+let mut kept = Vec::new();
+reduce_pairs(&amp;pairs, &amp;mut kept)?;
+assert_eq!(kept, vec![[0, 1]]);
+</pre>
+</div>
+</div>
+</body>
+</html>

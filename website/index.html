@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>minimage</title>
+<meta name="description" content="Minimum-image convention for a periodic parallelepiped." />
+<meta name="generator" content="Org Mode" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/site.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="index.html"> UP </a>
+ |
+ <a accesskey="H" href="index.html"> HOME </a>
+</div><div id="content" class="content">
+<a class="skip" href="#main">Skip to content</a>
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+<p class="kicker">LODE crate</p>
+<div class="mast">
+  <img class="logo" src="assets/minimage-icon.svg" width="64" height="64" alt="" />
+  <div>
+    <h1 class="wordmark">minimage</h1>
+    <p class="lede">Minimum-image convention on a general parallelepiped. Rust core, C ABI waist, C++ and Python on the other side.</p>
+  </div>
+</div>
+<p class="cta">
+  <a href="tutorial.html">Tutorial</a>
+  <a href="getting-started.html">Install</a>
+  <a href="https://github.com/lode-org/minimage">Source</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</p>
+<section id="outline-container-main" class="outline-2">
+<h2 id="main">What it is</h2>
+<div class="outline-text-2" id="text-main">
+<p>
+linkcell walks k-nearest neighbours. vesin builds cutoff pair lists.
+Both need the same wrap: fold through H, pick one image, never the
+self image. This crate is that wrap.
+</p>
+
+<p>
+<code>Cell</code> holds the 3x3 lattice and a dump-cell origin. Constructors
+accept LAMMPS bounds plus <code>xy, xz, yz</code> tilts, a CON lattice or
+length-angle box, an ASE-style 3x3 cell, and a vesin box.
+</p>
+</div>
+</section>
+<section id="outline-container-org2d7997c" class="outline-2">
+<h2 id="org2d7997c">Diataxis</h2>
+<div class="outline-text-2" id="text-org2d7997c">
+<dl class="org-dl">
+<dt><a href="tutorial.html">Tutorial</a></dt><dd>a wrapped pair (0.64 on a 10-wide box, 0.25 on the
+sheared LAMMPS dump).</dd>
+<dt><a href="howto.html">How-to</a></dt><dd>embed from C, C++, Python; pkg-config.</dd>
+<dt><a href="explanation.html">Explanation</a></dt><dd>MIC and H, dump bounds, vesin reduction.</dd>
+<dt><a href="reference.html">Reference</a></dt><dd><code>mi_*</code> C API.</dd>
+</dl>
+</div>
+</section>
+<section id="outline-container-org324a7ff" class="outline-2">
+<h2 id="org324a7ff">Install</h2>
+<div class="outline-text-2" id="text-org324a7ff">
+<div class="org-src-container">
+<pre class="src src-text">cargo add minimage
+pip install minimage
+</pre>
+</div>
+
+<p>
+C and C++ take the <code>staticlib</code> plus <code>include/minimage.h</code> or
+<code>include/minimage.hpp</code>. Meson exposes <code>minimage_dep</code>. CMake exposes
+<code>minimage::minimage</code>.
+</p>
+</div>
+</section>
+</div>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>C API</title>
+<meta name="description" content="mi_* C ABI. Caller owns every buffer." />
+<meta name="generator" content="Org Mode" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/site.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="index.html"> UP </a>
+ |
+ <a accesskey="H" href="index.html"> HOME </a>
+</div><div id="content" class="content">
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+
+<p>
+Prefix <code>mi_</code>. Every buffer is caller-owned. A nonzero return means
+failure; read <code>mi_last_error()</code> on the same thread.
+</p>
+
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Symbol</th>
+<th scope="col" class="org-left">Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>mi_cell</code></td>
+<td class="org-left">Lattice vectors a, b, c and origin</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_cell_ortho</code></td>
+<td class="org-left">Header-only diagonal box</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_cell_from_vectors</code></td>
+<td class="org-left">Columns a, b, c</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_cell_from_lammps</code></td>
+<td class="org-left"><code>xlo xhi ylo yhi zlo zhi</code> plus tilts</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_cell_from_lammps_bounds</code></td>
+<td class="org-left">Dump bound spans plus tilts</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_cell_from_ase</code></td>
+<td class="org-left">Row-major 3x3</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_cell_from_con</code></td>
+<td class="org-left">CON 3x3</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_cell_from_con_box</code></td>
+<td class="org-left">Lengths and angles in degrees</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_cell_from_vesin</code></td>
+<td class="org-left">vesin 3x3</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_displacement</code></td>
+<td class="org-left">Wrapped <code>q - p</code></td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2</code></td>
+<td class="org-left">Squared minimum-image distance</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_many</code></td>
+<td class="org-left">One source, packed candidates</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_pairs</code></td>
+<td class="org-left">Packed pair lists</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_ortho_diffs</code></td>
+<td class="org-left">Highway-shaped ortho wrap</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_reduce_pairs</code></td>
+<td class="org-left">Drop self images, unique pairs</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_last_error</code></td>
+<td class="org-left">Thread-local error string</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_version</code></td>
+<td class="org-left">Process-static version</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
+<code>docs.rs/minimage</code> is the Rust reference.
+</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,63 @@
+#+title: How-to
+#+setupfile: setup.org
+#+description: Embed minimage from C, C++, and Python. pkg-config.
+
+#+begin_export html
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+#+end_export
+
+* Embed from C
+
+#+begin_src c
+#include "minimage.h"
+
+mi_cell box = mi_cell_ortho(10.0, 10.0, 10.0);
+const double p[3] = {0.2, 0.0, 0.0};
+const double q[3] = {9.4, 0.0, 0.0};
+double d2 = 0.0;
+if (mi_dist2(&box, p, q, &d2) != 0) {
+    fprintf(stderr, "%s\n", mi_last_error());
+}
+#+end_src
+
+Link =libminimage= and add =include/= to the include path. Meson
+exposes =minimage_dep=. CMake exposes =minimage::minimage=.
+
+* Embed from C++
+
+#+begin_src cpp
+#include "minimage.hpp"
+
+const minimage::Cell box = minimage::Cell::ortho(10.0, 10.0, 10.0);
+const double d2 = box.dist2({0.2, 0.0, 0.0}, {9.4, 0.0, 0.0});
+#+end_src
+
+The header is a RAII wrap of =minimage.h=. Failures throw
+=minimage::Error=.
+
+* Embed from Python
+
+#+begin_src python
+import minimage
+
+cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
+print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
+#+end_src
+
+* pkg-config
+
+#+begin_src text
+pkg-config --cflags --libs minimage
+#+end_src
+
+Meson and CMake both write =minimage.pc=. =Libs= includes =-L${libdir}=
+so a wrap consumer can find =-lminimage=.

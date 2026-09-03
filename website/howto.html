@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How-to</title>
+<meta name="description" content="Embed minimage from C, C++, and Python. pkg-config." />
+<meta name="generator" content="Org Mode" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/site.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="index.html"> UP </a>
+ |
+ <a accesskey="H" href="index.html"> HOME </a>
+</div><div id="content" class="content">
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+<section id="outline-container-orga2472e5" class="outline-2">
+<h2 id="orga2472e5">Embed from C</h2>
+<div class="outline-text-2" id="text-orga2472e5">
+<div class="org-src-container">
+<pre class="src src-c">#include "minimage.h"
+
+mi_cell box = mi_cell_ortho(10.0, 10.0, 10.0);
+const double p[3] = {0.2, 0.0, 0.0};
+const double q[3] = {9.4, 0.0, 0.0};
+double d2 = 0.0;
+if (mi_dist2(&amp;box, p, q, &amp;d2) != 0) {
+    fprintf(stderr, "%s\n", mi_last_error());
+}
+</pre>
+</div>
+
+<p>
+Link <code>libminimage</code> and add <code>include/</code> to the include path. Meson
+exposes <code>minimage_dep</code>. CMake exposes <code>minimage::minimage</code>.
+</p>
+</div>
+</section>
+<section id="outline-container-orge6e050c" class="outline-2">
+<h2 id="orge6e050c">Embed from C++</h2>
+<div class="outline-text-2" id="text-orge6e050c">
+<div class="org-src-container">
+<pre class="src src-cpp">#include "minimage.hpp"
+
+const minimage::Cell box = minimage::Cell::ortho(10.0, 10.0, 10.0);
+const double d2 = box.dist2({0.2, 0.0, 0.0}, {9.4, 0.0, 0.0});
+</pre>
+</div>
+
+<p>
+The header is a RAII wrap of <code>minimage.h</code>. Failures throw
+<code>minimage::Error</code>.
+</p>
+</div>
+</section>
+<section id="outline-container-org83b9ab5" class="outline-2">
+<h2 id="org83b9ab5">Embed from Python</h2>
+<div class="outline-text-2" id="text-org83b9ab5">
+<div class="org-src-container">
+<pre class="src src-python">import minimage
+
+cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
+print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
+</pre>
+</div>
+</div>
+</section>
+<section id="outline-container-org0d5823d" class="outline-2">
+<h2 id="org0d5823d">pkg-config</h2>
+<div class="outline-text-2" id="text-org0d5823d">
+<div class="org-src-container">
+<pre class="src src-text">pkg-config --cflags --libs minimage
+</pre>
+</div>
+
+<p>
+Meson and CMake both write <code>minimage.pc</code>. <code>Libs</code> includes <code>-L${libdir}</code>
+so a wrap consumer can find <code>-lminimage</code>.
+</p>
+</div>
+</section>
+</div>
+</body>
+</html>

@@ -1,0 +1,63 @@
+#+title: minimage
+#+setupfile: setup.org
+#+description: Minimum-image convention for a periodic parallelepiped.
+
+#+begin_export html
+<a class="skip" href="#main">Skip to content</a>
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+<p class="kicker">LODE crate</p>
+<div class="mast">
+  <img class="logo" src="assets/minimage-icon.svg" width="64" height="64" alt="" />
+  <div>
+    <h1 class="wordmark">minimage</h1>
+    <p class="lede">Minimum-image convention on a general parallelepiped. Rust core, C ABI waist, C++ and Python on the other side.</p>
+  </div>
+</div>
+<p class="cta">
+  <a href="tutorial.html">Tutorial</a>
+  <a href="getting-started.html">Install</a>
+  <a href="https://github.com/lode-org/minimage">Source</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</p>
+#+end_export
+
+* What it is
+:PROPERTIES:
+:CUSTOM_ID: main
+:END:
+
+linkcell walks k-nearest neighbours. vesin builds cutoff pair lists.
+Both need the same wrap: fold through H, pick one image, never the
+self image. This crate is that wrap.
+
+=Cell= holds the 3x3 lattice and a dump-cell origin. Constructors
+accept LAMMPS bounds plus =xy, xz, yz= tilts, a CON lattice or
+length-angle box, an ASE-style 3x3 cell, and a vesin box.
+
+* Diataxis
+
+- [[file:tutorial.org][Tutorial]] :: a wrapped pair (0.64 on a 10-wide box, 0.25 on the
+  sheared LAMMPS dump).
+- [[file:howto.org][How-to]] :: embed from C, C++, Python; pkg-config.
+- [[file:explanation.org][Explanation]] :: MIC and H, dump bounds, vesin reduction.
+- [[file:reference.org][Reference]] :: =mi_*= C API.
+
+* Install
+
+#+begin_src text
+cargo add minimage
+pip install minimage
+#+end_src
+
+C and C++ take the =staticlib= plus =include/minimage.h= or
+=include/minimage.hpp=. Meson exposes =minimage_dep=. CMake exposes
+=minimage::minimage=.
