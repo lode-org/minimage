@@ -1,0 +1,10 @@
+#+options: toc:nil num:nil html-style:nil html-scripts:nil title:nil ^:nil
+#+language: en
+#+html_doctype: html5
+#+html_head: <meta name="viewport" content="width=device-width, initial-scale=1" />
+#+html_head: <link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
+#+html_head: <link rel="stylesheet" href="css/site.css" />
+#+html_head: <link rel="preconnect" href="https://fonts.googleapis.com" />
+#+html_head: <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+#+html_link_home: index.html
+#+html_link_up: index.html

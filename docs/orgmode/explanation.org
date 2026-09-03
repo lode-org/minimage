@@ -1,0 +1,55 @@
+#+title: Minimum image and H
+#+setupfile: setup.org
+#+description: Fractional wrap, LAMMPS dump bounds, vesin pair reduction.
+
+#+begin_export html
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+#+end_export
+
+A periodic dump is a parallelepiped whose edges are the columns of H.
+Cartesian coordinates fold to fractional coordinates =s = Hinv (r -
+origin)=, wrap each component into the central image, then map back
+=r = H s=. Squared distance is =|H wrap(Hinv (q - p))|^2=.
+
+Orthorhombic boxes are the diagonal case. Each axis wraps on its own
+length. The batched kernel hoists one reciprocal per axis and wraps
+precomputed differences, the same arithmetic as a Highway
+=BatchPeriodicDistSq= loop. The signed wrap keeps =-L/2= and maps
+=+L/2= onto =-L/2=, matching dump =relDist=.
+
+* Dump bounds are not H
+
+LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt =xy, xz, yz=.
+=Cell::from_lammps_bounds= recovers the restricted-triclinic H and
+origin:
+
+#+begin_src text
+xlo_bound = xlo + min(0, xy, xz, xy+xz)
+#+end_src
+
+A CON header may already hold the 3x3 lattice, or lengths and angles
+in the crystallographic convention. ASE and vesin pass rows =(a, b,
+c)=.
+
+* vesin images
+
+vesin enumerates periodic images. A particle can appear as its own
+neighbour through an image, and one neighbour can arrive through
+several images. =reduce_pairs= keeps each ordered pair once and drops
+the self image.
+
+* Consumers
+
+linkcell re-exports =minimage::Cell= for the fold and the lattice
+shift. d-SEAMS calls the C ABI from =lammpsBoxToLcCell=,
+=periodicDistSq= / =relDist=, the ortho batch kernel, and the vesin
+pair collapse.

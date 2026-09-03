@@ -1,0 +1,58 @@
+#+title: Getting started
+#+setupfile: setup.org
+#+description: Install minimage and run the wrapped-pair tutorial.
+
+#+begin_export html
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+#+end_export
+
+* Install
+
+Pick *one* language.
+
+| Binding | Install |
+|---------+---------|
+| Rust | =cargo add minimage= |
+| Python | =pip install minimage= |
+| C / C++ | Meson wrap, CMake =find_package(minimage)=, or =pkg-config minimage= |
+
+** Rust
+
+#+begin_src rust
+use minimage::Cell;
+
+let sim = Cell::ortho(10.0, 10.0, 10.0)?;
+assert!((sim.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() < 1e-12);
+#+end_src
+
+** Python
+
+#+begin_src python
+import minimage
+
+cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
+print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
+#+end_src
+
+** Meson wrap
+
+#+begin_src text
+[wrap-git]
+url = https://github.com/lode-org/minimage.git
+revision = v0.1.1
+depth = 1
+
+[provide]
+minimage = minimage_dep
+#+end_src
+
+Next: [[file:tutorial.org][tutorial]].

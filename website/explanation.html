@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Minimum image and H</title>
+<meta name="description" content="Fractional wrap, LAMMPS dump bounds, vesin pair reduction." />
+<meta name="generator" content="Org Mode" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/site.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="index.html"> UP </a>
+ |
+ <a accesskey="H" href="index.html"> HOME </a>
+</div><div id="content" class="content">
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+
+<p>
+A periodic dump is a parallelepiped whose edges are the columns of H.
+Cartesian coordinates fold to fractional coordinates <code>s = Hinv (r -
+origin)</code>, wrap each component into the central image, then map back
+<code>r = H s</code>. Squared distance is <code>|H wrap(Hinv (q - p))|^2</code>.
+</p>
+
+<p>
+Orthorhombic boxes are the diagonal case. Each axis wraps on its own
+length. The batched kernel hoists one reciprocal per axis and wraps
+precomputed differences, the same arithmetic as a Highway
+<code>BatchPeriodicDistSq</code> loop. The signed wrap keeps <code>-L/2</code> and maps
+<code>+L/2</code> onto <code>-L/2</code>, matching dump <code>relDist</code>.
+</p>
+<section id="outline-container-orgc2d6f0e" class="outline-2">
+<h2 id="orgc2d6f0e">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-orgc2d6f0e">
+<p>
+LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
+<code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
+origin:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-text">xlo_bound = xlo + min(0, xy, xz, xy+xz)
+</pre>
+</div>
+
+<p>
+A CON header may already hold the 3x3 lattice, or lengths and angles
+in the crystallographic convention. ASE and vesin pass rows <code>(a, b,
+c)</code>.
+</p>
+</div>
+</section>
+<section id="outline-container-org635c4e0" class="outline-2">
+<h2 id="org635c4e0">vesin images</h2>
+<div class="outline-text-2" id="text-org635c4e0">
+<p>
+vesin enumerates periodic images. A particle can appear as its own
+neighbour through an image, and one neighbour can arrive through
+several images. <code>reduce_pairs</code> keeps each ordered pair once and drops
+the self image.
+</p>
+</div>
+</section>
+<section id="outline-container-org1f6f2dd" class="outline-2">
+<h2 id="org1f6f2dd">Consumers</h2>
+<div class="outline-text-2" id="text-org1f6f2dd">
+<p>
+linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
+shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
+<code>periodicDistSq</code> / <code>relDist</code>, the ortho batch kernel, and the vesin
+pair collapse.
+</p>
+</div>
+</section>
+</div>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Getting started</title>
+<meta name="description" content="Install minimage and run the wrapped-pair tutorial." />
+<meta name="generator" content="Org Mode" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/site.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="index.html"> UP </a>
+ |
+ <a accesskey="H" href="index.html"> HOME </a>
+</div><div id="content" class="content">
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+<section id="outline-container-org7309742" class="outline-2">
+<h2 id="org7309742">Install</h2>
+<div class="outline-text-2" id="text-org7309742">
+<p>
+Pick <strong>one</strong> language.
+</p>
+
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Binding</th>
+<th scope="col" class="org-left">Install</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">Rust</td>
+<td class="org-left"><code>cargo add minimage</code></td>
+</tr>
+
+<tr>
+<td class="org-left">Python</td>
+<td class="org-left"><code>pip install minimage</code></td>
+</tr>
+
+<tr>
+<td class="org-left">C / C++</td>
+<td class="org-left">Meson wrap, CMake <code>find_package(minimage)</code>, or <code>pkg-config minimage</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="outline-container-orge53df96" class="outline-3">
+<h3 id="orge53df96">Rust</h3>
+<div class="outline-text-3" id="text-orge53df96">
+<div class="org-src-container">
+<pre class="src src-rust">use minimage::Cell;
+
+let sim = Cell::ortho(10.0, 10.0, 10.0)?;
+assert!((sim.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() &lt; 1e-12);
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgae3d2e6" class="outline-3">
+<h3 id="orgae3d2e6">Python</h3>
+<div class="outline-text-3" id="text-orgae3d2e6">
+<div class="org-src-container">
+<pre class="src src-python">import minimage
+
+cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
+print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org5c81a94" class="outline-3">
+<h3 id="org5c81a94">Meson wrap</h3>
+<div class="outline-text-3" id="text-org5c81a94">
+<div class="org-src-container">
+<pre class="src src-text">[wrap-git]
+url = https://github.com/lode-org/minimage.git
+revision = v0.1.1
+depth = 1
+
+[provide]
+minimage = minimage_dep
+</pre>
+</div>
+
+<p>
+Next: <a href="tutorial.html">tutorial</a>.
+</p>
+</div>
+</div>
+</section>
+</div>
+</body>
+</html>

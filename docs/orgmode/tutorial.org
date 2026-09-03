@@ -1,0 +1,54 @@
+#+title: A wrapped pair
+#+setupfile: setup.org
+#+description: Two points near opposite faces, and the sheared LAMMPS a-image.
+
+#+begin_export html
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+#+end_export
+
+Two points near opposite faces of a 10-wide box sit 9.2 apart in
+Cartesian space and 0.8 apart under the minimum image.
+
+#+begin_src rust
+use minimage::Cell;
+
+let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+assert!((cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() < 1e-12);
+#+end_src
+
+A sheared LAMMPS dump uses bound spans, not =lx, ly, lz=. The a-image
+pair =(0.2, 0.1, 1)= and =(9.7, 0.1, 1)= on
+
+#+begin_src text
+box = 15  8.660254037844386  10  5  0  0
+#+end_src
+
+has squared distance 0.25.
+
+#+begin_src rust
+let sheared = Cell::from_lammps_bounds(
+    15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+)?;
+assert!((sheared.dist2([0.2, 0.1, 1.0], [9.7, 0.1, 1.0]) - 0.25).abs() < 1e-12);
+#+end_src
+
+vesin can list a particle as its own neighbour through an image.
+=reduce_pairs= keeps each ordered pair once and drops the self image.
+
+#+begin_src rust
+use minimage::reduce_pairs;
+
+let pairs = [[0, 1], [0, 0], [0, 1]];
+let mut kept = Vec::new();
+reduce_pairs(&pairs, &mut kept)?;
+assert_eq!(kept, vec![[0, 1]]);
+#+end_src
