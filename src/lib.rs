@@ -5,10 +5,11 @@
 //! length-angle box, an ASE-style 3x3 cell, and a vesin box. Distances
 //! are the fractional wrap `ds = wrap(Hinv (q - p))`, then `dr = H ds`.
 //! That is the LAMMPS lamda / eOn / HOOMD engine convention and is the
-//! Euclidean MIC on a restricted, tilt-reduced cell. [`Cell::reduce_tilts`]
-//! is GROMACS `correct_box`; [`Cell::to_restricted`] is the LAMMPS
-//! general-to-restricted rotation; [`Cell::displacement_euclidean`]
-//! applies those once, then wraps. [`dist2_many`], [`wrap_many`], and
+//! Euclidean MIC on a restricted, tilt-reduced cell for cutoff-scale
+//! pairs. [`Cell::reduce_tilts`] is GROMACS `correct_box`;
+//! [`Cell::to_restricted`] is the LAMMPS general-to-restricted rotation;
+//! [`Cell::displacement_euclidean`] is the Smith half-edge test, then a
+//! Minkowski-reduced 27-image when the wrap is long. [`dist2_many`], [`wrap_many`], and
 //! [`dist2_ortho_diffs`] batch the engine wrap. [`reduce_pairs`] turns a
 //! vesin image pair list into one minimum-image pair and drops the self
 //! image.

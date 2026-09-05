@@ -30,6 +30,7 @@ failure; read =mi_last_error()= on the same thread.
 | =mi_cell_from_con_box= | Lengths and angles in degrees |
 | =mi_cell_from_vesin= | vesin 3x3 |
 | =mi_displacement= | Wrapped =q - p= |
+| =mi_displacement_euclidean= | Smith test, else Minkowski 27-image |
 | =mi_dist2= | Squared minimum-image distance |
 | =mi_dist2_many= | One source, packed candidates |
 | =mi_dist2_pairs= | Packed pair lists |
