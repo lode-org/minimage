@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Python constructors and `dist2` / `displacement` accept numpy arrays
+(`tolist` fallback). `wrap` / `wrap_many` batch difference vectors.
+`is_restricted` / `tilts_reduced` / `reduce_tilts` / `to_restricted`
+follow GROMACS `correct_box` and LAMMPS general-to-restricted.
+`displacement_euclidean` uses the Smith 1989 half-edge test, then
+Minkowski reduction (Nguyen-Stehle 2009) plus a 27-image: that is
+the nearest image for cutoff-free k-NN, where a hex-prism body
+diagonal is a fractional wrap that is not nearest.
+`displacement_cartesian` is the 27-image check on the caller's H.
+Agreement tests cover LAMMPS `minimum_image`, HOOMD `minImage`,
+GROMACS `pbc_dx`, and eOn.
+
 ## 0.1.1
 
 Orthorhombic signed wrap keeps `-L/2` and maps `+L/2` onto `-L/2`,

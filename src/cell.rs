@@ -319,6 +319,301 @@ impl Cell {
         let dr = self.displacement(p, q);
         dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2]
     }
+
+    /// Euclidean MIC by checking the 27 nearest lattice images.
+    ///
+    /// [`Self::displacement`] wraps in fractional coordinates. That is
+    /// the LAMMPS / eOn / ASE convention and is the Cartesian nearest
+    /// image on a reduced (restricted-triclinic) cell. A highly skewed
+    /// H can make a neighbouring image shorter in Cartesian space.
+    /// This walk is the check those codes omit.
+    pub fn displacement_cartesian(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
+        let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+        let mut best = dp;
+        let mut best2 = dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2];
+        for na in -1_i32..=1 {
+            for nb in -1_i32..=1 {
+                for nc in -1_i32..=1 {
+                    if na == 0 && nb == 0 && nc == 0 {
+                        continue;
+                    }
+                    let s = self.lattice_shift(na, nb, nc);
+                    let t = [dp[0] + s[0], dp[1] + s[1], dp[2] + s[2]];
+                    let t2 = t[0] * t[0] + t[1] * t[1] + t[2] * t[2];
+                    if t2 < best2 {
+                        best2 = t2;
+                        best = t;
+                    }
+                }
+            }
+        }
+        best
+    }
+
+    /// True when a is along x and b lies in the xy plane.
+    ///
+    /// This is the GROMACS / LAMMPS / HOOMD restricted-triclinic frame.
+    /// Those engines refuse or rotate any other orientation before wrap.
+    pub fn is_restricted(&self) -> bool {
+        let a = self.h[0];
+        let b = self.h[1];
+        let scale = (norm(a) + norm(b) + norm(self.h[2])).max(1.0);
+        let tol = 1e-10 * scale;
+        a[1].abs() <= tol && a[2].abs() <= tol && b[2].abs() <= tol
+    }
+
+    /// True when the cell is restricted and the tilts sit inside the
+    /// GROMACS `correct_box` / LAMMPS half-box limits
+    /// `|xy| <= lx/2`, `|xz| <= lx/2`, `|yz| <= ly/2`.
+    ///
+    /// On that domain the fractional wrap is the Euclidean MIC, which
+    /// is why LAMMPS `Domain::minimum_image` and HOOMD `BoxDim::minImage`
+    /// never search extra images.
+    pub fn tilts_reduced(&self) -> bool {
+        if !self.is_restricted() {
+            return false;
+        }
+        let lx = self.h[0][0].abs();
+        let ly = self.h[1][1].abs();
+        let xy = self.h[1][0];
+        let xz = self.h[2][0];
+        let yz = self.h[2][1];
+        let tol = 1e-12 * (lx + ly).max(1.0);
+        xy.abs() <= 0.5 * lx + tol && xz.abs() <= 0.5 * lx + tol && yz.abs() <= 0.5 * ly + tol
+    }
+
+    /// Unimodular tilt reduction: GROMACS `correct_box`.
+    ///
+    /// Subtracts integer lattice vectors so `|xy|`, `|xz|`, `|yz|` sit
+    /// inside half the corresponding edge. Same Cartesian lattice, new
+    /// basis. No-op when [`Self::tilts_reduced`] is already true.
+    /// A general orientation is rotated into the restricted frame first
+    /// (LAMMPS `define_general_triclinic`).
+    pub fn reduce_tilts(&self) -> Result<Self, Error> {
+        let (cell, _rot) = self.restricted_frame()?;
+        if cell.tilts_reduced() {
+            return Ok(cell);
+        }
+        let a = cell.h[0];
+        let mut b = cell.h[1];
+        let mut c = cell.h[2];
+        correct_box_elem(&mut c, b, 1);
+        correct_box_elem(&mut c, a, 0);
+        correct_box_elem(&mut b, a, 0);
+        Self::from_vectors(a, b, c, cell.origin)
+    }
+
+    /// Rotate a general parallelepiped onto the restricted-triclinic
+    /// frame (LAMMPS general-to-restricted). Identity when already
+    /// restricted.
+    pub fn to_restricted(&self) -> Result<Self, Error> {
+        Ok(self.restricted_frame()?.0)
+    }
+
+    /// Euclidean MIC for displacements that may be long.
+    ///
+    /// Smith, CCP5 Newsletter 1989: the fractional wrap is the
+    /// nearest image when its length is below half the shortest edge.
+    /// That is the GROMACS/LAMMPS/HOOMD regime (cutoffs). Linkcell
+    /// k-NN has no cutoff; a hex-prism body diagonal is a fractional
+    /// wrap that is longer than a neighbouring image.
+    ///
+    /// When the Smith test fails, the basis is Minkowski-reduced
+    /// (Nguyen–Stehlé, ACM Trans. Algorithms 2009,
+    /// 10.1145/1597036.1597050) and the 27-image in that basis is
+    /// the nearest lattice vector. [`Self::displacement`] stays the
+    /// engine fractional wrap on the caller's H.
+    pub fn displacement_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
+        let frac = self.displacement(p, q);
+        let f2 = frac[0] * frac[0] + frac[1] * frac[1] + frac[2] * frac[2];
+        let w = self.widths();
+        let half_min = 0.5 * w[0].min(w[1]).min(w[2]);
+        if f2.sqrt() + 1e-12 < half_min {
+            return frac;
+        }
+        let reduced = match crate::minkowski::minkowski_reduce(self) {
+            Ok(c) => c,
+            Err(_) => return self.displacement_cartesian(p, q),
+        };
+        reduced.displacement_cartesian(p, q)
+    }
+
+    /// Squared Euclidean MIC distance.
+    pub fn dist2_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> f64 {
+        let dr = self.displacement_euclidean(p, q);
+        dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2]
+    }
+
+    fn restricted_frame(&self) -> Result<(Self, [[f64; 3]; 3]), Error> {
+        if self.is_restricted() {
+            return Ok((*self, IDENTITY));
+        }
+        let a = self.h[0];
+        let b = self.h[1];
+        let c = self.h[2];
+        let al = norm(a);
+        if al < 1e-18 {
+            return Err(Error::BadBox);
+        }
+        let a_hat = [a[0] / al, a[1] / al, a[2] / al];
+        let b_par = dot(b, a_hat);
+        let b_perp = [
+            b[0] - b_par * a_hat[0],
+            b[1] - b_par * a_hat[1],
+            b[2] - b_par * a_hat[2],
+        ];
+        let bl = norm(b_perp);
+        if bl < 1e-18 {
+            return Err(Error::BadBox);
+        }
+        let n = [b_perp[0] / bl, b_perp[1] / bl, b_perp[2] / bl];
+        let k = cross(a_hat, n);
+        let rot = [a_hat, n, k];
+        let a_new = [al, 0.0, 0.0];
+        let b_new = [b_par, bl, 0.0];
+        let c_new = [dot(c, a_hat), dot(c, n), dot(c, k)];
+        let cell = Self::from_vectors(a_new, b_new, c_new, mul_rows(rot, self.origin))?;
+        Ok((cell, rot))
+    }
+
+    /// True when fractional wrap matches the 27-image check on a grid
+    /// of short Cartesian probes (the cutoff-scale displacements MD
+    /// engines actually wrap).
+    ///
+    /// A hex prism at the tilt limit can still make a body-diagonal
+    /// fractional wrap longer than a neighbouring image. Production
+    /// codes ignore that because the cutoff is well below half the
+    /// long diagonal.
+    pub fn fractional_matches_cartesian(&self) -> bool {
+        let samples = [
+            [0.2, 0.0, 0.0],
+            [0.49, 0.49, 0.49],
+            [0.9, 0.1, 0.1],
+            [0.1, 0.9, 0.1],
+            [0.1, 0.1, 0.9],
+            [0.8, 0.8, 0.2],
+        ];
+        for p in samples {
+            let q = [0.0, 0.0, 0.0];
+            let a = self.displacement(p, q);
+            let b = self.displacement_cartesian(p, q);
+            let d2 = (a[0] - b[0]) * (a[0] - b[0])
+                + (a[1] - b[1]) * (a[1] - b[1])
+                + (a[2] - b[2]) * (a[2] - b[2]);
+            if d2 > 1e-20 {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[cfg(test)]
+mod cartesian_tests {
+    use super::Cell;
+
+    #[test]
+    fn ortho_fractional_is_cartesian() {
+        let c = Cell::ortho(10.0, 11.0, 12.0).unwrap();
+        assert!(c.fractional_matches_cartesian());
+    }
+
+    #[test]
+    fn restricted_shear_fractional_is_cartesian() {
+        let c = Cell::from_vectors(
+            [10.0, 0.0, 0.0],
+            [5.0, 8.660254037844386, 0.0],
+            [0.0, 0.0, 10.0],
+            [0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        assert!(c.fractional_matches_cartesian());
+    }
+
+    #[test]
+    fn extreme_skew_cartesian_can_be_shorter() {
+        let c = Cell::from_vectors(
+            [1.0, 0.0, 0.0],
+            [0.9, 0.1, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        let p = [0.0, 0.0, 0.0];
+        let q = [0.95, 0.05, 0.0];
+        let frac = c.displacement(p, q);
+        let cart = c.displacement_cartesian(p, q);
+        let f2 = frac[0] * frac[0] + frac[1] * frac[1] + frac[2] * frac[2];
+        let c2 = cart[0] * cart[0] + cart[1] * cart[1] + cart[2] * cart[2];
+        assert!(c2 <= f2 + 1e-15);
+        assert!(c2 < 0.01);
+    }
+
+    #[test]
+    fn extreme_skew_lattice_point_needs_tilt_reduce() {
+        let c = Cell::from_vectors(
+            [1.0, 0.0, 0.0],
+            [0.99, 0.01, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        assert!(c.is_restricted());
+        assert!(!c.tilts_reduced());
+        let p = [0.0, 0.0, 0.0];
+        let q = [0.02, -0.02, 0.0];
+        let cart = c.displacement_cartesian(p, q);
+        let euc = c.displacement_euclidean(p, q);
+        let c2 = cart[0] * cart[0] + cart[1] * cart[1] + cart[2] * cart[2];
+        let e2 = euc[0] * euc[0] + euc[1] * euc[1] + euc[2] * euc[2];
+        assert!(c2 > 1e-8, "27-image from the unreduced basis is not 0");
+        assert!(e2 < 1e-24, "tilt-reduced wrap sends the lattice point to 0");
+        let red = c.reduce_tilts().unwrap();
+        assert!(red.tilts_reduced());
+        assert!(red.h()[1][0].abs() <= 0.5 * red.h()[0][0].abs() + 1e-12);
+    }
+
+    #[test]
+    fn hex_body_diagonal_fractional_is_not_nearest() {
+        let c = Cell::from_vectors(
+            [10.0, 0.0, 0.0],
+            [5.0, 8.660254037844386, 0.0],
+            [0.0, 0.0, 10.0],
+            [0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        assert!(c.tilts_reduced());
+        let p = c.cartesian([0.49, 0.49, 0.49]);
+        let q = c.cartesian([0.0, 0.0, 0.0]);
+        let frac = c.displacement(p, q);
+        let euc = c.displacement_euclidean(p, q);
+        let f2 = frac[0] * frac[0] + frac[1] * frac[1] + frac[2] * frac[2];
+        let e2 = euc[0] * euc[0] + euc[1] * euc[1] + euc[2] * euc[2];
+        assert!(
+            e2 + 1e-8 < f2,
+            "Nguyen-Stehle 27-image in the Minkowski basis is shorter than the fractional wrap"
+        );
+    }
+
+    #[test]
+    fn restricted_hex_is_already_reduced() {
+        let c = Cell::from_vectors(
+            [10.0, 0.0, 0.0],
+            [5.0, 8.660254037844386, 0.0],
+            [0.0, 0.0, 10.0],
+            [0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        assert!(c.is_restricted());
+        assert!(c.tilts_reduced());
+        let p = [0.2, 0.1, 1.0];
+        let q = [9.7, 0.1, 1.0];
+        let a = c.displacement(p, q);
+        let b = c.displacement_euclidean(p, q);
+        assert!((a[0] - b[0]).abs() < 1e-15);
+        assert!((a[1] - b[1]).abs() < 1e-15);
+        assert!((a[2] - b[2]).abs() < 1e-15);
+    }
 }
 
 /// Recover restricted-triclinic H (columns a, b, c) and origin from a
@@ -410,6 +705,46 @@ fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
         && h[1][2].abs() <= tol
         && h[2][0].abs() <= tol
         && h[2][1].abs() <= tol
+}
+
+const IDENTITY: [[f64; 3]; 3] = [
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0],
+];
+
+/// GROMACS `correct_box_elem`: subtract integer copies of `edge` from
+/// `vec` until component `d` sits inside half of `edge[d]`.
+fn correct_box_elem(vec: &mut [f64; 3], edge: [f64; 3], d: usize) {
+    const MARGIN: f64 = 1.001;
+    const MAX_SHIFT: i32 = 20;
+    let half = 0.5 * edge[d];
+    if half.abs() < 1e-18 {
+        return;
+    }
+    let mut n = 0;
+    while vec[d] > MARGIN * half && n < MAX_SHIFT {
+        vec[0] -= edge[0];
+        vec[1] -= edge[1];
+        vec[2] -= edge[2];
+        n += 1;
+    }
+    while vec[d] < -MARGIN * half && n < MAX_SHIFT {
+        vec[0] += edge[0];
+        vec[1] += edge[1];
+        vec[2] += edge[2];
+        n += 1;
+    }
+}
+
+#[inline]
+fn dot(u: [f64; 3], v: [f64; 3]) -> f64 {
+    u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+}
+
+#[inline]
+fn mul_rows(r: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
+    [dot(r[0], v), dot(r[1], v), dot(r[2], v)]
 }
 
 /// H is stored by columns. `mul(h, s)` is H s.

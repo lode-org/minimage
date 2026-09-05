@@ -19,8 +19,9 @@ header = """
  *
  * Memory ownership
  *   - Constructor calls write one mi_cell into a caller-owned out.
- *   - mi_displacement / mi_dist2 / mi_dist2_many / mi_dist2_pairs /
- *     mi_dist2_ortho_diffs write into caller-owned buffers.
+ *   - mi_displacement / mi_displacement_euclidean / mi_wrap_many /
+ *     mi_dist2 / mi_dist2_many / mi_dist2_pairs / mi_dist2_ortho_diffs
+ *     write into caller-owned buffers.
  *   - mi_reduce_pairs writes kept (i, j) pairs into caller-owned out
  *     and the count into out_n.
  *   - mi_last_error returns a thread-local pointer. Do not free. The
@@ -102,6 +103,7 @@ include = [
     "mi_cell_from_vectors",
     "mi_cell_from_vesin",
     "mi_displacement",
+    "mi_displacement_euclidean",
     "mi_dist2",
     "mi_dist2_many",
     "mi_dist2_ortho_diffs",
@@ -109,6 +111,7 @@ include = [
     "mi_last_error",
     "mi_reduce_pairs",
     "mi_version",
+    "mi_wrap_many",
 ]
 exclude = ["mi_cell_ortho", "Cell", "Error"]
 item_types = ["enums", "structs", "unions", "typedefs", "opaque", "functions", "constants"]

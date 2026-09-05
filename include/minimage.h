@@ -5,8 +5,9 @@
  *
  * Memory ownership
  *   - Constructor calls write one mi_cell into a caller-owned out.
- *   - mi_displacement / mi_dist2 / mi_dist2_many / mi_dist2_pairs /
- *     mi_dist2_ortho_diffs write into caller-owned buffers.
+ *   - mi_displacement / mi_displacement_euclidean / mi_wrap_many /
+ *     mi_dist2 / mi_dist2_many / mi_dist2_pairs / mi_dist2_ortho_diffs
+ *     write into caller-owned buffers.
  *   - mi_reduce_pairs writes kept (i, j) pairs into caller-owned out
  *     and the count into out_n.
  *   - mi_last_error returns a thread-local pointer. Do not free. The
@@ -192,6 +193,18 @@ int mi_displacement(const struct mi_cell *simbox,
                     double *dr);
 
 /**
+ * Euclidean MIC: GROMACS/LAMMPS tilt reduce, then wrap, into `dr`.
+ *
+ * # Safety
+ *
+ * Same contract as [`mi_displacement`].
+ */
+int mi_displacement_euclidean(const struct mi_cell *simbox,
+                              const double *p,
+                              const double *q,
+                              double *dr);
+
+/**
  * Squared minimum-image distance from `p` to `q`.
  *
  * # Safety
@@ -275,6 +288,18 @@ int mi_reduce_pairs(const int *pairs, size_t n, int *out, size_t *out_n);
  * Library version string. Process-static, NUL-terminated. Do not free.
  */
 const char *mi_version(void);
+
+/**
+ * Engine wrap of `n` packed difference vectors into `out`.
+ *
+ * # Safety
+ *
+ * `diffs` and `out` are `n * 3` doubles.
+ */
+int mi_wrap_many(const struct mi_cell *simbox,
+                 const double *diffs,
+                 size_t n,
+                 double *out);
 
 #ifdef __cplusplus
 }  // extern "C"
