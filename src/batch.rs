@@ -9,6 +9,24 @@
 
 use crate::{Cell, Error};
 
+/// Minimum-image wrap of packed difference vectors.
+///
+/// `diffs` and `out` are row-major `n` triples. Each row is `q - p`
+/// (the cell origin does not enter).
+pub fn wrap_many(
+    cell: &Cell,
+    diffs: &[[f64; 3]],
+    out: &mut [[f64; 3]],
+) -> Result<(), Error> {
+    if out.len() != diffs.len() {
+        return Err(Error::BufferSize);
+    }
+    for (d, o) in diffs.iter().zip(out.iter_mut()) {
+        *o = cell.displacement([0.0, 0.0, 0.0], *d);
+    }
+    Ok(())
+}
+
 /// Squared MIC distances from `p` to each packed candidate in `qs`.
 ///
 /// `qs` is row-major `n` triples. `out` has length `n`.
@@ -165,5 +183,15 @@ mod tests {
         let mut out = [0.0];
         dist2_many(&cell, p, &qs, &mut out).unwrap();
         assert!((out[0] - 0.25).abs() < 1e-12);
+    }
+
+    #[test]
+    fn wrap_many_ortho_face() {
+        let cell = Cell::ortho(10.0, 10.0, 10.0).unwrap();
+        let diffs = [[9.2, 0.0, 0.0], [0.2, 0.0, 0.0]];
+        let mut out = [[0.0; 3]; 2];
+        wrap_many(&cell, &diffs, &mut out).unwrap();
+        assert!((out[0][0] + 0.8).abs() < 1e-12);
+        assert!((out[1][0] - 0.2).abs() < 1e-12);
     }
 }

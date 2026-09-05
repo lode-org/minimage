@@ -7,7 +7,9 @@ use std::ffi::{c_char, c_int, CString};
 use std::ptr;
 use std::slice;
 
-use crate::{dist2_many, dist2_ortho_diffs, dist2_pairs, reduce_pairs_packed, Cell, Error};
+use crate::{
+    dist2_many, dist2_ortho_diffs, dist2_pairs, reduce_pairs_packed, wrap_many, Cell, Error,
+};
 
 /// Periodic parallelepiped. Lattice vectors are a, b, c (same as vesin rows).
 #[repr(C)]
@@ -331,6 +333,80 @@ pub unsafe extern "C" fn mi_displacement(
     }
     clear_error();
     0
+}
+
+/// Euclidean MIC: GROMACS/LAMMPS tilt reduce, then wrap, into `dr`.
+///
+/// # Safety
+///
+/// Same contract as [`mi_displacement`].
+#[no_mangle]
+pub unsafe extern "C" fn mi_displacement_euclidean(
+    simbox: *const mi_cell,
+    p: *const f64,
+    q: *const f64,
+    dr: *mut f64,
+) -> c_int {
+    let cell = match read_cell(simbox) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let p = match read3(p, "null p") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let q = match read3(q, "null q") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if dr.is_null() {
+        return fail_msg("null dr");
+    }
+    let v = cell.displacement_euclidean(p, q);
+    unsafe {
+        *dr = v[0];
+        *dr.add(1) = v[1];
+        *dr.add(2) = v[2];
+    }
+    clear_error();
+    0
+}
+
+/// Engine wrap of `n` packed difference vectors into `out`.
+///
+/// # Safety
+///
+/// `diffs` and `out` are `n * 3` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_wrap_many(
+    simbox: *const mi_cell,
+    diffs: *const f64,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let cell = match read_cell(simbox) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let diffs = match packed_triples(diffs, n, "null diffs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n == 0 {
+        clear_error();
+        return 0;
+    }
+    if out.is_null() {
+        return fail_msg("null out");
+    }
+    let out = unsafe { slice::from_raw_parts_mut(out as *mut [f64; 3], n) };
+    match wrap_many(&cell, diffs, out) {
+        Ok(()) => {
+            clear_error();
+            0
+        }
+        Err(e) => fail(e),
+    }
 }
 
 /// Squared minimum-image distance from `p` to `q`.
