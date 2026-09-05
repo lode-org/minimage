@@ -146,15 +146,37 @@ def test_moderate_skew_fractional_already_short():
     assert float(np.dot(cart, cart)) < 0.01
 
 
-def test_sheared_matches_hoomd_and_lammps_walk():
+def openmm_periodic_delta(diff, lx, ly, lz, xy=0.0, xz=0.0, yz=0.0):
+    """OpenMM applyPeriodic on a restricted box (z, then y, then x).
+
+    Same walk as HOOMD minImage / LAMMPS minimum_image. OpenMM
+    ReferenceForce and the CUDA kernels subtract floor(dz/lz+0.5)
+    copies of vecZ, then vecY, then vecX.
+    """
+    w = np.asarray(diff, dtype=float).copy()
+    nz = np.floor(w[2] / lz + 0.5)
+    w[2] -= nz * lz
+    w[1] -= nz * lz * yz
+    w[0] -= nz * lz * xz
+    ny = np.floor(w[1] / ly + 0.5)
+    w[1] -= ny * ly
+    w[0] -= ny * ly * xy
+    nx = np.floor(w[0] / lx + 0.5)
+    w[0] -= nx * lx
+    return w
+
+
+def test_sheared_matches_hoomd_lammps_openmm_walk():
     rows = np.array([[10.0, 0.0, 0.0], [5.0, 8.660254037844386, 0.0], [0.0, 0.0, 10.0]])
     p = np.array([0.2, 0.1, 1.0])
     q = np.array([9.7, 0.1, 1.0])
     got = np.asarray(minimage.Cell.from_vesin(rows).displacement(p, q))
     hoomd = hoomd_minimage(q - p, 10.0, 8.660254037844386, 10.0, xy=5.0)
     lam = lammps_minimum_image_triclinic(q - p, 10.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0)
+    omm = openmm_periodic_delta(q - p, 10.0, 8.660254037844386, 10.0, xy=5.0)
     np.testing.assert_allclose(got, hoomd, atol=1e-12)
     np.testing.assert_allclose(got, lam, atol=1e-12)
+    np.testing.assert_allclose(got, omm, atol=1e-12)
 
 
 def test_hex_body_diagonal_euclidean_beats_fractional():
