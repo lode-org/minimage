@@ -193,7 +193,7 @@ int mi_displacement(const struct mi_cell *simbox,
                     double *dr);
 
 /**
- * Euclidean MIC: GROMACS/LAMMPS tilt reduce, then wrap, into `dr`.
+ * Euclidean MIC: Smith half-edge test, else Minkowski 27-image, into `dr`.
  *
  * # Safety
  *

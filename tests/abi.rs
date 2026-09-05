@@ -7,6 +7,12 @@ use minimage::{mi_cell, Cell};
 
 extern "C" {
     fn mi_dist2(simbox: *const mi_cell, p: *const f64, q: *const f64, out: *mut f64) -> c_int;
+    fn mi_displacement_euclidean(
+        simbox: *const mi_cell,
+        p: *const f64,
+        q: *const f64,
+        dr: *mut f64,
+    ) -> c_int;
     fn mi_reduce_pairs(pairs: *const c_int, n: usize, out: *mut c_int, out_n: *mut usize) -> c_int;
     fn mi_cell_from_lammps_bounds(
         xspan: f64,
@@ -99,4 +105,42 @@ fn reduce_pairs_abi() {
 fn version_is_nonempty() {
     let p = unsafe { mi_version() };
     assert!(!p.is_null());
+}
+
+#[test]
+fn hex_body_diagonal_euclidean_abi_beats_fractional() {
+    let rust = Cell::from_vectors(
+        [10.0, 0.0, 0.0],
+        [5.0, 8.660254037844386, 0.0],
+        [0.0, 0.0, 10.0],
+        [0.0, 0.0, 0.0],
+    )
+    .unwrap();
+    let raw = mi_cell {
+        ax: 10.0,
+        ay: 0.0,
+        az: 0.0,
+        bx: 5.0,
+        by: 8.660254037844386,
+        bz: 0.0,
+        cx: 0.0,
+        cy: 0.0,
+        cz: 10.0,
+        ox: 0.0,
+        oy: 0.0,
+        oz: 0.0,
+    };
+    let p = [0.0, 0.0, 0.0];
+    let q = rust.cartesian([0.49, 0.49, 0.49]);
+    let mut dr = [0.0; 3];
+    let status = unsafe { mi_displacement_euclidean(&raw, p.as_ptr(), q.as_ptr(), dr.as_mut_ptr()) };
+    assert_eq!(status, 0);
+    let want = rust.displacement_euclidean(p, q);
+    assert!((dr[0] - want[0]).abs() < 1e-15);
+    assert!((dr[1] - want[1]).abs() < 1e-15);
+    assert!((dr[2] - want[2]).abs() < 1e-15);
+    let frac = rust.displacement(p, q);
+    let e2 = dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2];
+    let f2 = frac[0] * frac[0] + frac[1] * frac[1] + frac[2] * frac[2];
+    assert!(e2 + 1e-8 < f2);
 }

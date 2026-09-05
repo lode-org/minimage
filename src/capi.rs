@@ -335,7 +335,7 @@ pub unsafe extern "C" fn mi_displacement(
     0
 }
 
-/// Euclidean MIC: GROMACS/LAMMPS tilt reduce, then wrap, into `dr`.
+/// Euclidean MIC: Smith half-edge test, else Minkowski 27-image, into `dr`.
 ///
 /// # Safety
 ///
