@@ -13,11 +13,7 @@ use crate::{Cell, Error};
 ///
 /// `diffs` and `out` are row-major `n` triples. Each row is `q - p`
 /// (the cell origin does not enter).
-pub fn wrap_many(
-    cell: &Cell,
-    diffs: &[[f64; 3]],
-    out: &mut [[f64; 3]],
-) -> Result<(), Error> {
+pub fn wrap_many(cell: &Cell, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) -> Result<(), Error> {
     if out.len() != diffs.len() {
         return Err(Error::BufferSize);
     }

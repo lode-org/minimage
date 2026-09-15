@@ -133,7 +133,8 @@ fn hex_body_diagonal_euclidean_abi_beats_fractional() {
     let p = [0.0, 0.0, 0.0];
     let q = rust.cartesian([0.49, 0.49, 0.49]);
     let mut dr = [0.0; 3];
-    let status = unsafe { mi_displacement_euclidean(&raw, p.as_ptr(), q.as_ptr(), dr.as_mut_ptr()) };
+    let status =
+        unsafe { mi_displacement_euclidean(&raw, p.as_ptr(), q.as_ptr(), dr.as_mut_ptr()) };
     assert_eq!(status, 0);
     let want = rust.displacement_euclidean(p, q);
     assert!((dr[0] - want[0]).abs() < 1e-15);

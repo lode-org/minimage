@@ -13,9 +13,9 @@ fn as_nested<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
 
 fn triple(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[f64; 3]> {
     let src = as_nested(obj)?;
-    let v: Vec<f64> = src.extract().map_err(|_| {
-        PyValueError::new_err(format!("{what} must have length 3"))
-    })?;
+    let v: Vec<f64> = src
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must have length 3")))?;
     if v.len() != 3 {
         return Err(PyValueError::new_err(format!("{what} must have length 3")));
     }
@@ -24,9 +24,9 @@ fn triple(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[f64; 3]> {
 
 fn rows3(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[[f64; 3]; 3]> {
     let src = as_nested(obj)?;
-    let v: Vec<Vec<f64>> = src.extract().map_err(|_| {
-        PyValueError::new_err(format!("{what} must be 3x3"))
-    })?;
+    let v: Vec<Vec<f64>> = src
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must be 3x3")))?;
     if v.len() != 3 || v.iter().any(|r| r.len() != 3) {
         return Err(PyValueError::new_err(format!("{what} must be 3x3")));
     }
@@ -39,13 +39,15 @@ fn rows3(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[[f64; 3]; 3]> {
 
 fn triples(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<Vec<[f64; 3]>> {
     let src = as_nested(obj)?;
-    let v: Vec<Vec<f64>> = src.extract().map_err(|_| {
-        PyValueError::new_err(format!("{what} must be (N, 3)"))
-    })?;
+    let v: Vec<Vec<f64>> = src
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must be (N, 3)")))?;
     let mut out = Vec::with_capacity(v.len());
     for (i, row) in v.iter().enumerate() {
         if row.len() != 3 {
-            return Err(PyValueError::new_err(format!("{what}[{i}] must have length 3")));
+            return Err(PyValueError::new_err(format!(
+                "{what}[{i}] must have length 3"
+            )));
         }
         out.push([row[0], row[1], row[2]]);
     }
@@ -151,7 +153,9 @@ impl PyCell {
     }
 
     fn wrap(&self, diff: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
-        Ok(self.inner.displacement([0.0, 0.0, 0.0], triple(diff, "diff")?))
+        Ok(self
+            .inner
+            .displacement([0.0, 0.0, 0.0], triple(diff, "diff")?))
     }
 
     fn is_restricted(&self) -> bool {
@@ -189,9 +193,7 @@ impl PyCell {
     }
 
     fn dist2_euclidean(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<f64> {
-        Ok(self
-            .inner
-            .dist2_euclidean(triple(p, "p")?, triple(q, "q")?))
+        Ok(self.inner.dist2_euclidean(triple(p, "p")?, triple(q, "q")?))
     }
 
     fn displacement_cartesian(
