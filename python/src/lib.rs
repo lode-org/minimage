@@ -1,11 +1,21 @@
 //! Thin Python bindings for [`minimage::Cell`].
 
-use minimage::{dist2_many, reduce_pairs, Cell as RustCell};
+use minimage::{dist2_many, reduce_pairs, wrap_many, Cell as RustCell};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+fn as_nested<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    if obj.extract::<Vec<f64>>().is_ok() || obj.extract::<Vec<Vec<f64>>>().is_ok() {
+        return Ok(obj.clone());
+    }
+    obj.call_method0("tolist")
+}
+
 fn triple(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[f64; 3]> {
-    let v: Vec<f64> = obj.extract()?;
+    let src = as_nested(obj)?;
+    let v: Vec<f64> = src.extract().map_err(|_| {
+        PyValueError::new_err(format!("{what} must have length 3"))
+    })?;
     if v.len() != 3 {
         return Err(PyValueError::new_err(format!("{what} must have length 3")));
     }
@@ -13,7 +23,10 @@ fn triple(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[f64; 3]> {
 }
 
 fn rows3(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[[f64; 3]; 3]> {
-    let v: Vec<Vec<f64>> = obj.extract()?;
+    let src = as_nested(obj)?;
+    let v: Vec<Vec<f64>> = src.extract().map_err(|_| {
+        PyValueError::new_err(format!("{what} must be 3x3"))
+    })?;
     if v.len() != 3 || v.iter().any(|r| r.len() != 3) {
         return Err(PyValueError::new_err(format!("{what} must be 3x3")));
     }
@@ -22,6 +35,21 @@ fn rows3(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[[f64; 3]; 3]> {
         [v[1][0], v[1][1], v[1][2]],
         [v[2][0], v[2][1], v[2][2]],
     ])
+}
+
+fn triples(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<Vec<[f64; 3]>> {
+    let src = as_nested(obj)?;
+    let v: Vec<Vec<f64>> = src.extract().map_err(|_| {
+        PyValueError::new_err(format!("{what} must be (N, 3)"))
+    })?;
+    let mut out = Vec::with_capacity(v.len());
+    for (i, row) in v.iter().enumerate() {
+        if row.len() != 3 {
+            return Err(PyValueError::new_err(format!("{what}[{i}] must have length 3")));
+        }
+        out.push([row[0], row[1], row[2]]);
+    }
+    Ok(out)
 }
 
 fn map_err(err: minimage::Error) -> PyErr {
@@ -116,16 +144,74 @@ impl PyCell {
     }
 
     fn dist2_many(&self, p: &Bound<'_, PyAny>, qs: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
-        let qs: Vec<Vec<f64>> = qs.extract()?;
-        let mut packed = Vec::with_capacity(qs.len());
-        for (i, row) in qs.iter().enumerate() {
-            if row.len() != 3 {
-                return Err(PyValueError::new_err(format!("qs[{i}] must have length 3")));
-            }
-            packed.push([row[0], row[1], row[2]]);
-        }
+        let packed = triples(qs, "qs")?;
         let mut out = vec![0.0; packed.len()];
         dist2_many(&self.inner, triple(p, "p")?, &packed, &mut out).map_err(map_err)?;
+        Ok(out)
+    }
+
+    fn wrap(&self, diff: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
+        Ok(self.inner.displacement([0.0, 0.0, 0.0], triple(diff, "diff")?))
+    }
+
+    fn is_restricted(&self) -> bool {
+        self.inner.is_restricted()
+    }
+
+    fn tilts_reduced(&self) -> bool {
+        self.inner.tilts_reduced()
+    }
+
+    fn is_minkowski_reduced(&self) -> bool {
+        minimage::is_minkowski_reduced(&self.inner)
+    }
+
+    fn reduce_tilts(&self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.reduce_tilts().map_err(map_err)?,
+        })
+    }
+
+    fn to_restricted(&self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.to_restricted().map_err(map_err)?,
+        })
+    }
+
+    fn displacement_euclidean(
+        &self,
+        p: &Bound<'_, PyAny>,
+        q: &Bound<'_, PyAny>,
+    ) -> PyResult<[f64; 3]> {
+        Ok(self
+            .inner
+            .displacement_euclidean(triple(p, "p")?, triple(q, "q")?))
+    }
+
+    fn dist2_euclidean(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<f64> {
+        Ok(self
+            .inner
+            .dist2_euclidean(triple(p, "p")?, triple(q, "q")?))
+    }
+
+    fn displacement_cartesian(
+        &self,
+        p: &Bound<'_, PyAny>,
+        q: &Bound<'_, PyAny>,
+    ) -> PyResult<[f64; 3]> {
+        Ok(self
+            .inner
+            .displacement_cartesian(triple(p, "p")?, triple(q, "q")?))
+    }
+
+    fn fractional_matches_cartesian(&self) -> bool {
+        self.inner.fractional_matches_cartesian()
+    }
+
+    fn wrap_many(&self, diffs: &Bound<'_, PyAny>) -> PyResult<Vec<[f64; 3]>> {
+        let packed = triples(diffs, "diffs")?;
+        let mut out = vec![[0.0, 0.0, 0.0]; packed.len()];
+        wrap_many(&self.inner, &packed, &mut out).map_err(map_err)?;
         Ok(out)
     }
 

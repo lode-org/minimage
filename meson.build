@@ -31,6 +31,25 @@ endif
 
 _profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
 
+# Native Rust and C objects use the consumer's linker and libc.
+rustc_prog = find_program('rustc', required: true)
+_rust_host = ''
+foreach line : run_command(rustc_prog, '-vV', check: true).stdout().split('\n')
+  if line.startswith('host: ')
+    _rust_host = line.substring(6).strip()
+  endif
+endforeach
+if _rust_host == ''
+  error('rustc did not report its host target')
+endif
+_rust_linker_key = 'CARGO_TARGET_' + _rust_host.to_upper().replace('-', '_') + '_LINKER'
+_cargo_env = {_rust_linker_key: cc.cmd_array()[-1]}
+_rust_sources = run_command(
+  py, '-c',
+  'from pathlib import Path; print("\\n".join(str(p) for p in sorted(Path("src").rglob("*.rs"))))',
+  check: true,
+).stdout().strip().split('\n')
+
 minimage_cargo = custom_target(
   'minimage-cargo',
   input: files(
@@ -42,6 +61,7 @@ minimage_cargo = custom_target(
     'src/pairs.rs',
     'src/capi.rs',
   ),
+  depend_files: files('Cargo.lock') + files(_rust_sources),
   output: [cargo_shared, cargo_static],
   command: [
     py, '-c',
@@ -66,6 +86,7 @@ minimage_cargo = custom_target(
     '@OUTPUT0@',
     '@OUTPUT1@',
   ],
+  env: _cargo_env,
   build_by_default: true,
   install: _install,
   install_dir: [get_option('libdir'), get_option('libdir')],

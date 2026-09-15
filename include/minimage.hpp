@@ -133,6 +133,16 @@ struct Cell {
     return dr;
   }
 
+  [[nodiscard]] std::array<double, 3>
+  displacement_euclidean(std::array<double, 3> p,
+                         std::array<double, 3> q) const {
+    const mi_cell box = raw();
+    std::array<double, 3> dr{};
+    check(mi_displacement_euclidean(&box, p.data(), q.data(), dr.data()),
+          "minimage: displacement_euclidean failed");
+    return dr;
+  }
+
   [[nodiscard]] double dist2(std::array<double, 3> p,
                              std::array<double, 3> q) const {
     const mi_cell box = raw();
