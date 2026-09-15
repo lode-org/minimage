@@ -707,11 +707,7 @@ fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
         && h[2][1].abs() <= tol
 }
 
-const IDENTITY: [[f64; 3]; 3] = [
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0],
-];
+const IDENTITY: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 /// GROMACS `correct_box_elem`: subtract integer copies of `edge` from
 /// `vec` until component `d` sits inside half of `edge[d]`.
