@@ -660,7 +660,7 @@ fn wrap01(mut s: f64) -> f64 {
 /// `relDist` half-box test. Squared distance agrees with
 /// `abs` then `round`.
 #[inline]
-fn wrap_half(d: f64, length: f64) -> f64 {
+pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
     let half = 0.5 * length;
     let mut w = d;
     if w < -half {
