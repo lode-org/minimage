@@ -4,6 +4,8 @@
 
 Python constructors and `dist2` / `displacement` accept numpy arrays
 (`tolist` fallback). `wrap` / `wrap_many` batch difference vectors.
+Orthorhombic `wrap_many` uses the signed `[-L/2, L/2)` kernel, not a
+per-row `displacement` call.
 `is_restricted` / `tilts_reduced` / `reduce_tilts` / `to_restricted`
 follow GROMACS `correct_box` and LAMMPS general-to-restricted.
 `displacement_euclidean` uses the Smith 1989 half-edge test, then
