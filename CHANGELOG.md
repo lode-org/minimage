@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2 - 2026-09-27
+
 Python constructors and `dist2` / `displacement` accept numpy arrays
 (`tolist` fallback). `wrap` / `wrap_many` batch difference vectors.
 Orthorhombic `wrap_many` uses the signed `[-L/2, L/2)` kernel, not a
