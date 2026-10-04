@@ -51,52 +51,53 @@ pub struct Cell {
     tri: kernel::Tri,
 }
 
-/// Load `v` with the store sizes a `[f64; 3]` argument uses.
+/// Load the `[f64; 3]` at `p` with the store sizes of that argument.
 ///
 /// Element 0 is an 8-byte store. Elements 1 and 2 are one 16-byte
 /// store. A scalar load of either of those two is narrower than the
-/// store and cannot forward.
+/// store and cannot forward. `p` is the argument address; a by-value
+/// copy is a 16-byte load at element 0 and misses the same way.
+///
+/// # Safety
+///
+/// `p` points at a live `[f64; 3]` and is aligned for `f64`.
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-fn load3(v: [f64; 3]) -> (f64, f64, f64) {
-    let p = v.as_ptr();
+unsafe fn load3(p: *const f64) -> (f64, f64, f64) {
     let x: f64;
     let y: f64;
     let z: f64;
-    // SAFETY: `v` is a live `[f64; 3]`, so `p` covers 24 aligned
-    // bytes. The 16-byte load starts at element 1.
-    unsafe {
-        // Register names arrive without a percent prefix, so the
-        // instructions are Intel syntax. `movsd` needs the size or it
-        // is the string move.
-        std::arch::asm!(
-            "movsd {x}, qword ptr [{p}]",
-            "movupd {y}, xmmword ptr [{p} + 8]",
-            "movapd {z}, {y}",
-            "unpckhpd {z}, {y}",
-            p = in(reg) p,
-            x = out(xmm_reg) x,
-            y = out(xmm_reg) y,
-            z = out(xmm_reg) z,
-            options(nostack, preserves_flags),
-        );
-    }
+    // Register names arrive without a percent prefix, so the
+    // instructions are Intel syntax. `movsd` needs the size or it
+    // is the string move. `readonly` keeps this from clobbering the
+    // argument and forcing a stack copy.
+    std::arch::asm!(
+        "movsd {x}, qword ptr [{p}]",
+        "movupd {y}, xmmword ptr [{p} + 8]",
+        "movapd {z}, {y}",
+        "unpckhpd {z}, {y}",
+        p = in(reg) p,
+        x = out(xmm_reg) x,
+        y = out(xmm_reg) y,
+        z = out(xmm_reg) z,
+        options(nostack, preserves_flags, readonly),
+    );
     (x, y, z)
 }
 
-/// Load `v` one element at a time.
+/// Load the `[f64; 3]` at `p` one element at a time.
+///
+/// # Safety
+///
+/// `p` points at a live `[f64; 3]` and is aligned for `f64`.
 #[cfg(not(target_arch = "x86_64"))]
 #[inline(always)]
-fn load3(v: [f64; 3]) -> (f64, f64, f64) {
-    let p = v.as_ptr();
-    // SAFETY: `v` is a live `[f64; 3]`. Each index is in range.
-    unsafe {
-        (
-            std::ptr::read_volatile(p),
-            std::ptr::read_volatile(p.add(1)),
-            std::ptr::read_volatile(p.add(2)),
-        )
-    }
+unsafe fn load3(p: *const f64) -> (f64, f64, f64) {
+    (
+        std::ptr::read_volatile(p),
+        std::ptr::read_volatile(p.add(1)),
+        std::ptr::read_volatile(p.add(2)),
+    )
 }
 
 impl Cell {
@@ -128,10 +129,12 @@ impl Cell {
         c: [f64; 3],
         origin: [f64; 3],
     ) -> Result<Self, Error> {
-        let (ax, ay, az) = load3(a);
-        let (bx, by, bz) = load3(b);
-        let (cx, cy, cz) = load3(c);
-        let (ox, oy, oz) = load3(origin);
+        // SAFETY: each argument is a live `[f64; 3]`. The pointer is the
+        // argument itself, not a stack copy.
+        let (ax, ay, az) = unsafe { load3(std::ptr::addr_of!(a).cast()) };
+        let (bx, by, bz) = unsafe { load3(std::ptr::addr_of!(b).cast()) };
+        let (cx, cy, cz) = unsafe { load3(std::ptr::addr_of!(c).cast()) };
+        let (ox, oy, oz) = unsafe { load3(std::ptr::addr_of!(origin).cast()) };
         // b × c, c × a, a × b. The determinant is a · (b × c).
         let bcx = by * cz - bz * cy;
         let bcy = bz * cx - bx * cz;
