@@ -49,6 +49,59 @@ pub struct Cell {
     restricted: bool,
 }
 
+fn build_cross(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
+    [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ]
+}
+
+fn build_norm(v: [f64; 3]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+fn build_invert(h: [[f64; 3]; 3]) -> Option<([[f64; 3]; 3], f64)> {
+    let a = h[0];
+    let b = h[1];
+    let c = h[2];
+    let det = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+        + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    if !det.is_finite() || det.abs() < 1e-18 {
+        return None;
+    }
+    let invdet = 1.0 / det;
+    let inv = [
+        [
+            (b[1] * c[2] - b[2] * c[1]) * invdet,
+            (a[2] * c[1] - a[1] * c[2]) * invdet,
+            (a[1] * b[2] - a[2] * b[1]) * invdet,
+        ],
+        [
+            (b[2] * c[0] - b[0] * c[2]) * invdet,
+            (a[0] * c[2] - a[2] * c[0]) * invdet,
+            (a[2] * b[0] - a[0] * b[2]) * invdet,
+        ],
+        [
+            (b[0] * c[1] - b[1] * c[0]) * invdet,
+            (a[1] * c[0] - a[0] * c[1]) * invdet,
+            (a[0] * b[1] - a[1] * b[0]) * invdet,
+        ],
+    ];
+    Some((inv, det))
+}
+
+fn build_aligned(h: [[f64; 3]; 3]) -> bool {
+    let scale = (build_norm(h[0]) + build_norm(h[1]) + build_norm(h[2])).max(1.0);
+    let tol = 1e-12 * scale;
+    h[0][1].abs() <= tol
+        && h[0][2].abs() <= tol
+        && h[1][0].abs() <= tol
+        && h[1][2].abs() <= tol
+        && h[2][0].abs() <= tol
+        && h[2][1].abs() <= tol
+}
+
 impl Cell {
     /// Diagonal box with origin at zero.
     ///
@@ -79,23 +132,23 @@ impl Cell {
         origin: [f64; 3],
     ) -> Result<Self, Error> {
         let h = [a, b, c];
-        let (hinv, det) = kernel::invert_columns(h).ok_or(Error::BadBox)?;
+        let (hinv, det) = build_invert(h).ok_or(Error::BadBox)?;
         if !det.is_finite() || det.abs() < 1e-18 {
             return Err(Error::BadBox);
         }
-        let bc = kernel::cross(b, c);
-        let ca = kernel::cross(c, a);
-        let ab = kernel::cross(a, b);
-        let wa = det.abs() / kernel::norm(bc);
-        let wb = det.abs() / kernel::norm(ca);
-        let wc = det.abs() / kernel::norm(ab);
+        let bc = build_cross(b, c);
+        let ca = build_cross(c, a);
+        let ab = build_cross(a, b);
+        let wa = det.abs() / build_norm(bc);
+        let wb = det.abs() / build_norm(ca);
+        let wc = det.abs() / build_norm(ab);
         if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
             return Err(Error::BadBox);
         }
         // Same ortho test as the width norms: three vector lengths.
         // Restricted is the three off-axis zeros, scaled by the widths
         // already in hand, so it does not add another square root.
-        let ortho = kernel::is_axis_aligned(h);
+        let ortho = build_aligned(h);
         let tol = 1e-10 * (wa + wb + wc).max(1.0);
         let restricted = h[0][1].abs() <= tol
             && h[0][2].abs() <= tol
