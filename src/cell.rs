@@ -159,6 +159,10 @@ impl Cell {
     ///
     /// Vectors are the columns of H. A non-diagonal H clears
     /// [`Self::is_ortho`].
+    ///
+    /// Inlined so the caller writes the cell once. An outlined return
+    /// stores it and then copies it.
+    #[inline(always)]
     pub fn from_vectors(
         a: [f64; 3],
         b: [f64; 3],
