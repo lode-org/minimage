@@ -37,15 +37,58 @@ origin)</code>, wrap each component into the central image, then map back
 </p>
 
 <p>
-Orthorhombic boxes are the diagonal case. Each axis wraps on its own
-length. The batched kernel hoists one reciprocal per axis and wraps
-precomputed differences, the same arithmetic as a Highway
-<code>BatchPeriodicDistSq</code> loop. The signed wrap keeps <code>-L/2</code> and maps
-<code>+L/2</code> onto <code>-L/2</code>, matching dump <code>relDist</code>.
+Orthorhombic boxes are the diagonal case (Allen and Tildesley;
+Frenkel and Smit). Each axis is <code>d - L floor(d/L + 1/2)</code>, every
+image, not one subtraction. The tie keeps <code>-L/2</code> and maps <code>+L/2</code>
+onto <code>-L/2</code>, matching dump <code>relDist</code>.
 </p>
-<section id="outline-container-orgc2d6f0e" class="outline-2">
-<h2 id="orgc2d6f0e">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-orgc2d6f0e">
+
+<p>
+A restricted triclinic box (<code>a</code> along x, <code>b</code> in the xy plane) uses
+the triangular lamda step of LAMMPS <code>Domain::minimum_image</code>, HOOMD
+<code>BoxDim::minImage</code>, and GROMACS <code>pbc_dx</code> (Tuckerman; Wassenaar). A
+general orientation is two products with <code>Hinv</code>. <code>Cell::reduce_tilts</code>
+is GROMACS <code>correct_box</code>. <code>Cell::to_restricted</code> is the LAMMPS
+general-to-restricted rotation.
+</p>
+
+<p>
+The SoA orthorhombic kernel is Highway <code>BatchPeriodicDistSq</code>: one
+reciprocal per axis, <code>abs</code>, then <code>round</code>. AVX issues four doubles
+when the CPU has it.
+</p>
+
+<section id="outline-container-org020b322" class="outline-2">
+<h2 id="org020b322">Nearest image</h2>
+<div class="outline-text-2" id="text-org020b322">
+<p>
+Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
+nearest image when its length is strictly below half the smallest
+face altitude. That is the cutoff regime. Linkcell k-NN has no
+cutoff. A hex-prism body diagonal is an engine wrap that is longer
+than another image.
+</p>
+
+<p>
+Past that test the closest point is McKilliam, Grant, and Clarkson,
+SIAM J. Discrete Math. 28, 1405 (2014), on the obtuse superbasis
+every three-dimensional lattice has (Selling, 1874; Conway and
+Sloane, Proc. R. Soc. Lond. A 436, 55, 1992). A near-parallel basis
+makes the one-vector Delone step linear in the reciprocal of the
+angle, so Lagrange's size reduction (1773; Gauss, 1801) shortens
+the edges first. The superbasis is built once, in the constructor.
+A tie keeps the engine vector.
+Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
+Minkowski-reduces a basis; that reduction is not the closest-vector
+certificate. The linked-cell pair itself is Rapaport's shift,
+<code>|q + shift - p|^2</code>, exposed as <code>dist2_shifted_many</code>.
+</p>
+</div>
+</section>
+
+<section id="outline-container-orgf5f9f6a" class="outline-2">
+<h2 id="orgf5f9f6a">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-orgf5f9f6a">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -64,9 +107,10 @@ c)</code>.
 </p>
 </div>
 </section>
-<section id="outline-container-org635c4e0" class="outline-2">
-<h2 id="org635c4e0">vesin images</h2>
-<div class="outline-text-2" id="text-org635c4e0">
+
+<section id="outline-container-org10ad96c" class="outline-2">
+<h2 id="org10ad96c">vesin images</h2>
+<div class="outline-text-2" id="text-org10ad96c">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -75,9 +119,10 @@ the self image.
 </p>
 </div>
 </section>
-<section id="outline-container-org1f6f2dd" class="outline-2">
-<h2 id="org1f6f2dd">Consumers</h2>
-<div class="outline-text-2" id="text-org1f6f2dd">
+
+<section id="outline-container-org1ed96d8" class="outline-2">
+<h2 id="org1ed96d8">Consumers</h2>
+<div class="outline-text-2" id="text-org1ed96d8">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,

@@ -193,7 +193,8 @@ int mi_displacement(const struct mi_cell *simbox,
                     double *dr);
 
 /**
- * Euclidean MIC: Smith half-edge test, else Minkowski 27-image, into `dr`.
+ * Euclidean MIC: Smith half-altitude test, else the Selling closest
+ * point, into `dr`.
  *
  * # Safety
  *
@@ -258,6 +259,20 @@ int mi_dist2_pairs(const struct mi_cell *simbox,
                    const double *qs,
                    size_t n,
                    double *out);
+
+/**
+ * Squared distances from `p` to `n` points in `qs`, plus one lattice
+ * shift `(sx, sy, sz)` on every candidate. Rapaport's bin pair.
+ *
+ * # Safety
+ *
+ * `p` is three doubles. `qs` is `n * 3` doubles. `out` is `n` doubles.
+ */
+int mi_dist2_shifted_many(const double *p,
+                          const double *qs,
+                          const double *shift,
+                          size_t n,
+                          double *out);
 
 /**
  * Thread-local last-error string from this thread's most recent `mi_*`

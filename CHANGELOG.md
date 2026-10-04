@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+Orthorhombic wrap is `d - L floor(d/L + 1/2)` for every image, and
+keeps the `-L/2` tie. Restricted triclinic engine wrap is the
+triangular lamda step. The structure-of-arrays orthorhombic kernel and the shifted bin
+kernel run AVX when the CPU has it.
+`displacement_euclidean` is Smith's half-altitude test, then the
+McKilliam–Grant–Clarkson closest point on the Selling superbasis
+cached at construction. Lagrange size reduction runs before the
+Delone step, so a near-parallel cell does not take one iteration
+per reciprocal of the angle. C `mi_dist2` / `mi_displacement` /
+`mi_wrap_many` do not rebuild that superbasis. Orthorhombic
+`mi_dist2`, `mi_displacement`, `mi_wrap_many`, and `mi_dist2_many`
+skip `Hinv` and use the per-axis wrap; the batch feeds the AVX kernel. `dist2_shifted_many`
+and `mi_dist2_shifted_many` are Rapaport's one-shift bin pair for
+linkcell. Constructors that only publish `mi_cell` skip Selling. A repeated
+C call on the same twelve doubles reuses that inverse.
+
 ## 0.1.2 - 2026-09-27
 
 Python constructors and `dist2` / `displacement` accept numpy arrays

@@ -1,12 +1,14 @@
 //! Batched minimum-image squared distances.
 //!
-//! The orthorhombic kernel hoists one reciprocal per axis and wraps
-//! each component independently, the same arithmetic as the Highway
-//! `BatchPeriodicDistSq` path. The general path applies
-//! [`crate::Cell::dist2`] per pair. Loops are written as packed
-//! coordinate streams so a vectorising compiler emits SIMD for the
-//! ortho remainder.
+//! Orthorhombic differences are a structure-of-arrays kernel: one
+//! reciprocal per axis, then `abs` and `round`, the Highway
+//! `BatchPeriodicDistSq` arithmetic, issued as AVX when the CPU has
+//! it. Restricted triclinic batches use the triangular
+//! lamda step. A general `H` hoists the inverse and applies it per
+//! row. [`dist2_shifted_many`](crate::Cell::dist2_shifted_many) is
+//! Rapaport's linked-cell pair, one lattice shift for a whole bin.
 
+use crate::kernel::{self, n2};
 use crate::{Cell, Error};
 
 /// Minimum-image wrap of packed difference vectors.
@@ -18,23 +20,13 @@ pub fn wrap_many(cell: &Cell, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) -> Resul
         return Err(Error::BufferSize);
     }
     if cell.is_ortho() {
-        wrap_many_ortho(cell.widths(), diffs, out);
+        crate::simd::wrap_many_ortho(cell.widths(), diffs, out);
     } else {
         for (d, o) in diffs.iter().zip(out.iter_mut()) {
-            *o = cell.displacement([0.0, 0.0, 0.0], *d);
+            *o = cell.wrap_diff(*d);
         }
     }
     Ok(())
-}
-
-fn wrap_many_ortho(l: [f64; 3], diffs: &[[f64; 3]], out: &mut [[f64; 3]]) {
-    for (d, o) in diffs.iter().zip(out.iter_mut()) {
-        *o = [
-            crate::cell::wrap_half(d[0], l[0]),
-            crate::cell::wrap_half(d[1], l[1]),
-            crate::cell::wrap_half(d[2], l[2]),
-        ];
-    }
 }
 
 /// Squared MIC distances from `p` to each packed candidate in `qs`.
@@ -46,9 +38,17 @@ pub fn dist2_many(cell: &Cell, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) ->
     }
     if cell.is_ortho() {
         dist2_many_ortho(cell.widths(), p, qs, out);
-    } else {
+    } else if cell.is_restricted() {
         for (q, o) in qs.iter().zip(out.iter_mut()) {
-            *o = cell.dist2(p, *q);
+            let d = cell.wrap_diff([q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
+            *o = n2(d);
+        }
+    } else {
+        let h = cell.h();
+        let hinv = cell.hinv();
+        for (q, o) in qs.iter().zip(out.iter_mut()) {
+            let d = kernel::general_wrap(h, hinv, [q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
+            *o = n2(d);
         }
     }
     Ok(())
@@ -68,11 +68,16 @@ pub fn dist2_pairs(
     }
     if cell.is_ortho() {
         let l = cell.widths();
-        let rbx = 1.0 / l[0];
-        let rby = 1.0 / l[1];
-        let rbz = 1.0 / l[2];
         for i in 0..ps.len() {
-            out[i] = dist2_ortho_one(ps[i], qs[i], l, rbx, rby, rbz);
+            let d = kernel::ortho_wrap(
+                l,
+                [
+                    qs[i][0] - ps[i][0],
+                    qs[i][1] - ps[i][1],
+                    qs[i][2] - ps[i][2],
+                ],
+            );
+            out[i] = n2(d);
         }
     } else {
         for i in 0..ps.len() {
@@ -102,54 +107,36 @@ pub fn dist2_ortho_diffs(
     if !(bx > 0.0 && by > 0.0 && bz > 0.0) {
         return Err(Error::BadBox);
     }
-    let rbx = 1.0 / bx;
-    let rby = 1.0 / by;
-    let rbz = 1.0 / bz;
-    // Four-wide unroll so the wrap is a contiguous SIMD-shaped loop.
-    let mut i = 0;
-    while i + 4 <= n {
-        for k in 0..4 {
-            let mut ddx = dx[i + k].abs();
-            let mut ddy = dy[i + k].abs();
-            let mut ddz = dz[i + k].abs();
-            ddx -= bx * (ddx * rbx).round();
-            ddy -= by * (ddy * rby).round();
-            ddz -= bz * (ddz * rbz).round();
-            out[i + k] = ddx * ddx + ddy * ddy + ddz * ddz;
-        }
-        i += 4;
-    }
-    while i < n {
-        let mut ddx = dx[i].abs();
-        let mut ddy = dy[i].abs();
-        let mut ddz = dz[i].abs();
-        ddx -= bx * (ddx * rbx).round();
-        ddy -= by * (ddy * rby).round();
-        ddz -= bz * (ddz * rbz).round();
-        out[i] = ddx * ddx + ddy * ddy + ddz * ddz;
-        i += 1;
-    }
+    crate::simd::dist2_ortho_diffs(&dx[..n], &dy[..n], &dz[..n], bx, by, bz, &mut out[..n]);
     Ok(())
 }
 
-fn dist2_many_ortho(l: [f64; 3], p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
-    let rbx = 1.0 / l[0];
-    let rby = 1.0 / l[1];
-    let rbz = 1.0 / l[2];
-    for (q, o) in qs.iter().zip(out.iter_mut()) {
-        *o = dist2_ortho_one(p, *q, l, rbx, rby, rbz);
+pub(crate) fn dist2_many_ortho(l: [f64; 3], p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
+    // Squares match the signed wrap, so the SoA kernel is the same
+    // distance. Chunks stay on the stack.
+    const CHUNK: usize = 64;
+    let mut dx = [0.0; CHUNK];
+    let mut dy = [0.0; CHUNK];
+    let mut dz = [0.0; CHUNK];
+    let mut start = 0;
+    while start < qs.len() {
+        let n = (qs.len() - start).min(CHUNK);
+        for (k, q) in qs[start..start + n].iter().enumerate() {
+            dx[k] = q[0] - p[0];
+            dy[k] = q[1] - p[1];
+            dz[k] = q[2] - p[2];
+        }
+        crate::simd::dist2_ortho_diffs(
+            &dx[..n],
+            &dy[..n],
+            &dz[..n],
+            l[0],
+            l[1],
+            l[2],
+            &mut out[start..start + n],
+        );
+        start += n;
     }
-}
-
-#[inline]
-fn dist2_ortho_one(p: [f64; 3], q: [f64; 3], l: [f64; 3], rbx: f64, rby: f64, rbz: f64) -> f64 {
-    let mut ddx = (q[0] - p[0]).abs();
-    let mut ddy = (q[1] - p[1]).abs();
-    let mut ddz = (q[2] - p[2]).abs();
-    ddx -= l[0] * (ddx * rbx).round();
-    ddy -= l[1] * (ddy * rby).round();
-    ddz -= l[2] * (ddz * rbz).round();
-    ddx * ddx + ddy * ddy + ddz * ddz
 }
 
 #[cfg(test)]
@@ -167,6 +154,12 @@ mod tests {
             assert!((out[i] - cell.dist2(p, qs[i])).abs() < 1e-12);
         }
         assert!((out[0] - 0.64).abs() < 1e-12);
+        let wide: Vec<[f64; 3]> = (0..70).map(|i| [f64::from(i) - 20.0, 0.0, 0.0]).collect();
+        let mut wide_out = vec![0.0; wide.len()];
+        dist2_many(&cell, p, &wide, &mut wide_out).unwrap();
+        for (q, got) in wide.iter().zip(wide_out.iter()) {
+            assert!((got - cell.dist2(p, *q)).abs() < 1e-12);
+        }
     }
 
     #[test]

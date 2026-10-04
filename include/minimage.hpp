@@ -151,6 +151,14 @@ struct Cell {
     return out;
   }
 
+  /// Rapaport's bin pair: `|q + shift - p|^2` for `n` candidates.
+  void dist2_shifted_many(std::array<double, 3> p, const double *qs,
+                          std::array<double, 3> shift, std::size_t n,
+                          double *out) const {
+    check(mi_dist2_shifted_many(p.data(), qs, shift.data(), n, out),
+          "minimage: dist2_shifted_many failed");
+  }
+
   void dist2_many(std::array<double, 3> p, const double *qs, std::size_t n,
                   double *out) const {
     const mi_cell box = raw();
