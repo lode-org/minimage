@@ -10,7 +10,10 @@ kernel run AVX when the CPU has it.
 McKilliam-Grant-Clarkson closest point on the Selling superbasis.
 The superbasis is cached on the calling thread, keyed by H, and
 built on the first query that fails the Smith test. Constructors
-do not build it. Lagrange size reduction runs before the
+do not build it. A restricted cell keeps the three lamda reciprocals.
+The ortho and restricted tests scale by the face widths, which
+construction already computes, and do not take a second set of
+square roots. Lagrange size reduction runs before the
 Delone step, so a near-parallel cell does not take one iteration
 per reciprocal of the angle. C `mi_dist2` / `mi_displacement` /
 `mi_wrap_many` do not build that superbasis. Orthorhombic

@@ -74,27 +74,6 @@ impl Tri {
     }
 }
 
-/// Restricted wrap. The three reciprocals are computed here so the
-/// cell does not carry them.
-#[inline(always)]
-pub(crate) fn wrap_restricted(h: [[f64; 3]; 3], dp: [f64; 3]) -> [f64; 3] {
-    let lx = h[0][0];
-    let ly = h[1][1];
-    let lz = h[2][2];
-    Tri {
-        lx,
-        ly,
-        lz,
-        xy: h[1][0],
-        xz: h[2][0],
-        yz: h[2][1],
-        inv_lx: 1.0 / lx,
-        inv_ly: 1.0 / ly,
-        inv_lz: 1.0 / lz,
-    }
-    .wrap(dp)
-}
-
 /// Positive orthorhombic lengths when `H` is diagonal, else `None`.
 pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
     if !is_axis_aligned(h) {
