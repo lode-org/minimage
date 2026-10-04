@@ -67,18 +67,7 @@ pub fn dist2_pairs(
         return Err(Error::BufferSize);
     }
     if cell.is_ortho() {
-        let l = cell.widths();
-        for i in 0..ps.len() {
-            let d = kernel::ortho_wrap(
-                l,
-                [
-                    qs[i][0] - ps[i][0],
-                    qs[i][1] - ps[i][1],
-                    qs[i][2] - ps[i][2],
-                ],
-            );
-            out[i] = n2(d);
-        }
+        dist2_pairs_ortho(cell.widths(), ps, qs, out);
     } else {
         for i in 0..ps.len() {
             out[i] = cell.dist2(ps[i], qs[i]);
@@ -109,6 +98,33 @@ pub fn dist2_ortho_diffs(
     }
     crate::simd::dist2_ortho_diffs(&dx[..n], &dy[..n], &dz[..n], bx, by, bz, &mut out[..n]);
     Ok(())
+}
+
+pub(crate) fn dist2_pairs_ortho(l: [f64; 3], ps: &[[f64; 3]], qs: &[[f64; 3]], out: &mut [f64]) {
+    const CHUNK: usize = 64;
+    let mut dx = [0.0; CHUNK];
+    let mut dy = [0.0; CHUNK];
+    let mut dz = [0.0; CHUNK];
+    let mut start = 0;
+    while start < ps.len() {
+        let n = (ps.len() - start).min(CHUNK);
+        for k in 0..n {
+            let i = start + k;
+            dx[k] = qs[i][0] - ps[i][0];
+            dy[k] = qs[i][1] - ps[i][1];
+            dz[k] = qs[i][2] - ps[i][2];
+        }
+        crate::simd::dist2_ortho_diffs(
+            &dx[..n],
+            &dy[..n],
+            &dz[..n],
+            l[0],
+            l[1],
+            l[2],
+            &mut out[start..start + n],
+        );
+        start += n;
+    }
 }
 
 pub(crate) fn dist2_many_ortho(l: [f64; 3], p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
@@ -196,6 +212,23 @@ mod tests {
         wrap_many(&cell, &diffs, &mut out).unwrap();
         assert!((out[0][0] + 0.8).abs() < 1e-12);
         assert!((out[1][0] - 0.2).abs() < 1e-12);
+    }
+
+    #[test]
+    fn pairs_match_scalar_including_later_images() {
+        let cell = Cell::ortho(10.0, 11.0, 12.0).unwrap();
+        let mut ps = vec![[0.0; 3]; 70];
+        let mut qs = vec![[0.0; 3]; 70];
+        for i in 0..70 {
+            let t = f64::from(i as i32) - 20.0;
+            ps[i] = [0.2, 0.0, 0.0];
+            qs[i] = [t, -18.0, 3.0];
+        }
+        let mut out = vec![0.0; 70];
+        dist2_pairs(&cell, &ps, &qs, &mut out).unwrap();
+        for i in 0..70 {
+            assert!((out[i] - cell.dist2(ps[i], qs[i])).abs() < 1e-9);
+        }
     }
 
     #[test]

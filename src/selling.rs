@@ -217,47 +217,72 @@ fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     z[s.idx[1] as usize] = c[1];
     z[s.idx[2] as usize] = c[2];
     let mut u = [z[0].floor(), z[1].floor(), z[2].floor(), z[3].floor()];
+    let v = &s.v;
     let mut best_d = [0.0; 3];
     for _ in 0..3 {
+        let mut base = [0.0; 3];
+        for i in 0..4 {
+            let ui = u[i];
+            base[0] += ui * v[i][0];
+            base[1] += ui * v[i][1];
+            base[2] += ui * v[i][2];
+        }
         let mut best_mask = 0u8;
         let mut best_d2 = f64::INFINITY;
         best_d = [0.0; 3];
-        for mask in 0..16u8 {
-            let mut coeff = u;
-            for (bit, c) in coeff.iter_mut().enumerate() {
-                if mask & (1 << bit) != 0 {
-                    *c += 1.0;
-                }
+        // The four superbasis vectors sum to zero, so mask 15 is the
+        // same lattice point as mask 0 and cannot win the strict test.
+        for mask in 0..15u8 {
+            let mut px = base[0];
+            let mut py = base[1];
+            let mut pz = base[2];
+            if mask & 1 != 0 {
+                px += v[0][0];
+                py += v[0][1];
+                pz += v[0][2];
             }
-            let p = point(&s.v, coeff);
-            let d = [y[0] - p[0], y[1] - p[1], y[2] - p[2]];
-            let d2 = kernel::n2(d);
+            if mask & 2 != 0 {
+                px += v[1][0];
+                py += v[1][1];
+                pz += v[1][2];
+            }
+            if mask & 4 != 0 {
+                px += v[2][0];
+                py += v[2][1];
+                pz += v[2][2];
+            }
+            if mask & 8 != 0 {
+                px += v[3][0];
+                py += v[3][1];
+                pz += v[3][2];
+            }
+            let dx = y[0] - px;
+            let dy = y[1] - py;
+            let dz = y[2] - pz;
+            let d2 = dx * dx + dy * dy + dz * dz;
             if d2 < best_d2 {
                 best_d2 = d2;
                 best_mask = mask;
-                best_d = d;
+                best_d = [dx, dy, dz];
             }
         }
         if best_mask == 0 {
             break;
         }
-        for (bit, u_bit) in u.iter_mut().enumerate() {
-            if best_mask & (1 << bit) != 0 {
-                *u_bit += 1.0;
-            }
+        if best_mask & 1 != 0 {
+            u[0] += 1.0;
+        }
+        if best_mask & 2 != 0 {
+            u[1] += 1.0;
+        }
+        if best_mask & 4 != 0 {
+            u[2] += 1.0;
+        }
+        if best_mask & 8 != 0 {
+            u[3] += 1.0;
         }
     }
     best_d
-}
-
-fn point(v: &[[f64; 3]; 4], coeff: [f64; 4]) -> [f64; 3] {
-    let mut p = [0.0; 3];
-    for i in 0..4 {
-        p[0] += coeff[i] * v[i][0];
-        p[1] += coeff[i] * v[i][1];
-        p[2] += coeff[i] * v[i][2];
-    }
-    p
 }
 
 /// Widening `{-r..r}^3` on the original basis. Used only when Selling

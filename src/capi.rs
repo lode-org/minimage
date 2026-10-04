@@ -7,7 +7,7 @@ use std::ffi::{c_char, c_int, CString};
 use std::ptr;
 use std::slice;
 
-use crate::batch::dist2_many_ortho;
+use crate::batch::{dist2_many_ortho, dist2_pairs_ortho};
 use crate::kernel::{self, n2};
 use crate::{
     dist2_many, dist2_ortho_diffs, dist2_pairs, reduce_pairs_packed, wrap_many, Cell, Error,
@@ -92,6 +92,17 @@ thread_local! {
     /// once per pair with the same twelve doubles; the inverse stays.
     static CACHED_LIGHT: RefCell<Option<([f64; 12], Cell)>> = const { RefCell::new(None) };
     static CACHED_EUCLIDEAN: RefCell<Option<([f64; 12], Cell)>> = const { RefCell::new(None) };
+    /// Lengths and reciprocals for an orthorhombic `mi_cell`. The
+    /// per-pair C wrap multiplies by the reciprocal instead of dividing,
+    /// and a repeat of the same twelve doubles does not rescan `H`.
+    static CACHED_ORTHO: RefCell<Option<OrthoCache>> = const { RefCell::new(None) };
+}
+
+struct OrthoCache {
+    key: [f64; 12],
+    /// `None` when those twelve doubles are not an orthorhombic box.
+    lengths: Option<[f64; 3]>,
+    recip: [f64; 3],
 }
 
 fn cell_key(raw: &mi_cell) -> [f64; 12] {
@@ -126,13 +137,37 @@ fn fail_msg(msg: &str) -> c_int {
     1
 }
 
-/// Positive orthorhombic lengths, or `None` when `H` is not diagonal.
-/// A null box is an error. The rectangular wrap does not need `Hinv`.
-fn read_ortho(simbox: *const mi_cell) -> Result<Option<[f64; 3]>, c_int> {
+/// Lengths and reciprocals of one orthorhombic box.
+type OrthoAxes = ([f64; 3], [f64; 3]);
+
+/// Positive orthorhombic lengths and their reciprocals, or `None` when
+/// `H` is not diagonal. A null box is an error. The rectangular wrap
+/// does not need `Hinv`. A repeat of the same twelve doubles reuses both.
+fn read_ortho(simbox: *const mi_cell) -> Result<Option<OrthoAxes>, c_int> {
     if simbox.is_null() {
         return Err(fail_msg("null simbox"));
     }
-    Ok(kernel::ortho_lengths(unsafe { &*simbox }.columns()))
+    // SAFETY: `simbox` is a readable `mi_cell`.
+    let raw = unsafe { &*simbox };
+    let key = cell_key(raw);
+    CACHED_ORTHO.with(|slot| {
+        if let Some(hit) = slot.borrow().as_ref() {
+            if hit.key == key {
+                return Ok(hit.lengths.map(|lengths| (lengths, hit.recip)));
+            }
+        }
+        let lengths = kernel::ortho_lengths(raw.columns());
+        let recip = match lengths {
+            Some(l) => [1.0 / l[0], 1.0 / l[1], 1.0 / l[2]],
+            None => [0.0; 3],
+        };
+        *slot.borrow_mut() = Some(OrthoCache {
+            key,
+            lengths,
+            recip,
+        });
+        Ok(lengths.map(|lengths| (lengths, recip)))
+    })
 }
 
 /// Thread-local last-error string from this thread's most recent `mi_*`
@@ -390,8 +425,8 @@ pub unsafe extern "C" fn mi_displacement(
     if dr.is_null() {
         return fail_msg("null dr");
     }
-    let v = if let Some(l) = ortho {
-        kernel::ortho_wrap(l, [q[0] - p[0], q[1] - p[1], q[2] - p[2]])
+    let v = if let Some((l, recip)) = ortho {
+        kernel::ortho_wrap_recip(l, recip, [q[0] - p[0], q[1] - p[1], q[2] - p[2]])
     } else {
         let cell = match read_cell(simbox) {
             Ok(c) => c,
@@ -474,7 +509,7 @@ pub unsafe extern "C" fn mi_wrap_many(
         return fail_msg("null out");
     }
     let out = unsafe { slice::from_raw_parts_mut(out as *mut [f64; 3], n) };
-    if let Some(l) = ortho {
+    if let Some((l, _)) = ortho {
         crate::simd::wrap_many_ortho(l, diffs, out);
         clear_error();
         return 0;
@@ -520,9 +555,10 @@ pub unsafe extern "C" fn mi_dist2(
     if out.is_null() {
         return fail_msg("null out");
     }
-    let d2 = if let Some(l) = ortho {
-        n2(kernel::ortho_wrap(
+    let d2 = if let Some((l, recip)) = ortho {
+        n2(kernel::ortho_wrap_recip(
             l,
+            recip,
             [q[0] - p[0], q[1] - p[1], q[2] - p[2]],
         ))
     } else {
@@ -583,7 +619,7 @@ pub unsafe extern "C" fn mi_dist2_many(
         return fail_msg("null out");
     }
     let out = unsafe { slice::from_raw_parts_mut(out, n) };
-    if let Some(l) = ortho {
+    if let Some((l, _)) = ortho {
         dist2_many_ortho(l, p, qs, out);
         clear_error();
         return 0;
@@ -614,8 +650,8 @@ pub unsafe extern "C" fn mi_dist2_pairs(
     n: usize,
     out: *mut f64,
 ) -> c_int {
-    let cell = match read_cell(simbox) {
-        Ok(c) => c,
+    let ortho = match read_ortho(simbox) {
+        Ok(v) => v,
         Err(e) => return e,
     };
     let ps = match packed_triples(ps, n, "null ps") {
@@ -634,6 +670,15 @@ pub unsafe extern "C" fn mi_dist2_pairs(
         return fail_msg("null out");
     }
     let out = unsafe { slice::from_raw_parts_mut(out, n) };
+    if let Some((l, _)) = ortho {
+        dist2_pairs_ortho(l, ps, qs, out);
+        clear_error();
+        return 0;
+    }
+    let cell = match read_cell(simbox) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
     match dist2_pairs(&cell, ps, qs, out) {
         Ok(()) => {
             clear_error();

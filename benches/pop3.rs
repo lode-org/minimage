@@ -9,9 +9,10 @@
 //!
 //! This library is one thread, so those parallel leaves are not a
 //! process count. The regions are the orthorhombic batch against the
-//! per-pair wrap, Rapaport's shifted bin, and the Selling closest
-//! point. Cycles and instructions come from `perf_event_open` when the
-//! kernel allows the call.
+//! per-pair wrap, Rapaport's shifted bin, a Smith-hit Euclidean query,
+//! the Selling closest point, and an index-list bin. Cycles and
+//! instructions come from `perf_event_open` when the kernel allows the
+//! call.
 
 use std::hint::black_box;
 use std::time::Instant;
@@ -29,8 +30,17 @@ fn main() {
         [0.0, 0.0, 0.0],
     )
     .expect("skew");
+    let near = Cell::from_vectors(
+        [10.0, 0.0, 0.0],
+        [1.0, 10.0, 0.0],
+        [0.5, 0.2, 10.0],
+        [0.0, 0.0, 0.0],
+    )
+    .expect("near");
     let qs = positions(PAIRS, 40.0);
     let skew_qs = positions(PAIRS, 8.0);
+    let near_qs = positions(PAIRS, 2.0);
+    let indices: Vec<usize> = (0..PAIRS).collect();
     let mut out = vec![0.0; PAIRS];
     check_ortho(&ortho, &qs, &mut out);
 
@@ -82,6 +92,33 @@ fn main() {
             }
             black_box(&out);
         }),
+        region("skew_near", PAIRS, &counters, || {
+            for (q, slot) in near_qs.iter().zip(out.iter_mut()) {
+                let d = near.displacement_euclidean(p, *q);
+                *slot = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+            }
+            black_box(&out);
+        }),
+        region("indexed_batch", PAIRS, &counters, || {
+            ortho
+                .dist2_shifted_indexed(p, &qs, &indices, shift, &mut out)
+                .expect("indexed");
+            black_box(&out);
+        }),
+        region("indexed_scalar", PAIRS, &counters, || {
+            for (idx, slot) in indices.iter().zip(out.iter_mut()) {
+                *slot = ortho.dist2_shifted(p, qs[*idx], shift);
+            }
+            black_box(&out);
+        }),
+        region("indexed_occ1", PAIRS, &counters, || {
+            for (idx, slot) in indices.iter().zip(out.iter_mut()) {
+                ortho
+                    .dist2_shifted_indexed(p, &qs, &[*idx], shift, std::slice::from_mut(slot))
+                    .expect("one");
+            }
+            black_box(&out);
+        }),
     ];
 
     println!(
@@ -91,11 +128,13 @@ fn main() {
     let ortho_pair = &regions[1];
     let shifted_pair = &regions[3];
     let skew_engine = &regions[4];
+    let indexed_scalar = &regions[8];
     for row in &regions {
         let (time_ref, instr_ref) = match row.name.as_str() {
             "ortho_batch" => (Some(ortho_pair), Some(ortho_pair)),
             "shifted_batch" => (Some(shifted_pair), Some(shifted_pair)),
-            "skew_euclidean" => (Some(skew_engine), Some(skew_engine)),
+            "skew_euclidean" | "skew_near" => (Some(skew_engine), Some(skew_engine)),
+            "indexed_batch" | "indexed_occ1" => (Some(indexed_scalar), Some(indexed_scalar)),
             _ => (None, None),
         };
         let time_scale = time_ref.map(|r| r.ns_per / row.ns_per).unwrap_or(1.0);
