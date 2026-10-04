@@ -7,11 +7,13 @@ keeps the `-L/2` tie. Restricted triclinic engine wrap is the
 triangular lamda step. The structure-of-arrays orthorhombic kernel and the shifted bin
 kernel run AVX when the CPU has it.
 `displacement_euclidean` is Smith's half-altitude test, then the
-McKilliam–Grant–Clarkson closest point on the Selling superbasis
-cached at construction. Lagrange size reduction runs before the
+McKilliam-Grant-Clarkson closest point on the Selling superbasis.
+The superbasis is cached on the calling thread, keyed by H, and
+built on the first query that fails the Smith test. Constructors
+do not build it. Lagrange size reduction runs before the
 Delone step, so a near-parallel cell does not take one iteration
 per reciprocal of the angle. C `mi_dist2` / `mi_displacement` /
-`mi_wrap_many` do not rebuild that superbasis. Orthorhombic
+`mi_wrap_many` do not build that superbasis. Orthorhombic
 `mi_dist2`, `mi_displacement`, `mi_wrap_many`, and `mi_dist2_many`
 skip `Hinv` and use the per-axis wrap; the batch feeds the AVX kernel. `dist2_shifted_many`
 and `mi_dist2_shifted_many` are Rapaport's one-shift bin pair for

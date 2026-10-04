@@ -52,14 +52,8 @@ impl mi_cell {
         ]
     }
 
-    /// Engine cell. No Selling step: the C hot path only wraps.
+    /// Engine cell. Selling is not part of construction.
     fn to_cell(self) -> Result<Cell, Error> {
-        let h = self.columns();
-        Cell::from_vectors_light(h[0], h[1], h[2], [self.ox, self.oy, self.oz])
-    }
-
-    /// Engine cell plus the cached Selling superbasis.
-    fn to_cell_euclidean(self) -> Result<Cell, Error> {
         let h = self.columns();
         Cell::from_vectors(h[0], h[1], h[2], [self.ox, self.oy, self.oz])
     }
@@ -91,7 +85,6 @@ thread_local! {
     /// Last engine cell built from an `mi_cell`. seams calls `mi_dist2`
     /// once per pair with the same twelve doubles; the inverse stays.
     static CACHED_LIGHT: RefCell<Option<([f64; 12], Cell)>> = const { RefCell::new(None) };
-    static CACHED_EUCLIDEAN: RefCell<Option<([f64; 12], Cell)>> = const { RefCell::new(None) };
     /// Lengths and reciprocals for an orthorhombic `mi_cell`. The
     /// per-pair C wrap multiplies by the reciprocal instead of dividing,
     /// and a repeat of the same twelve doubles does not rescan `H`.
@@ -233,7 +226,7 @@ pub unsafe extern "C" fn mi_cell_from_vectors(
     let b = unsafe { [*b, *b.add(1), *b.add(2)] };
     let c = unsafe { [*c, *c.add(1), *c.add(2)] };
     let origin = unsafe { [*origin, *origin.add(1), *origin.add(2)] };
-    write_cell(Cell::from_vectors_light(a, b, c, origin), out)
+    write_cell(Cell::from_vectors(a, b, c, origin), out)
 }
 
 /// Fill `out` from LAMMPS `xlo xhi ylo yhi zlo zhi` and tilts.
@@ -253,7 +246,7 @@ pub extern "C" fn mi_cell_from_lammps(
 ) -> c_int {
     let (h, origin) =
         crate::cell::dump_bounds_to_h(xhi - xlo, yhi - ylo, zhi - zlo, xy, xz, yz, xlo, ylo, zlo);
-    write_cell(Cell::from_vectors_light(h[0], h[1], h[2], origin), out)
+    write_cell(Cell::from_vectors(h[0], h[1], h[2], origin), out)
 }
 
 /// Fill `out` from dump bound spans, tilts, and bound lo.
@@ -272,7 +265,7 @@ pub extern "C" fn mi_cell_from_lammps_bounds(
 ) -> c_int {
     let (h, origin) =
         crate::cell::dump_bounds_to_h(xspan, yspan, zspan, xy, xz, yz, xlo_b, ylo_b, zlo_b);
-    write_cell(Cell::from_vectors_light(h[0], h[1], h[2], origin), out)
+    write_cell(Cell::from_vectors(h[0], h[1], h[2], origin), out)
 }
 
 /// Fill `out` from an ASE-style row-major 3x3 cell. `origin` may be NULL
@@ -300,10 +293,10 @@ pub unsafe extern "C" fn mi_cell_from_ase(
         ]
     };
     let cell = if origin.is_null() {
-        Cell::from_vectors_light(rows[0], rows[1], rows[2], [0.0, 0.0, 0.0])
+        Cell::from_vectors(rows[0], rows[1], rows[2], [0.0, 0.0, 0.0])
     } else {
         let origin = unsafe { [*origin, *origin.add(1), *origin.add(2)] };
-        Cell::from_vectors_light(rows[0], rows[1], rows[2], origin)
+        Cell::from_vectors(rows[0], rows[1], rows[2], origin)
     };
     write_cell(cell, out)
 }
@@ -337,7 +330,7 @@ pub unsafe extern "C" fn mi_cell_from_con_box(
     let angles = unsafe { [*angles_deg, *angles_deg.add(1), *angles_deg.add(2)] };
     write_cell(
         Cell::from_con_box(boxl, angles)
-            .map(|c| Cell::from_vectors_light(c.a(), c.b(), c.c(), c.origin()))
+            .map(|c| Cell::from_vectors(c.a(), c.b(), c.c(), c.origin()))
             .and_then(|r| r),
         out,
     )
@@ -367,25 +360,6 @@ fn read_cell(simbox: *const mi_cell) -> Result<Cell, c_int> {
             }
         }
         let cell = raw.to_cell().map_err(fail)?;
-        *slot.borrow_mut() = Some((key, cell));
-        Ok(cell)
-    })
-}
-
-fn read_cell_euclidean(simbox: *const mi_cell) -> Result<Cell, c_int> {
-    if simbox.is_null() {
-        return Err(fail_msg("null cell"));
-    }
-    // SAFETY: one readable `mi_cell`.
-    let raw = unsafe { *simbox };
-    let key = cell_key(&raw);
-    CACHED_EUCLIDEAN.with(|slot| {
-        if let Some((cached, cell)) = *slot.borrow() {
-            if cached == key {
-                return Ok(cell);
-            }
-        }
-        let cell = raw.to_cell_euclidean().map_err(fail)?;
         *slot.borrow_mut() = Some((key, cell));
         Ok(cell)
     })
@@ -456,7 +430,7 @@ pub unsafe extern "C" fn mi_displacement_euclidean(
     q: *const f64,
     dr: *mut f64,
 ) -> c_int {
-    let cell = match read_cell_euclidean(simbox) {
+    let cell = match read_cell(simbox) {
         Ok(c) => c,
         Err(e) => return e,
     };

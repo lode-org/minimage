@@ -29,38 +29,29 @@
 //! minimum cut of the paper is this enumeration. The series reaches a
 //! closest lattice point.
 
+use std::cell::RefCell;
+
 use crate::kernel::{self, invert_columns};
 
-/// Selling superbasis. `prepared` is false on an orthorhombic cell,
-/// which never consults it: the per-axis wrap is already Euclidean.
+/// Selling superbasis for one lattice. The far Euclidean query builds
+/// it once per calling thread and keeps it in a cache keyed by H.
+/// Constructors store the cell only. An orthorhombic wrap is already
+/// Euclidean and never enters the cache.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Obtuse {
     v: [[f64; 3]; 4],
+    /// Subset sums of `v`. Index `mask` is the sum of the vectors whose
+    /// bits are set. Mask 0 is the origin. The query adds one of these
+    /// to the floored lattice point instead of branching on each bit.
+    corner: [[f64; 3]; 16],
     inv: [[f64; 3]; 3],
     idx: [u8; 3],
     pub ok: bool,
-    pub prepared: bool,
 }
 
 impl PartialEq for Obtuse {
     fn eq(&self, other: &Self) -> bool {
-        self.ok == other.ok
-            && self.prepared == other.prepared
-            && self.idx == other.idx
-            && self.v == other.v
-            && self.inv == other.inv
-    }
-}
-
-impl Obtuse {
-    pub(crate) const fn empty() -> Self {
-        Self {
-            v: [[0.0; 3]; 4],
-            inv: [[0.0; 3]; 3],
-            idx: [0, 1, 2],
-            ok: false,
-            prepared: false,
-        }
+        self.ok == other.ok && self.idx == other.idx && self.v == other.v && self.inv == other.inv
     }
 }
 
@@ -74,6 +65,11 @@ pub(crate) fn obtuse_superbasis(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Obtuse
         c,
         kernel::scale(-1.0, kernel::add(kernel::add(a, b), c)),
     ];
+    let scale = (kernel::n2(a) + kernel::n2(b) + kernel::n2(c)).max(1.0);
+    let tol = 1e-10 * scale;
+    if already_obtuse(&original, tol) {
+        return finish(original);
+    }
     let reduced = lagrange_reduce([a, b, c]);
     let mut v = [
         reduced[0],
@@ -84,8 +80,6 @@ pub(crate) fn obtuse_superbasis(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Obtuse
             kernel::add(kernel::add(reduced[0], reduced[1]), reduced[2]),
         ),
     ];
-    let scale = (kernel::n2(a) + kernel::n2(b) + kernel::n2(c)).max(1.0);
-    let tol = 1e-10 * scale;
     // 64 is past the handful of Delone steps left after size reduction.
     // 1000 matches the spglib / Andrews–Bernstein–Sauter cap if that
     // precondition did not shorten the basis.
@@ -97,11 +91,38 @@ pub(crate) fn obtuse_superbasis(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Obtuse
     }
     Obtuse {
         v: original,
+        corner: corners_of(original),
         inv: [[0.0; 3]; 3],
         idx: [0, 1, 2],
         ok: false,
-        prepared: true,
     }
+}
+
+fn already_obtuse(v: &[[f64; 3]; 4], tol: f64) -> bool {
+    for i in 0..3 {
+        for j in (i + 1)..4 {
+            if kernel::dot(v[i], v[j]) > tol {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn corners_of(v: [[f64; 3]; 4]) -> [[f64; 3]; 16] {
+    let mut corner = [[0.0; 3]; 16];
+    for mask in 1..16 {
+        let mut p = [0.0; 3];
+        for i in 0..4 {
+            if mask & (1 << i) != 0 {
+                p[0] += v[i][0];
+                p[1] += v[i][1];
+                p[2] += v[i][2];
+            }
+        }
+        corner[mask] = p;
+    }
+    corner
 }
 
 /// Subtract rounded projections onto shorter edges. Each update is
@@ -185,18 +206,18 @@ fn finish(v: [[f64; 3]; 4]) -> Obtuse {
     }
     match best {
         Some((idx, inv)) if best_abs > 1e-18 => Obtuse {
+            corner: corners_of(v),
             v,
             inv,
             idx,
             ok: true,
-            prepared: true,
         },
         _ => Obtuse {
+            corner: corners_of(v),
             v,
             inv: [[0.0; 3]; 3],
             idx: [0, 1, 2],
             ok: false,
-            prepared: true,
         },
     }
 }
@@ -208,6 +229,47 @@ pub(crate) fn closest_displacement(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     } else {
         shell(s.v[0], s.v[1], s.v[2], y)
     }
+}
+
+struct CachedBasis {
+    h: [[f64; 3]; 3],
+    s: Obtuse,
+}
+
+struct BasisCache {
+    slots: [Option<CachedBasis>; 4],
+    hand: usize,
+}
+
+thread_local! {
+    static BASIS: RefCell<BasisCache> = RefCell::new(BasisCache {
+        slots: [None, None, None, None],
+        hand: 0,
+    });
+}
+
+/// Closest displacement on the Selling superbasis of `h`.
+///
+/// The first query for a lattice builds the superbasis. The next
+/// three distinct lattices stay cached on this thread; a fifth
+/// replaces the oldest. A hit compares the nine components of H.
+pub(crate) fn closest_for(h: [[f64; 3]; 3], y: [f64; 3]) -> [f64; 3] {
+    BASIS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        for slot in &cache.slots {
+            if let Some(slot) = slot {
+                if slot.h == h {
+                    return closest_displacement(&slot.s, y);
+                }
+            }
+        }
+        let s = obtuse_superbasis(h[0], h[1], h[2]);
+        let d = closest_displacement(&s, y);
+        let i = cache.hand;
+        cache.hand = (i + 1) % cache.slots.len();
+        cache.slots[i] = Some(CachedBasis { h, s });
+        d
+    })
 }
 
 fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
@@ -232,55 +294,26 @@ fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
         best_d = [0.0; 3];
         // The four superbasis vectors sum to zero, so mask 15 is the
         // same lattice point as mask 0 and cannot win the strict test.
-        for mask in 0..15u8 {
-            let mut px = base[0];
-            let mut py = base[1];
-            let mut pz = base[2];
-            if mask & 1 != 0 {
-                px += v[0][0];
-                py += v[0][1];
-                pz += v[0][2];
-            }
-            if mask & 2 != 0 {
-                px += v[1][0];
-                py += v[1][1];
-                pz += v[1][2];
-            }
-            if mask & 4 != 0 {
-                px += v[2][0];
-                py += v[2][1];
-                pz += v[2][2];
-            }
-            if mask & 8 != 0 {
-                px += v[3][0];
-                py += v[3][1];
-                pz += v[3][2];
-            }
-            let dx = y[0] - px;
-            let dy = y[1] - py;
-            let dz = y[2] - pz;
+        let corner = &s.corner;
+        for mask in 0..15usize {
+            let p = corner[mask];
+            let dx = y[0] - (base[0] + p[0]);
+            let dy = y[1] - (base[1] + p[1]);
+            let dz = y[2] - (base[2] + p[2]);
             let d2 = dx * dx + dy * dy + dz * dz;
             if d2 < best_d2 {
                 best_d2 = d2;
-                best_mask = mask;
+                best_mask = mask as u8;
                 best_d = [dx, dy, dz];
             }
         }
         if best_mask == 0 {
             break;
         }
-        if best_mask & 1 != 0 {
-            u[0] += 1.0;
-        }
-        if best_mask & 2 != 0 {
-            u[1] += 1.0;
-        }
-        if best_mask & 4 != 0 {
-            u[2] += 1.0;
-        }
-        if best_mask & 8 != 0 {
-            u[3] += 1.0;
-        }
+        u[0] += f64::from(best_mask & 1);
+        u[1] += f64::from((best_mask >> 1) & 1);
+        u[2] += f64::from((best_mask >> 2) & 1);
+        u[3] += f64::from((best_mask >> 3) & 1);
     }
     best_d
 }

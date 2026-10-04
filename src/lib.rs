@@ -11,7 +11,7 @@
 //! [`Cell::to_restricted`] is the LAMMPS general-to-restricted rotation.
 //! [`Cell::displacement_euclidean`] is Smith's half-altitude test, then
 //! McKilliam, Grant, and Clarkson's closest point on the Selling
-//! superbasis cached in the cell. Lagrange size reduction runs before
+//! superbasis cached on the calling thread. Lagrange size reduction runs before
 //! that Delone step. [`dist2_many`], [`dist2_pairs`], [`wrap_many`], and
 //! [`dist2_ortho_diffs`] batch the engine wrap. The orthorhombic SoA
 //! kernel is AVX when the CPU has it.
