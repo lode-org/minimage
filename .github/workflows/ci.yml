@@ -219,3 +219,22 @@ jobs:
             profile-${{ runner.os }}-
       - name: POP3 profile of the hot path
         run: scripts/profile-pop3.sh
+
+  ab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install a C compiler
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ab-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'scripts/ab_driver.rs', 'scripts/ab_c.c') }}
+          restore-keys: |
+            ab-${{ runner.os }}-
+      - name: Time the shared API against published 0.1.2
+        run: scripts/ab_vs_main.sh

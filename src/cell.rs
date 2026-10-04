@@ -43,6 +43,8 @@ pub struct Cell {
     origin: [f64; 3],
     /// Perpendicular widths |a · n_a| etc.
     widths: [f64; 3],
+    /// Reciprocals of `widths`. The orthorhombic wrap multiplies by these.
+    recip: [f64; 3],
     /// Axis-aligned diagonal box: MIC is three independent wraps.
     ortho: bool,
     /// `a` along x and `b` in the xy plane (LAMMPS / HOOMD / GROMACS).
@@ -144,6 +146,7 @@ impl Cell {
             hinv,
             origin,
             widths: [wa, wb, wc],
+            recip: [1.0 / wa, 1.0 / wb, 1.0 / wc],
             ortho,
             restricted,
             tri,
@@ -371,7 +374,7 @@ impl Cell {
     #[inline]
     pub(crate) fn wrap_diff(&self, dp: [f64; 3]) -> [f64; 3] {
         if self.ortho {
-            return kernel::ortho_wrap(self.widths, dp);
+            return kernel::ortho_wrap_recip(self.widths, self.recip, dp);
         }
         if self.restricted {
             return self.tri.wrap(dp);
@@ -496,7 +499,9 @@ impl Cell {
         let f2 = kernel::n2(frac);
         let w = self.widths;
         let half_min = 0.5 * w[0].min(w[1]).min(w[2]);
-        if f2.sqrt() + 1e-12 < half_min {
+        // sqrt(f2) + 1e-12 < half_min, without the square root.
+        let room = half_min - 1e-12;
+        if room > 0.0 && f2 < room * room {
             return frac;
         }
         let euc = if self.superbasis.prepared {
@@ -530,6 +535,42 @@ impl Cell {
         }
         let _ = self.ortho;
         crate::simd::dist2_shifted_many(p, qs, shift, out);
+        Ok(())
+    }
+
+    /// Squared distances from `p` to positions named by `indices`, with
+    /// one lattice shift already applied.
+    ///
+    /// A linked-cell bin is an index list into the neighbour array, not
+    /// a contiguous slice. This gathers a chunk of those positions and
+    /// runs the same kernel as [`Self::dist2_shifted_many`]. A bin of
+    /// one occupant is a single subtract; gathering that one point is
+    /// extra work, and that walk should keep the inlined pair.
+    ///
+    /// `out` has one entry per index. An index past `positions` panics.
+    pub fn dist2_shifted_indexed(
+        &self,
+        p: [f64; 3],
+        positions: &[[f64; 3]],
+        indices: &[usize],
+        shift: [f64; 3],
+        out: &mut [f64],
+    ) -> Result<(), Error> {
+        if out.len() != indices.len() {
+            return Err(Error::BufferSize);
+        }
+        const CHUNK: usize = 64;
+        let mut gathered = [[0.0; 3]; CHUNK];
+        let mut start = 0;
+        while start < indices.len() {
+            let n = (indices.len() - start).min(CHUNK);
+            for k in 0..n {
+                gathered[k] = positions[indices[start + k]];
+            }
+            crate::simd::dist2_shifted_many(p, &gathered[..n], shift, &mut out[start..start + n]);
+            start += n;
+        }
+        let _ = self.ortho;
         Ok(())
     }
 
@@ -823,6 +864,32 @@ mod tests {
         assert!((euc[0] - d[0]).abs() < 1e-12);
         assert!((euc[1] - d[1]).abs() < 1e-12);
         assert!((euc[2] - d[2]).abs() < 1e-12);
+    }
+
+    #[test]
+    fn indexed_shift_matches_the_contiguous_bin() {
+        let cell = Cell::ortho(10.0, 11.0, 12.0).unwrap();
+        let positions = [
+            [0.2, 0.0, 0.0],
+            [9.4, 1.0, 2.0],
+            [3.0, 4.0, 5.0],
+            [8.0, 0.5, 0.5],
+        ];
+        let indices = [2usize, 0, 3, 1, 2];
+        let p = [1.0, 1.0, 1.0];
+        let shift = cell.lattice_shift(1, 0, -1);
+        let mut indexed = [0.0; 5];
+        cell.dist2_shifted_indexed(p, &positions, &indices, shift, &mut indexed)
+            .unwrap();
+        for (slot, idx) in indexed.iter().zip(indices) {
+            let one = cell.dist2_shifted(p, positions[idx], shift);
+            assert!((slot - one).abs() < 1e-12);
+        }
+        let mut wrong = [0.0; 4];
+        assert_eq!(
+            cell.dist2_shifted_indexed(p, &positions, &indices, shift, &mut wrong),
+            Err(Error::BufferSize)
+        );
     }
 
     #[test]

@@ -12,9 +12,11 @@
 //! [`Cell::displacement_euclidean`] is Smith's half-altitude test, then
 //! McKilliam, Grant, and Clarkson's closest point on the Selling
 //! superbasis cached in the cell. Lagrange size reduction runs before
-//! that Delone step. [`dist2_many`], [`wrap_many`], and
+//! that Delone step. [`dist2_many`], [`dist2_pairs`], [`wrap_many`], and
 //! [`dist2_ortho_diffs`] batch the engine wrap. The orthorhombic SoA
-//! kernel is AVX when the CPU has it. [`reduce_pairs`] turns
+//! kernel is AVX when the CPU has it.
+//! [`Cell::dist2_shifted_indexed`] gathers a linked-cell bin's index
+//! list into that shifted kernel. [`reduce_pairs`] turns
 //! a vesin image pair list into one minimum-image pair and drops the
 //! self image.
 //!

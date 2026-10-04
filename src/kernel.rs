@@ -104,15 +104,21 @@ pub(crate) fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
 /// Keeps `-L/2` and maps `+L/2` onto `-L/2`.
 #[inline]
 pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
-    d - length * (d / length + 0.5).floor()
+    wrap_half_recip(d, length, 1.0 / length)
+}
+
+/// `d - L * floor(d * (1/L) + 1/2)`. The reciprocal is the cell's.
+#[inline]
+pub(crate) fn wrap_half_recip(d: f64, length: f64, recip: f64) -> f64 {
+    d - length * (d * recip + 0.5).floor()
 }
 
 #[inline]
-pub(crate) fn ortho_wrap(l: [f64; 3], dp: [f64; 3]) -> [f64; 3] {
+pub(crate) fn ortho_wrap_recip(l: [f64; 3], recip: [f64; 3], dp: [f64; 3]) -> [f64; 3] {
     [
-        wrap_half(dp[0], l[0]),
-        wrap_half(dp[1], l[1]),
-        wrap_half(dp[2], l[2]),
+        wrap_half_recip(dp[0], l[0], recip[0]),
+        wrap_half_recip(dp[1], l[1], recip[1]),
+        wrap_half_recip(dp[2], l[2], recip[2]),
     ]
 }
 
@@ -194,4 +200,35 @@ pub(crate) fn cross(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
         u[2] * v[0] - u[0] * v[2],
         u[0] * v[1] - u[1] * v[0],
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recip_wrap_matches_the_division_form() {
+        let l = [10.0, 11.0, 12.0];
+        let samples = [
+            [0.0, 0.0, 0.0],
+            [5.0, -5.5, 6.0],
+            [15.0, -18.0, 25.0],
+            [-15.0, 16.5, -30.0],
+            [6.0, 12.0, -6.0],
+        ];
+        for dp in samples {
+            let recip = [1.0 / l[0], 1.0 / l[1], 1.0 / l[2]];
+            let direct = ortho_wrap_recip(l, recip, dp);
+            let via = [
+                wrap_half(dp[0], l[0]),
+                wrap_half(dp[1], l[1]),
+                wrap_half(dp[2], l[2]),
+            ];
+            for a in 0..3 {
+                let floor = dp[a] - l[a] * (dp[a] / l[a] + 0.5).floor();
+                assert!((via[a] - floor).abs() < 1e-12);
+                assert!((direct[a] - floor).abs() < 1e-12);
+            }
+        }
+    }
 }
