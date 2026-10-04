@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3 - 2026-10-04
+
 Orthorhombic wrap is `d - L floor(d/L + 1/2)` for every image, and
 keeps the `-L/2` tie. Restricted triclinic engine wrap is the
 triangular lamda step. The structure-of-arrays orthorhombic kernel and the shifted bin

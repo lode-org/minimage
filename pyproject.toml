@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "minimage"
-version = "0.1.2"
+version = "0.1.3"
 description = "Minimum-image convention for periodic parallelepiped cells"
 readme = "README.md"
 license = { text = "MIT" }
