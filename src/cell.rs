@@ -66,11 +66,14 @@ fn load3(v: [f64; 3]) -> (f64, f64, f64) {
     // SAFETY: `v` is a live `[f64; 3]`, so `p` covers 24 aligned
     // bytes. The 16-byte load starts at element 1.
     unsafe {
+        // Register names arrive without a percent prefix, so the
+        // instructions are Intel syntax. `movsd` needs the size or it
+        // is the string move.
         std::arch::asm!(
-            "movsd ({p}), {x}",
-            "movupd 8({p}), {y}",
-            "movapd {y}, {z}",
-            "unpckhpd {y}, {z}",
+            "movsd {x}, qword ptr [{p}]",
+            "movupd {y}, xmmword ptr [{p} + 8]",
+            "movapd {z}, {y}",
+            "unpckhpd {z}, {y}",
             p = in(reg) p,
             x = out(xmm_reg) x,
             y = out(xmm_reg) y,
