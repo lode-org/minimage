@@ -14,8 +14,6 @@
 //!
 //! A general orientation is two 3x3 products with the stored inverse.
 
-use std::cell::RefCell;
-
 /// Restricted-triclinic edges. `lx, ly, lz` are the diagonal entries
 /// and may be negative. `xy, xz, yz` are the LAMMPS tilt factors.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -60,7 +58,7 @@ impl Tri {
     }
 
     /// Wrapped `dp` in Cartesian coordinates.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn wrap(self, dp: [f64; 3]) -> [f64; 3] {
         let mut sz = dp[2] * self.inv_lz;
         let mut sy = (dp[1] - self.yz * sz) * self.inv_ly;
@@ -76,48 +74,6 @@ impl Tri {
     }
 }
 
-struct TriCache {
-    slots: [Option<([[f64; 3]; 3], Tri)>; 4],
-    hand: usize,
-}
-
-thread_local! {
-    static TRI_CACHE: RefCell<TriCache> = RefCell::new(TriCache {
-        slots: [None, None, None, None],
-        hand: 0,
-    });
-}
-
-/// Lamda coefficients for a restricted `H`. The first query on this
-/// thread builds them. Four lattices stay cached.
-pub(crate) fn cached_tri(h: [[f64; 3]; 3]) -> Tri {
-    TRI_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        for slot in &cache.slots {
-            if let Some((key, tri)) = slot {
-                if *key == h {
-                    return *tri;
-                }
-            }
-        }
-        let tri = Tri::restricted(h).unwrap_or(Tri {
-            lx: 0.0,
-            ly: 0.0,
-            lz: 0.0,
-            xy: 0.0,
-            xz: 0.0,
-            yz: 0.0,
-            inv_lx: 0.0,
-            inv_ly: 0.0,
-            inv_lz: 0.0,
-        });
-        let i = cache.hand;
-        cache.hand = (i + 1) % cache.slots.len();
-        cache.slots[i] = Some((h, tri));
-        tri
-    })
-}
-
 /// Positive orthorhombic lengths when `H` is diagonal, else `None`.
 pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
     if !is_axis_aligned(h) {
@@ -131,13 +87,13 @@ pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
     }
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
     let scale = (norm(h[0]) + norm(h[1]) + norm(h[2])).max(1.0);
     is_axis_aligned_scaled(h, scale)
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn is_axis_aligned_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
     let tol = 1e-12 * scale;
     h[0][1].abs() <= tol
@@ -149,7 +105,7 @@ pub(crate) fn is_axis_aligned_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
 }
 
 /// `a` along x and `b` in the xy plane, same tolerance as [`Tri::restricted`].
-#[inline]
+#[inline(always)]
 pub(crate) fn is_restricted_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
     let tol = 1e-10 * scale;
     if h[0][1].abs() > tol || h[0][2].abs() > tol || h[1][2].abs() > tol {
@@ -162,7 +118,7 @@ pub(crate) fn is_restricted_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
 ///
 /// `d - L * floor(d / L + 1/2)`. Every image, not one subtraction.
 /// Keeps `-L/2` and maps `+L/2` onto `-L/2`.
-#[inline]
+#[inline(always)]
 pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
     let half = 0.5 * length;
     let mut w = d;
@@ -239,7 +195,7 @@ pub(crate) fn mul(h: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
     ]
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn invert_columns(h: [[f64; 3]; 3]) -> Option<([[f64; 3]; 3], f64)> {
     let a = h[0];
     let b = h[1];
@@ -275,7 +231,7 @@ pub(crate) fn n2(v: [f64; 3]) -> f64 {
     v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn norm(v: [f64; 3]) -> f64 {
     n2(v).sqrt()
 }
@@ -295,7 +251,7 @@ pub(crate) fn scale(s: f64, v: [f64; 3]) -> [f64; 3] {
     [s * v[0], s * v[1], s * v[2]]
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn cross(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
     [
         u[1] * v[2] - u[2] * v[1],
