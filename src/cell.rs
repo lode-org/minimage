@@ -11,7 +11,7 @@
 //! wrap. [`Cell::is_ortho`] is the cheap path: three independent wraps
 //! and a scaled-diagonal shift, skipping the two 3x3 matvecs.
 
-use crate::kernel::{self, Tri};
+use crate::kernel;
 use crate::selling;
 use crate::Error;
 
@@ -43,14 +43,10 @@ pub struct Cell {
     origin: [f64; 3],
     /// Perpendicular widths |a · n_a| etc.
     widths: [f64; 3],
-    /// Reciprocals of `widths`. The orthorhombic wrap multiplies by these.
-    recip: [f64; 3],
     /// Axis-aligned diagonal box: MIC is three independent wraps.
     ortho: bool,
     /// `a` along x and `b` in the xy plane (LAMMPS / HOOMD / GROMACS).
     restricted: bool,
-    /// Triangular lamda coefficients. Read only when [`Self::restricted`].
-    tri: Tri,
 }
 
 impl Cell {
@@ -96,31 +92,18 @@ impl Cell {
         if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
             return Err(Error::BadBox);
         }
-        let ortho = kernel::ortho_lengths(h).is_some();
-        let tri = Tri::restricted(h);
-        let restricted = tri.is_some();
-        let tri = tri.unwrap_or(Tri {
-            lx: 0.0,
-            ly: 0.0,
-            lz: 0.0,
-            xy: 0.0,
-            xz: 0.0,
-            yz: 0.0,
-            inv_lx: 0.0,
-            inv_ly: 0.0,
-            inv_lz: 0.0,
-        });
-        // Selling stays off this path. The far Euclidean query caches
-        // the superbasis on the calling thread.
+        // One norm sum feeds both frame tests. The triangular lamda
+        // coefficients stay off this path and are cached on the query.
+        let scale = (kernel::norm(a) + kernel::norm(b) + kernel::norm(c)).max(1.0);
+        let ortho = kernel::is_axis_aligned_scaled(h, scale);
+        let restricted = kernel::is_restricted_scaled(h, scale);
         Ok(Self {
             h,
             hinv,
             origin,
             widths: [wa, wb, wc],
-            recip: [1.0 / wa, 1.0 / wb, 1.0 / wc],
             ortho,
             restricted,
-            tri,
         })
     }
 
@@ -344,10 +327,14 @@ impl Cell {
     #[inline]
     pub(crate) fn wrap_diff(&self, dp: [f64; 3]) -> [f64; 3] {
         if self.ortho {
-            return kernel::ortho_wrap_recip(self.widths, self.recip, dp);
+            return [
+                kernel::wrap_half(dp[0], self.widths[0]),
+                kernel::wrap_half(dp[1], self.widths[1]),
+                kernel::wrap_half(dp[2], self.widths[2]),
+            ];
         }
         if self.restricted {
-            return self.tri.wrap(dp);
+            return kernel::cached_tri(self.h).wrap(dp);
         }
         kernel::general_wrap(self.h, self.hinv, dp)
     }

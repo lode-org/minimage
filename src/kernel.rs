@@ -14,6 +14,8 @@
 //!
 //! A general orientation is two 3x3 products with the stored inverse.
 
+use std::cell::RefCell;
+
 /// Restricted-triclinic edges. `lx, ly, lz` are the diagonal entries
 /// and may be negative. `xy, xz, yz` are the LAMMPS tilt factors.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -74,6 +76,48 @@ impl Tri {
     }
 }
 
+struct TriCache {
+    slots: [Option<([[f64; 3]; 3], Tri)>; 4],
+    hand: usize,
+}
+
+thread_local! {
+    static TRI_CACHE: RefCell<TriCache> = RefCell::new(TriCache {
+        slots: [None, None, None, None],
+        hand: 0,
+    });
+}
+
+/// Lamda coefficients for a restricted `H`. The first query on this
+/// thread builds them. Four lattices stay cached.
+pub(crate) fn cached_tri(h: [[f64; 3]; 3]) -> Tri {
+    TRI_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        for slot in &cache.slots {
+            if let Some((key, tri)) = slot {
+                if *key == h {
+                    return *tri;
+                }
+            }
+        }
+        let tri = Tri::restricted(h).unwrap_or(Tri {
+            lx: 0.0,
+            ly: 0.0,
+            lz: 0.0,
+            xy: 0.0,
+            xz: 0.0,
+            yz: 0.0,
+            inv_lx: 0.0,
+            inv_ly: 0.0,
+            inv_lz: 0.0,
+        });
+        let i = cache.hand;
+        cache.hand = (i + 1) % cache.slots.len();
+        cache.slots[i] = Some((h, tri));
+        tri
+    })
+}
+
 /// Positive orthorhombic lengths when `H` is diagonal, else `None`.
 pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
     if !is_axis_aligned(h) {
@@ -89,6 +133,10 @@ pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
 
 pub(crate) fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
     let scale = (norm(h[0]) + norm(h[1]) + norm(h[2])).max(1.0);
+    is_axis_aligned_scaled(h, scale)
+}
+
+pub(crate) fn is_axis_aligned_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
     let tol = 1e-12 * scale;
     h[0][1].abs() <= tol
         && h[0][2].abs() <= tol
@@ -98,13 +146,41 @@ pub(crate) fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
         && h[2][1].abs() <= tol
 }
 
+/// `a` along x and `b` in the xy plane, same tolerance as [`Tri::restricted`].
+pub(crate) fn is_restricted_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
+    let tol = 1e-10 * scale;
+    if h[0][1].abs() > tol || h[0][2].abs() > tol || h[1][2].abs() > tol {
+        return false;
+    }
+    h[0][0].abs() >= 1e-18 && h[1][1].abs() >= 1e-18 && h[2][2].abs() >= 1e-18
+}
+
 /// Orthorhombic signed wrap into `[-L/2, L/2)`.
 ///
 /// `d - L * floor(d / L + 1/2)`. Every image, not one subtraction.
 /// Keeps `-L/2` and maps `+L/2` onto `-L/2`.
 #[inline]
 pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
-    wrap_half_recip(d, length, 1.0 / length)
+    let half = 0.5 * length;
+    let mut w = d;
+    if w < -half {
+        w += length;
+    }
+    if w >= half {
+        w -= length;
+    }
+    if w < -half || w >= half {
+        wrap_half_far(d, length)
+    } else {
+        w
+    }
+}
+
+/// Images past one neighbouring cell. Kept off the one-image path.
+#[cold]
+#[inline(never)]
+fn wrap_half_far(d: f64, length: f64) -> f64 {
+    d - length * (d / length + 0.5).floor()
 }
 
 /// `d - L * floor(d * (1/L) + 1/2)`. The reciprocal is the cell's.
