@@ -30,33 +30,6 @@ pub(crate) struct Tri {
 }
 
 impl Tri {
-    /// `Some` when `a` is along x, `b` lies in the xy plane, and the
-    /// three diagonal entries are nonzero.
-    pub(crate) fn restricted(h: [[f64; 3]; 3]) -> Option<Self> {
-        let scale = (norm(h[0]) + norm(h[1]) + norm(h[2])).max(1.0);
-        let tol = 1e-10 * scale;
-        if h[0][1].abs() > tol || h[0][2].abs() > tol || h[1][2].abs() > tol {
-            return None;
-        }
-        let lx = h[0][0];
-        let ly = h[1][1];
-        let lz = h[2][2];
-        if lx.abs() < 1e-18 || ly.abs() < 1e-18 || lz.abs() < 1e-18 {
-            return None;
-        }
-        Some(Self {
-            lx,
-            ly,
-            lz,
-            xy: h[1][0],
-            xz: h[2][0],
-            yz: h[2][1],
-            inv_lx: 1.0 / lx,
-            inv_ly: 1.0 / ly,
-            inv_lz: 1.0 / lz,
-        })
-    }
-
     /// Wrapped `dp` in Cartesian coordinates.
     #[inline(always)]
     pub(crate) fn wrap(self, dp: [f64; 3]) -> [f64; 3] {
