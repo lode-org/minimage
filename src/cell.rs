@@ -11,7 +11,7 @@
 //! wrap. [`Cell::is_ortho`] is the cheap path: three independent wraps
 //! and a scaled-diagonal shift, skipping the two 3x3 matvecs.
 
-use crate::kernel::{self, Tri};
+use crate::kernel;
 use crate::selling;
 use crate::Error;
 
@@ -47,8 +47,6 @@ pub struct Cell {
     ortho: bool,
     /// `a` along x and `b` in the xy plane (LAMMPS / HOOMD / GROMACS).
     restricted: bool,
-    /// Lamda coefficients. Read only when [`Self::is_restricted`] is set.
-    tri: Tri,
 }
 
 impl Cell {
@@ -94,39 +92,17 @@ impl Cell {
         if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
             return Err(Error::BadBox);
         }
-        // One norm sum feeds both frame tests. The lamda reciprocals are
-        // three divisions, not another set of square roots.
-        let scale = (kernel::norm(a) + kernel::norm(b) + kernel::norm(c)).max(1.0);
-        let ortho = kernel::is_axis_aligned_scaled(h, scale);
-        let restricted = kernel::is_restricted_scaled(h, scale);
-        let tri = if restricted {
-            let lx = h[0][0];
-            let ly = h[1][1];
-            let lz = h[2][2];
-            Tri {
-                lx,
-                ly,
-                lz,
-                xy: h[1][0],
-                xz: h[2][0],
-                yz: h[2][1],
-                inv_lx: 1.0 / lx,
-                inv_ly: 1.0 / ly,
-                inv_lz: 1.0 / lz,
-            }
-        } else {
-            Tri {
-                lx: 0.0,
-                ly: 0.0,
-                lz: 0.0,
-                xy: 0.0,
-                xz: 0.0,
-                yz: 0.0,
-                inv_lx: 0.0,
-                inv_ly: 0.0,
-                inv_lz: 0.0,
-            }
-        };
+        // Same ortho test as the width norms: three vector lengths.
+        // Restricted is the three off-axis zeros, scaled by the widths
+        // already in hand, so it does not add another square root.
+        let ortho = kernel::is_axis_aligned(h);
+        let tol = 1e-10 * (wa + wb + wc).max(1.0);
+        let restricted = h[0][1].abs() <= tol
+            && h[0][2].abs() <= tol
+            && h[1][2].abs() <= tol
+            && h[0][0].abs() >= 1e-18
+            && h[1][1].abs() >= 1e-18
+            && h[2][2].abs() >= 1e-18;
         Ok(Self {
             h,
             hinv,
@@ -134,7 +110,6 @@ impl Cell {
             widths: [wa, wb, wc],
             ortho,
             restricted,
-            tri,
         })
     }
 
@@ -365,7 +340,7 @@ impl Cell {
             ];
         }
         if self.restricted {
-            return self.tri.wrap(dp);
+            return kernel::wrap_restricted(self.h, dp);
         }
         kernel::general_wrap(self.h, self.hinv, dp)
     }
