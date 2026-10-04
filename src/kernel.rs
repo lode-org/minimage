@@ -131,11 +131,13 @@ pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
     }
 }
 
+#[inline]
 pub(crate) fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
     let scale = (norm(h[0]) + norm(h[1]) + norm(h[2])).max(1.0);
     is_axis_aligned_scaled(h, scale)
 }
 
+#[inline]
 pub(crate) fn is_axis_aligned_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
     let tol = 1e-12 * scale;
     h[0][1].abs() <= tol
@@ -147,6 +149,7 @@ pub(crate) fn is_axis_aligned_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
 }
 
 /// `a` along x and `b` in the xy plane, same tolerance as [`Tri::restricted`].
+#[inline]
 pub(crate) fn is_restricted_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
     let tol = 1e-10 * scale;
     if h[0][1].abs() > tol || h[0][2].abs() > tol || h[1][2].abs() > tol {
@@ -236,6 +239,7 @@ pub(crate) fn mul(h: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
     ]
 }
 
+#[inline]
 pub(crate) fn invert_columns(h: [[f64; 3]; 3]) -> Option<([[f64; 3]; 3], f64)> {
     let a = h[0];
     let b = h[1];
@@ -271,6 +275,7 @@ pub(crate) fn n2(v: [f64; 3]) -> f64 {
     v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
 }
 
+#[inline]
 pub(crate) fn norm(v: [f64; 3]) -> f64 {
     n2(v).sqrt()
 }
@@ -290,6 +295,7 @@ pub(crate) fn scale(s: f64, v: [f64; 3]) -> [f64; 3] {
     [s * v[0], s * v[1], s * v[2]]
 }
 
+#[inline]
 pub(crate) fn cross(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
     [
         u[1] * v[2] - u[2] * v[1],
