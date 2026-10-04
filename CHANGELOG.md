@@ -19,6 +19,7 @@ linkcell. Constructors that only publish `mi_cell` skip Selling. A repeated
 C call on the same twelve doubles reuses that inverse.
 SymPy, Sollya, and Lean (mathlib) each check the wrap and the Delone
 step; `ljos-consensus` settles those ballots.
+`scripts/profile-pop3.sh` times the hot path on the POP3 hierarchy.
 
 ## 0.1.2 - 2026-09-27
 

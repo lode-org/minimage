@@ -202,3 +202,20 @@ jobs:
           echo "LD_LIBRARY_PATH=$HOME/.local/lib" >> "$GITHUB_ENV"
       - name: Settle SymPy, Sollya, and Lean
         run: scripts/validate-consensus.sh
+
+  profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: profile-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'benches/pop3.rs') }}
+          restore-keys: |
+            profile-${{ runner.os }}-
+      - name: POP3 profile of the hot path
+        run: scripts/profile-pop3.sh

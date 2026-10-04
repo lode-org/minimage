@@ -28,6 +28,13 @@ capi = []
 name = "abi"
 required-features = ["capi"]
 
+[[bench]]
+name = "pop3"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1
+
+[profile.bench]
+inherits = "release"
