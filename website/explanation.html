@@ -58,9 +58,9 @@ reciprocal per axis, <code>abs</code>, then <code>round</code>. AVX issues four 
 when the CPU has it.
 </p>
 
-<section id="outline-container-org020b322" class="outline-2">
-<h2 id="org020b322">Nearest image</h2>
-<div class="outline-text-2" id="text-org020b322">
+<section id="outline-container-org0614e94" class="outline-2">
+<h2 id="org0614e94">Nearest image</h2>
+<div class="outline-text-2" id="text-org0614e94">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -86,9 +86,26 @@ certificate. The linked-cell pair itself is Rapaport's shift,
 </div>
 </section>
 
-<section id="outline-container-orgf5f9f6a" class="outline-2">
-<h2 id="orgf5f9f6a">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-orgf5f9f6a">
+<section id="outline-container-org600c662" class="outline-2">
+<h2 id="org600c662">Validation</h2>
+<div class="outline-text-2" id="text-org600c662">
+<p>
+The wrap and the Delone step are checked by three independent tools,
+then settled as a DeGroot vote (Friedkin and Johnsen when a voter is
+anchored; here susceptibility is 1). SymPy carries the floor splitting
+identity, the zero-sum, and the determinant. Sollya proves the linear
+piece with <code>checkinfnorm</code> (Chevillard, Joldeş, Lauter, 2010, the Sollya
+infinity norm). Lean with mathlib proves the range, the half-box tie,
+the sum, and the determinant, and decides the ortho and skew shells.
+<code>scripts/validate-consensus.sh</code> runs the three and settles with
+<code>ljos-consensus</code>. A dissenter keeps the accept share below one.
+</p>
+</div>
+</section>
+
+<section id="outline-container-org615308b" class="outline-2">
+<h2 id="org615308b">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-org615308b">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -108,9 +125,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-org10ad96c" class="outline-2">
-<h2 id="org10ad96c">vesin images</h2>
-<div class="outline-text-2" id="text-org10ad96c">
+<section id="outline-container-org135aee7" class="outline-2">
+<h2 id="org135aee7">vesin images</h2>
+<div class="outline-text-2" id="text-org135aee7">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -120,9 +137,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-org1ed96d8" class="outline-2">
-<h2 id="org1ed96d8">Consumers</h2>
-<div class="outline-text-2" id="text-org1ed96d8">
+<section id="outline-container-org7a77423" class="outline-2">
+<h2 id="org7a77423">Consumers</h2>
+<div class="outline-text-2" id="text-org7a77423">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,

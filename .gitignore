@@ -371,6 +371,10 @@ nohup.out
 /.pixi/
 /.venv/
 
+# Validator output and the mathlib checkout
+/validate/out/
+/validate/lean/.lake/
+
 # Meson wraps: keep wrap files, ignore checkouts
 /subprojects/*
 !/subprojects/*.wrap

@@ -57,6 +57,18 @@ Minkowski-reduces a basis; that reduction is not the closest-vector
 certificate. The linked-cell pair itself is Rapaport's shift,
 =|q + shift - p|^2=, exposed as =dist2_shifted_many=.
 
+* Validation
+
+The wrap and the Delone step are checked by three independent tools,
+then settled as a DeGroot vote (Friedkin and Johnsen when a voter is
+anchored; here susceptibility is 1). SymPy carries the floor splitting
+identity, the zero-sum, and the determinant. Sollya proves the linear
+piece with =checkinfnorm= (Chevillard, Joldeş, Lauter, 2010, the Sollya
+infinity norm). Lean with mathlib proves the range, the half-box tie,
+the sum, and the determinant, and decides the ortho and skew shells.
+=scripts/validate-consensus.sh= runs the three and settles with
+=ljos-consensus=. A dissenter keeps the accept share below one.
+
 * Dump bounds are not H
 
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt =xy, xz, yz=.
