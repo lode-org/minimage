@@ -12,7 +12,7 @@
 //! and a scaled-diagonal shift, skipping the two 3x3 matvecs.
 
 use crate::kernel::{self, Tri};
-use crate::selling::{self, Obtuse};
+use crate::selling;
 use crate::Error;
 
 pub(crate) use crate::kernel::mul;
@@ -51,9 +51,6 @@ pub struct Cell {
     restricted: bool,
     /// Triangular lamda coefficients. Read only when [`Self::restricted`].
     tri: Tri,
-    /// Selling superbasis. Orthorhombic cells leave this empty: the
-    /// per-axis wrap is already the Euclidean nearest image.
-    superbasis: Obtuse,
 }
 
 impl Cell {
@@ -85,27 +82,6 @@ impl Cell {
         c: [f64; 3],
         origin: [f64; 3],
     ) -> Result<Self, Error> {
-        Self::from_vectors_prepared(a, b, c, origin, true)
-    }
-
-    /// Geometry only. C constructors write `H` and drop the temporary,
-    /// so they skip Selling.
-    pub(crate) fn from_vectors_light(
-        a: [f64; 3],
-        b: [f64; 3],
-        c: [f64; 3],
-        origin: [f64; 3],
-    ) -> Result<Self, Error> {
-        Self::from_vectors_prepared(a, b, c, origin, false)
-    }
-
-    fn from_vectors_prepared(
-        a: [f64; 3],
-        b: [f64; 3],
-        c: [f64; 3],
-        origin: [f64; 3],
-        prepare_euclidean: bool,
-    ) -> Result<Self, Error> {
         let h = [a, b, c];
         let (hinv, det) = kernel::invert_columns(h).ok_or(Error::BadBox)?;
         if !det.is_finite() || det.abs() < 1e-18 {
@@ -134,13 +110,8 @@ impl Cell {
             inv_ly: 0.0,
             inv_lz: 0.0,
         });
-        // The rectangular wrap is the Euclidean nearest image. Selling
-        // is the skewed-cell certificate and is built once, here.
-        let superbasis = if prepare_euclidean && !ortho {
-            selling::obtuse_superbasis(a, b, c)
-        } else {
-            Obtuse::empty()
-        };
+        // Selling stays off this path. The far Euclidean query caches
+        // the superbasis on the calling thread.
         Ok(Self {
             h,
             hinv,
@@ -150,7 +121,6 @@ impl Cell {
             ortho,
             restricted,
             tri,
-            superbasis,
         })
     }
 
@@ -485,11 +455,12 @@ impl Cell {
     /// Linkcell k-NN has no cutoff. A hex-prism body diagonal is an
     /// engine wrap that is longer than another image.
     ///
-    /// Past that test the cell's Selling superbasis (built once in
-    /// [`Self::from_vectors`]) is handed to McKilliam, Grant, and
-    /// Clarkson, *SIAM J. Discrete Math.* **28**, 1405 (2014). A tie
-    /// keeps the engine vector. [`Self::displacement`] stays that
-    /// engine vector on the caller's `H`.
+    /// Past that test the Selling superbasis of `H` is handed to
+    /// McKilliam, Grant, and Clarkson, *SIAM J. Discrete Math.* **28**,
+    /// 1405 (2014). The superbasis is cached on the calling thread,
+    /// keyed by `H`, and is not stored in the cell. A tie keeps the
+    /// engine vector. [`Self::displacement`] stays that engine vector
+    /// on the caller's `H`.
     pub fn displacement_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
         if self.ortho {
             return self.displacement(p, q);
@@ -504,12 +475,7 @@ impl Cell {
         if room > 0.0 && f2 < room * room {
             return frac;
         }
-        let euc = if self.superbasis.prepared {
-            selling::closest_displacement(&self.superbasis, dp)
-        } else {
-            let built = selling::obtuse_superbasis(self.h[0], self.h[1], self.h[2]);
-            selling::closest_displacement(&built, dp)
-        };
+        let euc = selling::closest_for(self.h, dp);
         let e2 = kernel::n2(euc);
         if e2 + 1e-12 * (1.0 + f2) < f2 {
             euc
@@ -750,6 +716,37 @@ mod cartesian_tests {
         assert!((a[0] - b[0]).abs() < 1e-15);
         assert!((a[1] - b[1]).abs() < 1e-15);
         assert!((a[2] - b[2]).abs() < 1e-15);
+    }
+
+    #[test]
+    fn euclidean_cache_alternates_two_lattices() {
+        let hex = Cell::from_vectors(
+            [10.0, 0.0, 0.0],
+            [5.0, 8.660254037844386, 0.0],
+            [0.0, 0.0, 10.0],
+            [0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        let skew = Cell::from_vectors(
+            [1.0, 0.0, 0.0],
+            [0.99, 0.01, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0],
+        )
+        .unwrap();
+        let p = [0.0, 0.0, 0.0];
+        let q_hex = hex.cartesian([0.49, 0.49, 0.49]);
+        let q_skew = [0.02, -0.02, 0.0];
+        for _ in 0..6 {
+            let frac = hex.displacement(q_hex, p);
+            let euc = hex.displacement_euclidean(q_hex, p);
+            let f2 = frac[0] * frac[0] + frac[1] * frac[1] + frac[2] * frac[2];
+            let e2 = euc[0] * euc[0] + euc[1] * euc[1] + euc[2] * euc[2];
+            assert!(e2 + 1e-8 < f2);
+            let skew_e = skew.displacement_euclidean(p, q_skew);
+            let se2 = skew_e[0] * skew_e[0] + skew_e[1] * skew_e[1] + skew_e[2] * skew_e[2];
+            assert!(se2 < 1e-24);
+        }
     }
 }
 
