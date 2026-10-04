@@ -20,8 +20,7 @@ and `mi_dist2_shifted_many` are Rapaport's one-shift bin pair for
 linkcell. Constructors that only publish `mi_cell` skip Selling. A repeated
 C call on the same twelve doubles reuses that inverse.
 Orthorhombic `dist2` uses two comparisons inside one neighbouring
-image and the width's reciprocal past that image. The reciprocal
-is stored on the cell. `dist2_pairs` and `mi_dist2_pairs` use that orthorhombic
+image and the floor form past that image. `dist2_pairs` and `mi_dist2_pairs` use that orthorhombic
 structure-of-arrays kernel, and a repeated orthorhombic `mi_cell`
 reuses the lengths and the reciprocals. `dist2_shifted_indexed`
 gathers a linked-cell index list into the shifted kernel. The
