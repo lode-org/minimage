@@ -69,6 +69,23 @@ the sum, and the determinant, and decides the ortho and skew shells.
 =scripts/validate-consensus.sh= runs the three and settles with
 =ljos-consensus=. A dissenter keeps the accept share below one.
 
+* Profiling
+
+The hot path is read with the POP3 hierarchy (Performance
+Optimisation and Productivity 3, EuroHPC, 2024–2026). Global
+efficiency is parallel efficiency times computational scaling.
+Parallel efficiency splits into load balance and communication, and
+communication splits into serialisation and transfer. A leaf below
+0.8 is the one to open. This library is one thread, so those
+parallel leaves are not a process count. =scripts/profile-pop3.sh=
+times the orthorhombic batch against the per-pair wrap, Rapaport's
+shifted bin, and the Selling closest point. Cycles and instructions
+come from =perf_event_open= when the kernel allows the call. The
+time ratio is the reference region over the one being read. The
+batch's reference is the per-pair wrap. The Euclidean region's
+reference is the engine wrap, and a ratio below one is the cost of
+the closest-point search.
+
 * Dump bounds are not H
 
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt =xy, xz, yz=.
