@@ -107,9 +107,9 @@ pub(crate) fn dist2_shifted_indexed(
     shift: [f64; 3],
     out: &mut [f64],
 ) {
-    let n = indices.len();
     #[cfg(target_arch = "x86_64")]
     {
+        let n = indices.len();
         let flat_len = positions.len().saturating_mul(3);
         if n >= 8 && flat_len <= i32::MAX as usize && std::is_x86_feature_detected!("avx2") {
             // SAFETY: `avx2` was detected, and every index is checked inside.
