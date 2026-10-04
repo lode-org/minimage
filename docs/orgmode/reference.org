@@ -34,7 +34,8 @@ failure; read =mi_last_error()= on the same thread.
 | =mi_dist2= | Squared minimum-image distance |
 | =mi_dist2_many= | One source, packed candidates |
 | =mi_dist2_pairs= | Packed pair lists |
-| =mi_dist2_ortho_diffs= | Highway-shaped ortho wrap |
+| =mi_dist2_ortho_diffs= | Highway-shaped ortho wrap, AVX when present |
+| =mi_dist2_shifted_many= | One lattice shift, many candidates |
 | =mi_reduce_pairs= | Drop self images, unique pairs |
 | =mi_last_error= | Thread-local error string |
 | =mi_version= | Process-static version |

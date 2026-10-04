@@ -11,7 +11,11 @@
 //! wrap. [`Cell::is_ortho`] is the cheap path: three independent wraps
 //! and a scaled-diagonal shift, skipping the two 3x3 matvecs.
 
+use crate::kernel::{self, Tri};
+use crate::selling::{self, Obtuse};
 use crate::Error;
+
+pub(crate) use crate::kernel::mul;
 
 /// Periodic parallelepiped: columns of H, origin, and an ortho flag.
 ///
@@ -41,6 +45,13 @@ pub struct Cell {
     widths: [f64; 3],
     /// Axis-aligned diagonal box: MIC is three independent wraps.
     ortho: bool,
+    /// `a` along x and `b` in the xy plane (LAMMPS / HOOMD / GROMACS).
+    restricted: bool,
+    /// Triangular lamda coefficients. Read only when [`Self::restricted`].
+    tri: Tri,
+    /// Selling superbasis. Orthorhombic cells leave this empty: the
+    /// per-axis wrap is already the Euclidean nearest image.
+    superbasis: Obtuse,
 }
 
 impl Cell {
@@ -72,26 +83,71 @@ impl Cell {
         c: [f64; 3],
         origin: [f64; 3],
     ) -> Result<Self, Error> {
+        Self::from_vectors_prepared(a, b, c, origin, true)
+    }
+
+    /// Geometry only. C constructors write `H` and drop the temporary,
+    /// so they skip Selling.
+    pub(crate) fn from_vectors_light(
+        a: [f64; 3],
+        b: [f64; 3],
+        c: [f64; 3],
+        origin: [f64; 3],
+    ) -> Result<Self, Error> {
+        Self::from_vectors_prepared(a, b, c, origin, false)
+    }
+
+    fn from_vectors_prepared(
+        a: [f64; 3],
+        b: [f64; 3],
+        c: [f64; 3],
+        origin: [f64; 3],
+        prepare_euclidean: bool,
+    ) -> Result<Self, Error> {
         let h = [a, b, c];
-        let (hinv, det) = invert_columns(h).ok_or(Error::BadBox)?;
+        let (hinv, det) = kernel::invert_columns(h).ok_or(Error::BadBox)?;
         if !det.is_finite() || det.abs() < 1e-18 {
             return Err(Error::BadBox);
         }
-        let bc = cross(b, c);
-        let ca = cross(c, a);
-        let ab = cross(a, b);
-        let wa = det.abs() / norm(bc);
-        let wb = det.abs() / norm(ca);
-        let wc = det.abs() / norm(ab);
+        let bc = kernel::cross(b, c);
+        let ca = kernel::cross(c, a);
+        let ab = kernel::cross(a, b);
+        let wa = det.abs() / kernel::norm(bc);
+        let wb = det.abs() / kernel::norm(ca);
+        let wc = det.abs() / kernel::norm(ab);
         if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
             return Err(Error::BadBox);
         }
+        let ortho = kernel::ortho_lengths(h).is_some();
+        let tri = Tri::restricted(h);
+        let restricted = tri.is_some();
+        let tri = tri.unwrap_or(Tri {
+            lx: 0.0,
+            ly: 0.0,
+            lz: 0.0,
+            xy: 0.0,
+            xz: 0.0,
+            yz: 0.0,
+            inv_lx: 0.0,
+            inv_ly: 0.0,
+            inv_lz: 0.0,
+        });
+        // The rectangular wrap is the Euclidean nearest image. Selling
+        // is the skewed-cell certificate and is built once, here.
+        let superbasis = if prepare_euclidean && !ortho {
+            selling::obtuse_superbasis(a, b, c)
+        } else {
+            Obtuse::empty()
+        };
         Ok(Self {
             h,
             hinv,
             origin,
             widths: [wa, wb, wc],
-            ortho: is_axis_aligned(h),
+            ortho,
+            restricted,
+            tri,
+            superbasis,
         })
     }
 
@@ -307,10 +363,20 @@ impl Cell {
     /// is `ds = wrap(Hinv (q - p))`, then `dr = H ds`.
     #[inline]
     pub fn displacement(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
+        let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+        self.wrap_diff(dp)
+    }
+
+    /// Engine wrap of a Cartesian difference. The origin does not enter.
+    #[inline]
+    pub(crate) fn wrap_diff(&self, dp: [f64; 3]) -> [f64; 3] {
         if self.ortho {
-            return displacement_ortho(self.widths, p, q);
+            return kernel::ortho_wrap(self.widths, dp);
         }
-        displacement_general(self.h, self.hinv, p, q)
+        if self.restricted {
+            return self.tri.wrap(dp);
+        }
+        kernel::general_wrap(self.h, self.hinv, dp)
     }
 
     /// Squared minimum-image distance.
@@ -355,11 +421,7 @@ impl Cell {
     /// This is the GROMACS / LAMMPS / HOOMD restricted-triclinic frame.
     /// Those engines refuse or rotate any other orientation before wrap.
     pub fn is_restricted(&self) -> bool {
-        let a = self.h[0];
-        let b = self.h[1];
-        let scale = (norm(a) + norm(b) + norm(self.h[2])).max(1.0);
-        let tol = 1e-10 * scale;
-        a[1].abs() <= tol && a[2].abs() <= tol && b[2].abs() <= tol
+        self.restricted
     }
 
     /// True when the cell is restricted and the tilts sit inside the
@@ -410,32 +472,65 @@ impl Cell {
         Ok(self.restricted_frame()?.0)
     }
 
-    /// Euclidean MIC for displacements that may be long.
+    /// Euclidean nearest image, including displacements longer than
+    /// the cell.
     ///
-    /// Smith, CCP5 Newsletter 1989: the fractional wrap is the
-    /// nearest image when its length is below half the shortest edge.
-    /// That is the GROMACS/LAMMPS/HOOMD regime (cutoffs). Linkcell
-    /// k-NN has no cutoff; a hex-prism body diagonal is a fractional
-    /// wrap that is longer than a neighbouring image.
+    /// An orthorhombic box is the per-axis wrap. Otherwise Smith,
+    /// *CCP5 Newsletter* 1989: the engine wrap is nearest when its
+    /// length is strictly below half the smallest face altitude.
+    /// That is the cutoff regime of GROMACS, LAMMPS, and HOOMD.
+    /// Linkcell k-NN has no cutoff. A hex-prism body diagonal is an
+    /// engine wrap that is longer than another image.
     ///
-    /// When the Smith test fails, the basis is Minkowski-reduced
-    /// (Nguyen–Stehlé, ACM Trans. Algorithms 2009,
-    /// 10.1145/1597036.1597050) and the 27-image in that basis is
-    /// the nearest lattice vector. [`Self::displacement`] stays the
-    /// engine fractional wrap on the caller's H.
+    /// Past that test the cell's Selling superbasis (built once in
+    /// [`Self::from_vectors`]) is handed to McKilliam, Grant, and
+    /// Clarkson, *SIAM J. Discrete Math.* **28**, 1405 (2014). A tie
+    /// keeps the engine vector. [`Self::displacement`] stays that
+    /// engine vector on the caller's `H`.
     pub fn displacement_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
-        let frac = self.displacement(p, q);
-        let f2 = frac[0] * frac[0] + frac[1] * frac[1] + frac[2] * frac[2];
-        let w = self.widths();
+        if self.ortho {
+            return self.displacement(p, q);
+        }
+        let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+        let frac = self.wrap_diff(dp);
+        let f2 = kernel::n2(frac);
+        let w = self.widths;
         let half_min = 0.5 * w[0].min(w[1]).min(w[2]);
         if f2.sqrt() + 1e-12 < half_min {
             return frac;
         }
-        let reduced = match crate::minkowski::minkowski_reduce(self) {
-            Ok(c) => c,
-            Err(_) => return self.displacement_cartesian(p, q),
+        let euc = if self.superbasis.prepared {
+            selling::closest_displacement(&self.superbasis, dp)
+        } else {
+            let built = selling::obtuse_superbasis(self.h[0], self.h[1], self.h[2]);
+            selling::closest_displacement(&built, dp)
         };
-        reduced.displacement_cartesian(p, q)
+        let e2 = kernel::n2(euc);
+        if e2 + 1e-12 * (1.0 + f2) < f2 {
+            euc
+        } else {
+            frac
+        }
+    }
+
+    /// Squared distances from `p` to each `q`, with one lattice shift
+    /// already applied to every `q`.
+    ///
+    /// Rapaport's linked-cell pair: `|q + shift - p|^2`. No wrap and
+    /// no `Hinv`. `out` has one entry per `q`.
+    pub fn dist2_shifted_many(
+        &self,
+        p: [f64; 3],
+        qs: &[[f64; 3]],
+        shift: [f64; 3],
+        out: &mut [f64],
+    ) -> Result<(), Error> {
+        if out.len() != qs.len() {
+            return Err(Error::BufferSize);
+        }
+        let _ = self.ortho;
+        crate::simd::dist2_shifted_many(p, qs, shift, out);
+        Ok(())
     }
 
     /// Squared Euclidean MIC distance.
@@ -451,27 +546,27 @@ impl Cell {
         let a = self.h[0];
         let b = self.h[1];
         let c = self.h[2];
-        let al = norm(a);
+        let al = kernel::norm(a);
         if al < 1e-18 {
             return Err(Error::BadBox);
         }
         let a_hat = [a[0] / al, a[1] / al, a[2] / al];
-        let b_par = dot(b, a_hat);
+        let b_par = kernel::dot(b, a_hat);
         let b_perp = [
             b[0] - b_par * a_hat[0],
             b[1] - b_par * a_hat[1],
             b[2] - b_par * a_hat[2],
         ];
-        let bl = norm(b_perp);
+        let bl = kernel::norm(b_perp);
         if bl < 1e-18 {
             return Err(Error::BadBox);
         }
         let n = [b_perp[0] / bl, b_perp[1] / bl, b_perp[2] / bl];
-        let k = cross(a_hat, n);
+        let k = kernel::cross(a_hat, n);
         let rot = [a_hat, n, k];
         let a_new = [al, 0.0, 0.0];
         let b_new = [b_par, bl, 0.0];
-        let c_new = [dot(c, a_hat), dot(c, n), dot(c, k)];
+        let c_new = [kernel::dot(c, a_hat), kernel::dot(c, n), kernel::dot(c, k)];
         let cell = Self::from_vectors(a_new, b_new, c_new, mul_rows(rot, self.origin))?;
         Ok((cell, rot))
     }
@@ -654,59 +749,6 @@ fn wrap01(mut s: f64) -> f64 {
     }
 }
 
-/// Orthorhombic signed wrap into `[-L/2, L/2)`.
-///
-/// Keeps `-L/2` and maps `+L/2` onto `-L/2`, matching the dump
-/// `relDist` half-box test. Squared distance agrees with
-/// `abs` then `round`.
-#[inline]
-pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
-    let half = 0.5 * length;
-    let mut w = d;
-    if w < -half {
-        w += length;
-    }
-    if w >= half {
-        w -= length;
-    }
-    w
-}
-
-#[inline]
-fn displacement_ortho(l: [f64; 3], p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
-    [
-        wrap_half(q[0] - p[0], l[0]),
-        wrap_half(q[1] - p[1], l[1]),
-        wrap_half(q[2] - p[2], l[2]),
-    ]
-}
-
-#[inline]
-fn displacement_general(
-    h: [[f64; 3]; 3],
-    hinv: [[f64; 3]; 3],
-    p: [f64; 3],
-    q: [f64; 3],
-) -> [f64; 3] {
-    let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
-    let mut ds = mul(hinv, dp);
-    for e in &mut ds {
-        *e -= e.round();
-    }
-    mul(h, ds)
-}
-
-fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
-    let scale = (norm(h[0]) + norm(h[1]) + norm(h[2])).max(1.0);
-    let tol = 1e-12 * scale;
-    h[0][1].abs() <= tol
-        && h[0][2].abs() <= tol
-        && h[1][0].abs() <= tol
-        && h[1][2].abs() <= tol
-        && h[2][0].abs() <= tol
-        && h[2][1].abs() <= tol
-}
-
 const IDENTITY: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 /// GROMACS `correct_box_elem`: subtract integer copies of `edge` from
@@ -734,65 +776,12 @@ fn correct_box_elem(vec: &mut [f64; 3], edge: [f64; 3], d: usize) {
 }
 
 #[inline]
-fn dot(u: [f64; 3], v: [f64; 3]) -> f64 {
-    u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
-}
-
-#[inline]
 fn mul_rows(r: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
-    [dot(r[0], v), dot(r[1], v), dot(r[2], v)]
-}
-
-/// H is stored by columns. `mul(h, s)` is H s.
-#[inline]
-pub(crate) fn mul(h: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
     [
-        h[0][0] * v[0] + h[1][0] * v[1] + h[2][0] * v[2],
-        h[0][1] * v[0] + h[1][1] * v[1] + h[2][1] * v[2],
-        h[0][2] * v[0] + h[1][2] * v[1] + h[2][2] * v[2],
+        kernel::dot(r[0], v),
+        kernel::dot(r[1], v),
+        kernel::dot(r[2], v),
     ]
-}
-
-fn cross(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
-    [
-        u[1] * v[2] - u[2] * v[1],
-        u[2] * v[0] - u[0] * v[2],
-        u[0] * v[1] - u[1] * v[0],
-    ]
-}
-
-fn norm(v: [f64; 3]) -> f64 {
-    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
-}
-
-fn invert_columns(h: [[f64; 3]; 3]) -> Option<([[f64; 3]; 3], f64)> {
-    let a = h[0];
-    let b = h[1];
-    let c = h[2];
-    let det = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
-        + a[2] * (b[0] * c[1] - b[1] * c[0]);
-    if !det.is_finite() || det.abs() < 1e-18 {
-        return None;
-    }
-    let invdet = 1.0 / det;
-    let inv = [
-        [
-            (b[1] * c[2] - b[2] * c[1]) * invdet,
-            (a[2] * c[1] - a[1] * c[2]) * invdet,
-            (a[1] * b[2] - a[2] * b[1]) * invdet,
-        ],
-        [
-            (b[2] * c[0] - b[0] * c[2]) * invdet,
-            (a[0] * c[2] - a[2] * c[0]) * invdet,
-            (a[2] * b[0] - a[0] * b[2]) * invdet,
-        ],
-        [
-            (b[0] * c[1] - b[1] * c[0]) * invdet,
-            (a[1] * c[0] - a[0] * c[1]) * invdet,
-            (a[0] * b[1] - a[1] * b[0]) * invdet,
-        ],
-    ];
-    Some((inv, det))
 }
 
 #[cfg(test)]
@@ -807,7 +796,7 @@ mod tests {
         let q = [9.7, 10.8, 0.4];
         let fast = b.dist2(p, q);
         let slow = {
-            let dr = displacement_general(b.h, b.hinv, p, q);
+            let dr = kernel::general_wrap(b.h, b.hinv, [q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
             dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2]
         };
         assert!((fast - slow).abs() <= 1e-12 * (1.0 + fast.abs()));
@@ -817,6 +806,23 @@ mod tests {
         let via = b.dist2_shifted(left, right, b.lattice_shift(-1, 0, 0));
         assert!((via - mic).abs() <= 1e-12 * (1.0 + mic.abs()));
         assert!((mic - 0.64).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn ortho_wrap_covers_later_images_and_keeps_negative_half() {
+        let c = Cell::ortho(10.0, 11.0, 12.0).unwrap();
+        let d = c.displacement([0.0, 0.0, 0.0], [25.0, -18.0, 12.0]);
+        assert!((d[0] + 5.0).abs() < 1e-12);
+        assert!((d[1] - 4.0).abs() < 1e-12);
+        assert!(d[2].abs() < 1e-12);
+        let half = c.displacement([0.0, 0.0, 0.0], [5.0, -5.5, 6.0]);
+        assert!((half[0] + 5.0).abs() < 1e-12);
+        assert!((half[1] + 5.5).abs() < 1e-12);
+        assert!((half[2] + 6.0).abs() < 1e-12);
+        let euc = c.displacement_euclidean([0.0, 0.0, 0.0], [25.0, -18.0, 12.0]);
+        assert!((euc[0] - d[0]).abs() < 1e-12);
+        assert!((euc[1] - d[1]).abs() < 1e-12);
+        assert!((euc[2] - d[2]).abs() < 1e-12);
     }
 
     #[test]

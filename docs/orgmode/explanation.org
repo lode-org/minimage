@@ -20,11 +20,42 @@ Cartesian coordinates fold to fractional coordinates =s = Hinv (r -
 origin)=, wrap each component into the central image, then map back
 =r = H s=. Squared distance is =|H wrap(Hinv (q - p))|^2=.
 
-Orthorhombic boxes are the diagonal case. Each axis wraps on its own
-length. The batched kernel hoists one reciprocal per axis and wraps
-precomputed differences, the same arithmetic as a Highway
-=BatchPeriodicDistSq= loop. The signed wrap keeps =-L/2= and maps
-=+L/2= onto =-L/2=, matching dump =relDist=.
+Orthorhombic boxes are the diagonal case (Allen and Tildesley;
+Frenkel and Smit). Each axis is =d - L floor(d/L + 1/2)=, every
+image, not one subtraction. The tie keeps =-L/2= and maps =+L/2=
+onto =-L/2=, matching dump =relDist=.
+
+A restricted triclinic box (=a= along x, =b= in the xy plane) uses
+the triangular lamda step of LAMMPS =Domain::minimum_image=, HOOMD
+=BoxDim::minImage=, and GROMACS =pbc_dx= (Tuckerman; Wassenaar). A
+general orientation is two products with =Hinv=. =Cell::reduce_tilts=
+is GROMACS =correct_box=. =Cell::to_restricted= is the LAMMPS
+general-to-restricted rotation.
+
+The SoA orthorhombic kernel is Highway =BatchPeriodicDistSq=: one
+reciprocal per axis, =abs=, then =round=. AVX issues four doubles
+when the CPU has it.
+
+* Nearest image
+
+Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
+nearest image when its length is strictly below half the smallest
+face altitude. That is the cutoff regime. Linkcell k-NN has no
+cutoff. A hex-prism body diagonal is an engine wrap that is longer
+than another image.
+
+Past that test the closest point is McKilliam, Grant, and Clarkson,
+SIAM J. Discrete Math. 28, 1405 (2014), on the obtuse superbasis
+every three-dimensional lattice has (Selling, 1874; Conway and
+Sloane, Proc. R. Soc. Lond. A 436, 55, 1992). A near-parallel basis
+makes the one-vector Delone step linear in the reciprocal of the
+angle, so Lagrange's size reduction (1773; Gauss, 1801) shortens
+the edges first. The superbasis is built once, in the constructor.
+A tie keeps the engine vector.
+Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
+Minkowski-reduces a basis; that reduction is not the closest-vector
+certificate. The linked-cell pair itself is Rapaport's shift,
+=|q + shift - p|^2=, exposed as =dist2_shifted_many=.
 
 * Dump bounds are not H
 

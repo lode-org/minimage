@@ -7,6 +7,8 @@ use std::ffi::{c_char, c_int, CString};
 use std::ptr;
 use std::slice;
 
+use crate::batch::dist2_many_ortho;
+use crate::kernel::{self, n2};
 use crate::{
     dist2_many, dist2_ortho_diffs, dist2_pairs, reduce_pairs_packed, wrap_many, Cell, Error,
 };
@@ -42,13 +44,24 @@ pub struct mi_cell {
 }
 
 impl mi_cell {
-    fn to_cell(self) -> Result<Cell, Error> {
-        Cell::from_vectors(
+    fn columns(&self) -> [[f64; 3]; 3] {
+        [
             [self.ax, self.ay, self.az],
             [self.bx, self.by, self.bz],
             [self.cx, self.cy, self.cz],
-            [self.ox, self.oy, self.oz],
-        )
+        ]
+    }
+
+    /// Engine cell. No Selling step: the C hot path only wraps.
+    fn to_cell(self) -> Result<Cell, Error> {
+        let h = self.columns();
+        Cell::from_vectors_light(h[0], h[1], h[2], [self.ox, self.oy, self.oz])
+    }
+
+    /// Engine cell plus the cached Selling superbasis.
+    fn to_cell_euclidean(self) -> Result<Cell, Error> {
+        let h = self.columns();
+        Cell::from_vectors(h[0], h[1], h[2], [self.ox, self.oy, self.oz])
     }
 
     fn from_cell(cell: &Cell) -> Self {
@@ -75,6 +88,17 @@ impl mi_cell {
 
 thread_local! {
     static LAST_ERROR: RefCell<Option<CString>> = const { RefCell::new(None) };
+    /// Last engine cell built from an `mi_cell`. seams calls `mi_dist2`
+    /// once per pair with the same twelve doubles; the inverse stays.
+    static CACHED_LIGHT: RefCell<Option<([f64; 12], Cell)>> = const { RefCell::new(None) };
+    static CACHED_EUCLIDEAN: RefCell<Option<([f64; 12], Cell)>> = const { RefCell::new(None) };
+}
+
+fn cell_key(raw: &mi_cell) -> [f64; 12] {
+    [
+        raw.ax, raw.ay, raw.az, raw.bx, raw.by, raw.bz, raw.cx, raw.cy, raw.cz, raw.ox, raw.oy,
+        raw.oz,
+    ]
 }
 
 fn set_error(msg: &str) {
@@ -100,6 +124,15 @@ fn fail(err: Error) -> c_int {
 fn fail_msg(msg: &str) -> c_int {
     set_error(msg);
     1
+}
+
+/// Positive orthorhombic lengths, or `None` when `H` is not diagonal.
+/// A null box is an error. The rectangular wrap does not need `Hinv`.
+fn read_ortho(simbox: *const mi_cell) -> Result<Option<[f64; 3]>, c_int> {
+    if simbox.is_null() {
+        return Err(fail_msg("null simbox"));
+    }
+    Ok(kernel::ortho_lengths(unsafe { &*simbox }.columns()))
 }
 
 /// Thread-local last-error string from this thread's most recent `mi_*`
@@ -165,7 +198,7 @@ pub unsafe extern "C" fn mi_cell_from_vectors(
     let b = unsafe { [*b, *b.add(1), *b.add(2)] };
     let c = unsafe { [*c, *c.add(1), *c.add(2)] };
     let origin = unsafe { [*origin, *origin.add(1), *origin.add(2)] };
-    write_cell(Cell::from_vectors(a, b, c, origin), out)
+    write_cell(Cell::from_vectors_light(a, b, c, origin), out)
 }
 
 /// Fill `out` from LAMMPS `xlo xhi ylo yhi zlo zhi` and tilts.
@@ -183,10 +216,9 @@ pub extern "C" fn mi_cell_from_lammps(
     yz: f64,
     out: *mut mi_cell,
 ) -> c_int {
-    write_cell(
-        Cell::from_lammps(xlo, xhi, ylo, yhi, zlo, zhi, xy, xz, yz),
-        out,
-    )
+    let (h, origin) =
+        crate::cell::dump_bounds_to_h(xhi - xlo, yhi - ylo, zhi - zlo, xy, xz, yz, xlo, ylo, zlo);
+    write_cell(Cell::from_vectors_light(h[0], h[1], h[2], origin), out)
 }
 
 /// Fill `out` from dump bound spans, tilts, and bound lo.
@@ -203,10 +235,9 @@ pub extern "C" fn mi_cell_from_lammps_bounds(
     zlo_b: f64,
     out: *mut mi_cell,
 ) -> c_int {
-    write_cell(
-        Cell::from_lammps_bounds(xspan, yspan, zspan, xy, xz, yz, xlo_b, ylo_b, zlo_b),
-        out,
-    )
+    let (h, origin) =
+        crate::cell::dump_bounds_to_h(xspan, yspan, zspan, xy, xz, yz, xlo_b, ylo_b, zlo_b);
+    write_cell(Cell::from_vectors_light(h[0], h[1], h[2], origin), out)
 }
 
 /// Fill `out` from an ASE-style row-major 3x3 cell. `origin` may be NULL
@@ -234,10 +265,10 @@ pub unsafe extern "C" fn mi_cell_from_ase(
         ]
     };
     let cell = if origin.is_null() {
-        Cell::from_ase(rows)
+        Cell::from_vectors_light(rows[0], rows[1], rows[2], [0.0, 0.0, 0.0])
     } else {
         let origin = unsafe { [*origin, *origin.add(1), *origin.add(2)] };
-        Cell::from_vectors(rows[0], rows[1], rows[2], origin)
+        Cell::from_vectors_light(rows[0], rows[1], rows[2], origin)
     };
     write_cell(cell, out)
 }
@@ -269,7 +300,12 @@ pub unsafe extern "C" fn mi_cell_from_con_box(
     }
     let boxl = unsafe { [*boxl, *boxl.add(1), *boxl.add(2)] };
     let angles = unsafe { [*angles_deg, *angles_deg.add(1), *angles_deg.add(2)] };
-    write_cell(Cell::from_con_box(boxl, angles), out)
+    write_cell(
+        Cell::from_con_box(boxl, angles)
+            .map(|c| Cell::from_vectors_light(c.a(), c.b(), c.c(), c.origin()))
+            .and_then(|r| r),
+        out,
+    )
 }
 
 /// Fill `out` from a vesin 3x3 box (rows a, b, c).
@@ -288,7 +324,36 @@ fn read_cell(simbox: *const mi_cell) -> Result<Cell, c_int> {
     }
     // SAFETY: one readable `mi_cell`.
     let raw = unsafe { *simbox };
-    raw.to_cell().map_err(fail)
+    let key = cell_key(&raw);
+    CACHED_LIGHT.with(|slot| {
+        if let Some((cached, cell)) = *slot.borrow() {
+            if cached == key {
+                return Ok(cell);
+            }
+        }
+        let cell = raw.to_cell().map_err(fail)?;
+        *slot.borrow_mut() = Some((key, cell));
+        Ok(cell)
+    })
+}
+
+fn read_cell_euclidean(simbox: *const mi_cell) -> Result<Cell, c_int> {
+    if simbox.is_null() {
+        return Err(fail_msg("null cell"));
+    }
+    // SAFETY: one readable `mi_cell`.
+    let raw = unsafe { *simbox };
+    let key = cell_key(&raw);
+    CACHED_EUCLIDEAN.with(|slot| {
+        if let Some((cached, cell)) = *slot.borrow() {
+            if cached == key {
+                return Ok(cell);
+            }
+        }
+        let cell = raw.to_cell_euclidean().map_err(fail)?;
+        *slot.borrow_mut() = Some((key, cell));
+        Ok(cell)
+    })
 }
 
 fn read3(p: *const f64, what: &str) -> Result<[f64; 3], c_int> {
@@ -310,8 +375,8 @@ pub unsafe extern "C" fn mi_displacement(
     q: *const f64,
     dr: *mut f64,
 ) -> c_int {
-    let cell = match read_cell(simbox) {
-        Ok(c) => c,
+    let ortho = match read_ortho(simbox) {
+        Ok(v) => v,
         Err(e) => return e,
     };
     let p = match read3(p, "null p") {
@@ -325,7 +390,15 @@ pub unsafe extern "C" fn mi_displacement(
     if dr.is_null() {
         return fail_msg("null dr");
     }
-    let v = cell.displacement(p, q);
+    let v = if let Some(l) = ortho {
+        kernel::ortho_wrap(l, [q[0] - p[0], q[1] - p[1], q[2] - p[2]])
+    } else {
+        let cell = match read_cell(simbox) {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+        cell.displacement(p, q)
+    };
     unsafe {
         *dr = v[0];
         *dr.add(1) = v[1];
@@ -335,7 +408,8 @@ pub unsafe extern "C" fn mi_displacement(
     0
 }
 
-/// Euclidean MIC: Smith half-edge test, else Minkowski 27-image, into `dr`.
+/// Euclidean MIC: Smith half-altitude test, else the Selling closest
+/// point, into `dr`.
 ///
 /// # Safety
 ///
@@ -347,7 +421,7 @@ pub unsafe extern "C" fn mi_displacement_euclidean(
     q: *const f64,
     dr: *mut f64,
 ) -> c_int {
-    let cell = match read_cell(simbox) {
+    let cell = match read_cell_euclidean(simbox) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -384,8 +458,8 @@ pub unsafe extern "C" fn mi_wrap_many(
     n: usize,
     out: *mut f64,
 ) -> c_int {
-    let cell = match read_cell(simbox) {
-        Ok(c) => c,
+    let ortho = match read_ortho(simbox) {
+        Ok(v) => v,
         Err(e) => return e,
     };
     let diffs = match packed_triples(diffs, n, "null diffs") {
@@ -400,6 +474,15 @@ pub unsafe extern "C" fn mi_wrap_many(
         return fail_msg("null out");
     }
     let out = unsafe { slice::from_raw_parts_mut(out as *mut [f64; 3], n) };
+    if let Some(l) = ortho {
+        crate::simd::wrap_many_ortho(l, diffs, out);
+        clear_error();
+        return 0;
+    }
+    let cell = match read_cell(simbox) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
     match wrap_many(&cell, diffs, out) {
         Ok(()) => {
             clear_error();
@@ -422,8 +505,8 @@ pub unsafe extern "C" fn mi_dist2(
     q: *const f64,
     out: *mut f64,
 ) -> c_int {
-    let cell = match read_cell(simbox) {
-        Ok(c) => c,
+    let ortho = match read_ortho(simbox) {
+        Ok(v) => v,
         Err(e) => return e,
     };
     let p = match read3(p, "null p") {
@@ -437,8 +520,20 @@ pub unsafe extern "C" fn mi_dist2(
     if out.is_null() {
         return fail_msg("null out");
     }
+    let d2 = if let Some(l) = ortho {
+        n2(kernel::ortho_wrap(
+            l,
+            [q[0] - p[0], q[1] - p[1], q[2] - p[2]],
+        ))
+    } else {
+        let cell = match read_cell(simbox) {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+        cell.dist2(p, q)
+    };
     unsafe {
-        *out = cell.dist2(p, q);
+        *out = d2;
     }
     clear_error();
     0
@@ -468,8 +563,8 @@ pub unsafe extern "C" fn mi_dist2_many(
     n: usize,
     out: *mut f64,
 ) -> c_int {
-    let cell = match read_cell(simbox) {
-        Ok(c) => c,
+    let ortho = match read_ortho(simbox) {
+        Ok(v) => v,
         Err(e) => return e,
     };
     let p = match read3(p, "null p") {
@@ -488,6 +583,15 @@ pub unsafe extern "C" fn mi_dist2_many(
         return fail_msg("null out");
     }
     let out = unsafe { slice::from_raw_parts_mut(out, n) };
+    if let Some(l) = ortho {
+        dist2_many_ortho(l, p, qs, out);
+        clear_error();
+        return 0;
+    }
+    let cell = match read_cell(simbox) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
     match dist2_many(&cell, p, qs, out) {
         Ok(()) => {
             clear_error();
@@ -573,6 +677,45 @@ pub unsafe extern "C" fn mi_dist2_ortho_diffs(
         }
         Err(e) => fail(e),
     }
+}
+
+/// Squared distances from `p` to `n` points in `qs`, plus one lattice
+/// shift `(sx, sy, sz)` on every candidate. Rapaport's bin pair.
+///
+/// # Safety
+///
+/// `p` is three doubles. `qs` is `n * 3` doubles. `out` is `n` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_shifted_many(
+    p: *const f64,
+    qs: *const f64,
+    shift: *const f64,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let p = match read3(p, "null p") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let shift = match read3(shift, "null shift") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let qs = match packed_triples(qs, n, "null qs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n == 0 {
+        clear_error();
+        return 0;
+    }
+    if out.is_null() {
+        return fail_msg("null out");
+    }
+    let out = unsafe { slice::from_raw_parts_mut(out, n) };
+    crate::simd::dist2_shifted_many(p, qs, shift, out);
+    clear_error();
+    0
 }
 
 /// Drop self images and collapse duplicate `(i, j)` rows.
