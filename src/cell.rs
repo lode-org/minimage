@@ -63,6 +63,26 @@ fn build_norm(v: [f64; 3]) -> f64 {
     (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
 }
 
+/// One load per element.
+///
+/// A 16-byte load at element 0 straddles the 8-byte store and the
+/// 16-byte store the caller just wrote for a `[f64; 3]`. That load
+/// cannot forward, and the cell build then waits on the store buffer.
+#[inline(always)]
+fn load3(v: [f64; 3]) -> [f64; 3] {
+    let p = v.as_ptr();
+    // SAFETY: `v` is a live `[f64; 3]`. Each index is in range and
+    // aligned for `f64`. The loads stay split so each one sits inside
+    // a single store.
+    unsafe {
+        [
+            std::ptr::read_volatile(p),
+            std::ptr::read_volatile(p.add(1)),
+            std::ptr::read_volatile(p.add(2)),
+        ]
+    }
+}
+
 fn build_invert(h: [[f64; 3]; 3]) -> Option<([[f64; 3]; 3], f64)> {
     let a = h[0];
     let b = h[1];
@@ -122,15 +142,11 @@ impl Cell {
         c: [f64; 3],
         origin: [f64; 3],
     ) -> Result<Self, Error> {
+        let a = load3(a);
+        let b = load3(b);
+        let c = load3(c);
+        let origin = load3(origin);
         let h = [a, b, c];
-        // Diagonal reciprocals do not depend on the face widths, so the
-        // divisions overlap those square roots instead of following them.
-        let lx = a[0];
-        let ly = b[1];
-        let lz = c[2];
-        let inv_lx = 1.0 / lx;
-        let inv_ly = 1.0 / ly;
-        let inv_lz = 1.0 / lz;
         let (hinv, det) = build_invert(h).ok_or(Error::BadBox)?;
         if !det.is_finite() || det.abs() < 1e-18 {
             return Err(Error::BadBox);
@@ -152,6 +168,9 @@ impl Cell {
         let ortho = kernel::is_axis_aligned_scaled(h, scale);
         let restricted = kernel::is_restricted_scaled(h, scale);
         let tri = if restricted {
+            let lx = a[0];
+            let ly = b[1];
+            let lz = c[2];
             kernel::Tri {
                 lx,
                 ly,
@@ -159,9 +178,9 @@ impl Cell {
                 xy: b[0],
                 xz: c[0],
                 yz: c[1],
-                inv_lx,
-                inv_ly,
-                inv_lz,
+                inv_lx: 1.0 / lx,
+                inv_ly: 1.0 / ly,
+                inv_lz: 1.0 / lz,
             }
         } else {
             kernel::Tri {
