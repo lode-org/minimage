@@ -58,8 +58,9 @@ certificate. The linked-cell pair itself is Rapaport's shift,
 =|q + shift - p|^2=, exposed as =dist2_shifted_many=. A bin that
 is an index list rather than a contiguous slice is
 =dist2_shifted_indexed=: it gathers a chunk of those positions into
-the same kernel. A bin of one occupant is a single subtract, and
-gathering that one point is extra work.
+the same kernel. The gather copies every point first. On a long
+index list that copy was slower than the inlined subtract, so the
+production walk keeps the subtract.
 
 * Validation
 
@@ -91,12 +92,14 @@ reference is the per-pair wrap. The Euclidean region's reference
 is the engine wrap, and a ratio below one is the cost of the
 closest-point search. =scripts/ab_vs_main.sh= times the shared
 calls against published 0.1.2. The gate covers the orthorhombic
-batches, the far Euclidean query, and the C =mi_dist2= /
-=mi_dist2_many= / =mi_dist2_pairs= loop. Each of those must be at
-least five percent faster. Skew-cell construction and the per-pair
-Rust wrap of an already built cell are printed beside that gate.
-Published 0.1.2 wraps a single neighbouring image; the per-pair
-Rust number is that in-box case.
+batches, the near and far Euclidean queries, and the C =mi_dist2=
+/ =mi_dist2_many= / =mi_dist2_pairs= loop. Each of those must be
+at least five percent faster. The in-box per-pair Rust wrap is
+two comparisons for one neighbouring image and a floor past that
+image; the script fails if that path is more than five percent
+slower than published 0.1.2. Skew-cell construction is printed
+beside the gate, because Selling is paid once when the cell is
+built.
 
 * Dump bounds are not H
 

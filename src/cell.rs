@@ -543,9 +543,10 @@ impl Cell {
     ///
     /// A linked-cell bin is an index list into the neighbour array, not
     /// a contiguous slice. This gathers a chunk of those positions and
-    /// runs the same kernel as [`Self::dist2_shifted_many`]. A bin of
-    /// one occupant is a single subtract; gathering that one point is
-    /// extra work, and that walk should keep the inlined pair.
+    /// runs the same kernel as [`Self::dist2_shifted_many`]. The
+    /// gather copies every point before the kernel runs, and on a long
+    /// index list that copy was slower than the inlined subtract, so
+    /// the production walk keeps the subtract.
     ///
     /// `out` has one entry per index. An index past `positions` panics.
     pub fn dist2_shifted_indexed(

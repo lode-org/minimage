@@ -71,17 +71,21 @@ cc_one() {
   local label="$1"
   local tree="$2"
   local out="/tmp/ab-c-${label}"
-  gcc -O2 -std=c11 -o "$out" "$root/scripts/ab_c.c" \
+  gcc -O2 -std=c11 -D_POSIX_C_SOURCE=199309L -o "$out" "$root/scripts/ab_c.c" \
     -I "$tree/include" \
     -L "$tree/target/release" \
     -lminimage \
     -Wl,-rpath,"$tree/target/release" \
-    -lm
+    -lm || return 1
   echo "$out"
 }
 
-head_c="$(cc_one head "$root")"
-main_c="$(cc_one main "$wt")"
+head_c="$(cc_one head "$root")" || exit 1
+main_c="$(cc_one main "$wt")" || exit 1
+if [[ ! -x "$head_c" || ! -x "$main_c" ]]; then
+  echo "C driver did not link" >&2
+  exit 1
+fi
 
 median_run() {
   local bin="$1"
@@ -135,11 +139,14 @@ head = load(head_path)
 gated = {
     "ortho_many",
     "ortho_pairs",
+    "eucl_near",
     "eucl_far",
     "c_dist2",
     "c_dist2_many",
     "c_dist2_pairs",
 }
+# In-box pair wrap is the two-compare path. It must not regress.
+ceiling = {"ortho_pair": 1.05}
 print(f"{'region':<16} {'main_ns':>12} {'head_ns':>12} {'head/main':>10} {'gate':>8}")
 failed = []
 for name in sorted(set(main) | set(head)):
@@ -153,6 +160,10 @@ for name in sorted(set(main) | set(head)):
     gate = "report"
     if name in gated:
         gate = "pass" if ratio <= 0.95 else "FAIL"
+        if gate == "FAIL":
+            failed.append(name)
+    elif name in ceiling:
+        gate = "ceiling" if ratio <= ceiling[name] else "FAIL"
         if gate == "FAIL":
             failed.append(name)
     print(f"{name:<16} {m:12.4f} {h:12.4f} {ratio:10.3f} {gate:>8}")
