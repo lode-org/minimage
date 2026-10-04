@@ -14,66 +14,6 @@
 //!
 //! A general orientation is two 3x3 products with the stored inverse.
 
-/// Restricted-triclinic edges. `lx, ly, lz` are the diagonal entries
-/// and may be negative. `xy, xz, yz` are the LAMMPS tilt factors.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Tri {
-    pub lx: f64,
-    pub ly: f64,
-    pub lz: f64,
-    pub xy: f64,
-    pub xz: f64,
-    pub yz: f64,
-    pub inv_lx: f64,
-    pub inv_ly: f64,
-    pub inv_lz: f64,
-}
-
-impl Tri {
-    /// `Some` when `a` is along x, `b` lies in the xy plane, and the
-    /// three diagonal entries are nonzero.
-    pub(crate) fn restricted(h: [[f64; 3]; 3]) -> Option<Self> {
-        let scale = (norm(h[0]) + norm(h[1]) + norm(h[2])).max(1.0);
-        let tol = 1e-10 * scale;
-        if h[0][1].abs() > tol || h[0][2].abs() > tol || h[1][2].abs() > tol {
-            return None;
-        }
-        let lx = h[0][0];
-        let ly = h[1][1];
-        let lz = h[2][2];
-        if lx.abs() < 1e-18 || ly.abs() < 1e-18 || lz.abs() < 1e-18 {
-            return None;
-        }
-        Some(Self {
-            lx,
-            ly,
-            lz,
-            xy: h[1][0],
-            xz: h[2][0],
-            yz: h[2][1],
-            inv_lx: 1.0 / lx,
-            inv_ly: 1.0 / ly,
-            inv_lz: 1.0 / lz,
-        })
-    }
-
-    /// Wrapped `dp` in Cartesian coordinates.
-    #[inline]
-    pub(crate) fn wrap(self, dp: [f64; 3]) -> [f64; 3] {
-        let mut sz = dp[2] * self.inv_lz;
-        let mut sy = (dp[1] - self.yz * sz) * self.inv_ly;
-        let mut sx = (dp[0] - self.xy * sy - self.xz * sz) * self.inv_lx;
-        sx -= sx.round();
-        sy -= sy.round();
-        sz -= sz.round();
-        [
-            self.lx * sx + self.xy * sy + self.xz * sz,
-            self.ly * sy + self.yz * sz,
-            self.lz * sz,
-        ]
-    }
-}
-
 /// Positive orthorhombic lengths when `H` is diagonal, else `None`.
 pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
     if !is_axis_aligned(h) {
@@ -87,8 +27,21 @@ pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
     }
 }
 
+#[inline]
 pub(crate) fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
-    let scale = (norm(h[0]) + norm(h[1]) + norm(h[2])).max(1.0);
+    // Exact zeros are the orthorhombic constructors.
+    if h[0][1] == 0.0
+        && h[0][2] == 0.0
+        && h[1][0] == 0.0
+        && h[1][2] == 0.0
+        && h[2][0] == 0.0
+        && h[2][1] == 0.0
+    {
+        return true;
+    }
+    // A real shear fails here. The tolerance is only for a diagonal
+    // that roundoff left a few ulps off zero.
+    let scale = (h[0][0].abs() + h[1][1].abs() + h[2][2].abs()).max(1.0);
     let tol = 1e-12 * scale;
     h[0][1].abs() <= tol
         && h[0][2].abs() <= tol
@@ -102,9 +55,24 @@ pub(crate) fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
 ///
 /// `d - L * floor(d / L + 1/2)`. Every image, not one subtraction.
 /// Keeps `-L/2` and maps `+L/2` onto `-L/2`.
-#[inline]
+#[inline(always)]
 pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
-    wrap_half_recip(d, length, 1.0 / length)
+    let half = 0.5 * length;
+    if d < half {
+        if d >= -half {
+            return d;
+        }
+        let w = d + length;
+        if w >= -half {
+            return w;
+        }
+    } else {
+        let w = d - length;
+        if w < half {
+            return w;
+        }
+    }
+    d - length * (d / length + 0.5).floor()
 }
 
 /// `d - L * floor(d * (1/L) + 1/2)`. The reciprocal is the cell's.
@@ -151,6 +119,55 @@ pub(crate) fn general_wrap(h: [[f64; 3]; 3], hinv: [[f64; 3]; 3], dp: [f64; 3]) 
     mul(h, ds)
 }
 
+/// Half away from zero, the same value as `f64::round`, using `floorsd`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse4.1")]
+#[inline]
+pub(crate) unsafe fn nearest_sse(x: f64) -> f64 {
+    use std::arch::x86_64::{_mm_cvtsd_f64, _mm_floor_sd, _mm_set_sd};
+    let floored = _mm_floor_sd(_mm_set_sd(0.0), _mm_set_sd(x.abs() + 0.5));
+    _mm_cvtsd_f64(floored).copysign(x)
+}
+
+/// Restricted wrap whose rounding is `floorsd` rather than libm `round`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse4.1")]
+#[inline]
+pub(crate) unsafe fn restricted_wrap_sse(
+    h: [[f64; 3]; 3],
+    hinv: [[f64; 3]; 3],
+    dp: [f64; 3],
+) -> [f64; 3] {
+    let mut sz = hinv[2][2] * dp[2];
+    let mut sy = hinv[1][1] * dp[1] + hinv[2][1] * dp[2];
+    let mut sx = hinv[0][0] * dp[0] + hinv[1][0] * dp[1] + hinv[2][0] * dp[2];
+    sx -= nearest_sse(sx);
+    sy -= nearest_sse(sy);
+    sz -= nearest_sse(sz);
+    [
+        h[0][0] * sx + h[1][0] * sy + h[2][0] * sz,
+        h[1][1] * sy + h[2][1] * sz,
+        h[2][2] * sz,
+    ]
+}
+
+/// Restricted frame: the inverse and H are triangular, so the wrap
+/// skips the zero products of the general 3x3.
+#[inline(always)]
+pub(crate) fn restricted_wrap(h: [[f64; 3]; 3], hinv: [[f64; 3]; 3], dp: [f64; 3]) -> [f64; 3] {
+    let mut sz = hinv[2][2] * dp[2];
+    let mut sy = hinv[1][1] * dp[1] + hinv[2][1] * dp[2];
+    let mut sx = hinv[0][0] * dp[0] + hinv[1][0] * dp[1] + hinv[2][0] * dp[2];
+    sx -= sx.round();
+    sy -= sy.round();
+    sz -= sz.round();
+    [
+        h[0][0] * sx + h[1][0] * sy + h[2][0] * sz,
+        h[1][1] * sy + h[2][1] * sz,
+        h[2][2] * sz,
+    ]
+}
+
 #[inline]
 pub(crate) fn mul(h: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
     [
@@ -160,6 +177,7 @@ pub(crate) fn mul(h: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
     ]
 }
 
+#[inline]
 pub(crate) fn invert_columns(h: [[f64; 3]; 3]) -> Option<([[f64; 3]; 3], f64)> {
     let a = h[0];
     let b = h[1];
@@ -195,6 +213,7 @@ pub(crate) fn n2(v: [f64; 3]) -> f64 {
     v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
 }
 
+#[inline]
 pub(crate) fn norm(v: [f64; 3]) -> f64 {
     n2(v).sqrt()
 }
@@ -214,6 +233,7 @@ pub(crate) fn scale(s: f64, v: [f64; 3]) -> [f64; 3] {
     [s * v[0], s * v[1], s * v[2]]
 }
 
+#[inline]
 pub(crate) fn cross(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
     [
         u[1] * v[2] - u[2] * v[1],

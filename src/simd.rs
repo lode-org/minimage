@@ -99,6 +99,43 @@ pub(crate) fn dist2_shifted_many(p: [f64; 3], qs: &[[f64; 3]], shift: [f64; 3], 
     shifted_scalar(p, qs, shift, out);
 }
 
+/// `|positions[indices[k]] + shift - p|^2`. An index past `positions` panics.
+pub(crate) fn dist2_shifted_indexed(
+    p: [f64; 3],
+    positions: &[[f64; 3]],
+    indices: &[usize],
+    shift: [f64; 3],
+    out: &mut [f64],
+) {
+    let n = indices.len();
+    #[cfg(target_arch = "x86_64")]
+    {
+        let flat_len = positions.len().saturating_mul(3);
+        if n >= 8 && flat_len <= i32::MAX as usize && std::is_x86_feature_detected!("avx2") {
+            // SAFETY: `avx2` was detected, and every index is checked inside.
+            unsafe { shifted_gather_avx2(p, positions, indices, shift, out) };
+            return;
+        }
+    }
+    shifted_indexed_scalar(p, positions, indices, shift, out);
+}
+
+fn shifted_indexed_scalar(
+    p: [f64; 3],
+    positions: &[[f64; 3]],
+    indices: &[usize],
+    shift: [f64; 3],
+    out: &mut [f64],
+) {
+    for (idx, slot) in indices.iter().zip(out.iter_mut()) {
+        let q = positions[*idx];
+        let dx = q[0] + shift[0] - p[0];
+        let dy = q[1] + shift[1] - p[1];
+        let dz = q[2] + shift[2] - p[2];
+        *slot = dx * dx + dy * dy + dz * dz;
+    }
+}
+
 fn shifted_scalar(p: [f64; 3], qs: &[[f64; 3]], shift: [f64; 3], out: &mut [f64]) {
     for (q, o) in qs.iter().zip(out.iter_mut()) {
         let dx = q[0] + shift[0] - p[0];
@@ -225,4 +262,54 @@ unsafe fn shifted_avx(p: [f64; 3], qs: &[[f64; 3]], shift: [f64; 3], out: &mut [
         i += 4;
     }
     shifted_scalar(p, &qs[i..], shift, &mut out[i..]);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn shifted_gather_avx2(
+    p: [f64; 3],
+    positions: &[[f64; 3]],
+    indices: &[usize],
+    shift: [f64; 3],
+    out: &mut [f64],
+) {
+    use std::arch::x86_64::*;
+    let n = indices.len();
+    let base = positions.as_ptr() as *const f64;
+    let ox = _mm256_set1_pd(p[0] - shift[0]);
+    let oy = _mm256_set1_pd(p[1] - shift[1]);
+    let oz = _mm256_set1_pd(p[2] - shift[2]);
+    let npos = positions.len();
+    let mut i = 0usize;
+    while i + 4 <= n {
+        let i0 = indices[i];
+        let i1 = indices[i + 1];
+        let i2 = indices[i + 2];
+        let i3 = indices[i + 3];
+        if i0 >= npos || i1 >= npos || i2 >= npos || i3 >= npos {
+            shifted_indexed_scalar(p, positions, &indices[i..], shift, &mut out[i..]);
+            return;
+        }
+        let vindex = _mm_set_epi32(
+            (i3 * 3) as i32,
+            (i2 * 3) as i32,
+            (i1 * 3) as i32,
+            (i0 * 3) as i32,
+        );
+        let x = _mm256_i32gather_pd(base, vindex, 8);
+        let y = _mm256_i32gather_pd(base.add(1), vindex, 8);
+        let z = _mm256_i32gather_pd(base.add(2), vindex, 8);
+        let dx = _mm256_sub_pd(x, ox);
+        let dy = _mm256_sub_pd(y, oy);
+        let dz = _mm256_sub_pd(z, oz);
+        let r2 = _mm256_add_pd(
+            _mm256_mul_pd(dx, dx),
+            _mm256_add_pd(_mm256_mul_pd(dy, dy), _mm256_mul_pd(dz, dz)),
+        );
+        _mm256_storeu_pd(out.as_mut_ptr().add(i), r2);
+        i += 4;
+    }
+    if i < n {
+        shifted_indexed_scalar(p, positions, &indices[i..], shift, &mut out[i..]);
+    }
 }

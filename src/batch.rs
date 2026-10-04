@@ -8,8 +8,16 @@
 //! row. [`dist2_shifted_many`](crate::Cell::dist2_shifted_many) is
 //! Rapaport's linked-cell pair, one lattice shift for a whole bin.
 
+use std::mem::MaybeUninit;
+
 use crate::kernel::{self, n2};
 use crate::{Cell, Error};
+
+/// The prefix `src[..]` was written. The tail may stay uninitialised.
+fn written(src: &[MaybeUninit<f64>]) -> &[f64] {
+    // SAFETY: every element of this prefix was `write`n by the caller.
+    unsafe { &*(src as *const [MaybeUninit<f64>] as *const [f64]) }
+}
 
 /// Minimum-image wrap of packed difference vectors.
 ///
@@ -102,22 +110,22 @@ pub fn dist2_ortho_diffs(
 
 pub(crate) fn dist2_pairs_ortho(l: [f64; 3], ps: &[[f64; 3]], qs: &[[f64; 3]], out: &mut [f64]) {
     const CHUNK: usize = 64;
-    let mut dx = [0.0; CHUNK];
-    let mut dy = [0.0; CHUNK];
-    let mut dz = [0.0; CHUNK];
+    let mut dx = [MaybeUninit::<f64>::uninit(); CHUNK];
+    let mut dy = [MaybeUninit::<f64>::uninit(); CHUNK];
+    let mut dz = [MaybeUninit::<f64>::uninit(); CHUNK];
     let mut start = 0;
     while start < ps.len() {
         let n = (ps.len() - start).min(CHUNK);
         for k in 0..n {
             let i = start + k;
-            dx[k] = qs[i][0] - ps[i][0];
-            dy[k] = qs[i][1] - ps[i][1];
-            dz[k] = qs[i][2] - ps[i][2];
+            dx[k].write(qs[i][0] - ps[i][0]);
+            dy[k].write(qs[i][1] - ps[i][1]);
+            dz[k].write(qs[i][2] - ps[i][2]);
         }
         crate::simd::dist2_ortho_diffs(
-            &dx[..n],
-            &dy[..n],
-            &dz[..n],
+            written(&dx[..n]),
+            written(&dy[..n]),
+            written(&dz[..n]),
             l[0],
             l[1],
             l[2],
@@ -129,23 +137,23 @@ pub(crate) fn dist2_pairs_ortho(l: [f64; 3], ps: &[[f64; 3]], qs: &[[f64; 3]], o
 
 pub(crate) fn dist2_many_ortho(l: [f64; 3], p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
     // Squares match the signed wrap, so the SoA kernel is the same
-    // distance. Chunks stay on the stack.
+    // distance. Chunks stay on the stack and only the used prefix is written.
     const CHUNK: usize = 64;
-    let mut dx = [0.0; CHUNK];
-    let mut dy = [0.0; CHUNK];
-    let mut dz = [0.0; CHUNK];
+    let mut dx = [MaybeUninit::<f64>::uninit(); CHUNK];
+    let mut dy = [MaybeUninit::<f64>::uninit(); CHUNK];
+    let mut dz = [MaybeUninit::<f64>::uninit(); CHUNK];
     let mut start = 0;
     while start < qs.len() {
         let n = (qs.len() - start).min(CHUNK);
         for (k, q) in qs[start..start + n].iter().enumerate() {
-            dx[k] = q[0] - p[0];
-            dy[k] = q[1] - p[1];
-            dz[k] = q[2] - p[2];
+            dx[k].write(q[0] - p[0]);
+            dy[k].write(q[1] - p[1]);
+            dz[k].write(q[2] - p[2]);
         }
         crate::simd::dist2_ortho_diffs(
-            &dx[..n],
-            &dy[..n],
-            &dz[..n],
+            written(&dx[..n]),
+            written(&dy[..n]),
+            written(&dz[..n]),
             l[0],
             l[1],
             l[2],

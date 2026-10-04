@@ -50,7 +50,7 @@ every three-dimensional lattice has (Selling, 1874; Conway and
 Sloane, Proc. R. Soc. Lond. A 436, 55, 1992). A near-parallel basis
 makes the one-vector Delone step linear in the reciprocal of the
 angle, so Lagrange's size reduction (1773; Gauss, 1801) shortens
-the edges first. The superbasis is built once, in the constructor.
+the edges first. The first Euclidean query builds the superbasis.
 A tie keeps the engine vector.
 Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
 Minkowski-reduces a basis; that reduction is not the closest-vector
