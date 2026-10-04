@@ -8,6 +8,7 @@
 
 use crate::kernel::wrap_half;
 
+#[cfg(target_arch = "x86_64")]
 const ROUND_NEAREST: i32 = 0x08;
 
 #[inline]
@@ -30,9 +31,9 @@ pub(crate) fn dist2_ortho_diffs(
     bz: f64,
     out: &mut [f64],
 ) {
-    let n = dx.len();
     #[cfg(target_arch = "x86_64")]
     {
+        let n = dx.len();
         if n >= 4 && std::is_x86_feature_detected!("avx") {
             // SAFETY: `avx` was detected. The three inputs and `out` share length `n`.
             unsafe { ortho_avx(dx, dy, dz, bx, by, bz, out) };
@@ -61,9 +62,9 @@ pub(crate) fn dist2_ortho_diffs_scalar(
 /// Signed AoS wrap. AVX transposes four rows, applies
 /// `floor(d/L + 1/2)`, and writes them back. Short lists stay scalar.
 pub(crate) fn wrap_many_ortho(l: [f64; 3], diffs: &[[f64; 3]], out: &mut [[f64; 3]]) {
-    let n = diffs.len();
     #[cfg(target_arch = "x86_64")]
     {
+        let n = diffs.len();
         if n >= 4 && std::is_x86_feature_detected!("avx") {
             // SAFETY: `avx` was detected.
             unsafe { wrap_avx(l, diffs, out) };
@@ -86,9 +87,9 @@ fn wrap_many_ortho_scalar(l: [f64; 3], diffs: &[[f64; 3]], out: &mut [[f64; 3]])
 /// `|q + shift - p|^2` for a bin of occupants. Rapaport's pair: the
 /// lattice shift is already applied, so this is a subtract and a dot.
 pub(crate) fn dist2_shifted_many(p: [f64; 3], qs: &[[f64; 3]], shift: [f64; 3], out: &mut [f64]) {
-    let n = qs.len();
     #[cfg(target_arch = "x86_64")]
     {
+        let n = qs.len();
         if n >= 4 && std::is_x86_feature_detected!("avx") {
             // SAFETY: `avx` was detected.
             unsafe { shifted_avx(p, qs, shift, out) };
