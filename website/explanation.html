@@ -91,57 +91,6 @@ production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-orge3e4910" class="outline-2">
-<h2 id="orge3e4910">Validation</h2>
-<div class="outline-text-2" id="text-orge3e4910">
-<p>
-The wrap and the Delone step are checked by three independent tools,
-then settled as a DeGroot vote (Friedkin and Johnsen when a voter is
-anchored; here susceptibility is 1). SymPy carries the floor splitting
-identity, the zero-sum, and the determinant. Sollya proves the linear
-piece with <code>checkinfnorm</code> (Chevillard, Joldeş, Lauter, 2010, the Sollya
-infinity norm). Lean with mathlib proves the range, the half-box tie,
-the sum, and the determinant, and decides the ortho and skew shells.
-<code>scripts/validate-consensus.sh</code> runs the three and settles with
-<code>ljos-consensus</code>. The Lean ballot is the shell's accept line after
-<code>lake build</code>, so a passing run settles as three accepts. The vote
-covers the wrap and Delone fixtures.
-</p>
-</div>
-</section>
-
-<section id="outline-container-orgecddddb" class="outline-2">
-<h2 id="orgecddddb">Profiling</h2>
-<div class="outline-text-2" id="text-orgecddddb">
-<p>
-The hot path is read with the POP3 hierarchy (Performance
-Optimisation and Productivity 3, EuroHPC, 2024–2026). Global
-efficiency is parallel efficiency times computational scaling.
-Parallel efficiency splits into load balance and communication, and
-communication splits into serialisation and transfer. A leaf below
-0.8 is the one to open. This library is one thread, so those
-parallel leaves are not a process count. <code>scripts/profile-pop3.sh</code>
-times the orthorhombic batch against the per-pair wrap, Rapaport's
-shifted bin, a Smith-hit Euclidean query, the Selling closest
-point, and an index-list bin. Cycles and instructions come from
-<code>perf_event_open</code> when the kernel allows the call. The time ratio
-is the reference region over the one being read. The batch's
-reference is the per-pair wrap. The Euclidean region's reference
-is the engine wrap, and a ratio below one is the cost of the
-closest-point search. <code>scripts/ab_vs_main.sh</code> times the shared
-calls against published 0.1.2. The gate covers the orthorhombic
-batches, the near and far Euclidean queries, and the C <code>mi_dist2</code>
-/ <code>mi_dist2_many</code> / <code>mi_dist2_pairs</code> loop. Each of those must be
-at least five percent faster. The in-box per-pair Rust wrap is
-two comparisons for one neighbouring image and a floor past that
-image; the script fails if that path is more than five percent
-slower than published 0.1.2. Skew-cell construction is printed
-beside the gate, because Selling is paid once when the cell is
-built.
-</p>
-</div>
-</section>
-
 <section id="outline-container-org2314b69" class="outline-2">
 <h2 id="org2314b69">Dump bounds are not H</h2>
 <div class="outline-text-2" id="text-org2314b69">

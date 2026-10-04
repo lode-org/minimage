@@ -17,9 +17,6 @@ skip `Hinv` and use the per-axis wrap; the batch feeds the AVX kernel. `dist2_sh
 and `mi_dist2_shifted_many` are Rapaport's one-shift bin pair for
 linkcell. Constructors that only publish `mi_cell` skip Selling. A repeated
 C call on the same twelve doubles reuses that inverse.
-SymPy, Sollya, and Lean (mathlib) each check the wrap and the Delone
-step; `ljos-consensus` settles those ballots.
-`scripts/profile-pop3.sh` times the hot path on the POP3 hierarchy.
 Orthorhombic `dist2` uses two comparisons inside one neighbouring
 image and the width's reciprocal past that image. The reciprocal
 is stored on the cell. `dist2_pairs` and `mi_dist2_pairs` use that orthorhombic
@@ -27,9 +24,7 @@ structure-of-arrays kernel, and a repeated orthorhombic `mi_cell`
 reuses the lengths and the reciprocals. `dist2_shifted_indexed`
 gathers a linked-cell index list into the shifted kernel. The
 gather was slower than the inlined subtract on a long index list,
-so the production walk keeps that subtract. `scripts/ab_vs_main.sh`
-times the shared query API against published 0.1.2 and fails when a
-gated region is not at least five percent faster.
+so the production walk keeps that subtract.
 
 ## 0.1.2 - 2026-09-27
 
