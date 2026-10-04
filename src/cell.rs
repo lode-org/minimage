@@ -47,6 +47,8 @@ pub struct Cell {
     ortho: bool,
     /// `a` along x and `b` in the xy plane (LAMMPS / HOOMD / GROMACS).
     restricted: bool,
+    /// Lamda coefficients. Read only when [`Self::is_restricted`] is set.
+    tri: kernel::Tri,
 }
 
 fn build_cross(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
@@ -91,17 +93,6 @@ fn build_invert(h: [[f64; 3]; 3]) -> Option<([[f64; 3]; 3], f64)> {
     Some((inv, det))
 }
 
-fn build_aligned(h: [[f64; 3]; 3]) -> bool {
-    let scale = (build_norm(h[0]) + build_norm(h[1]) + build_norm(h[2])).max(1.0);
-    let tol = 1e-12 * scale;
-    h[0][1].abs() <= tol
-        && h[0][2].abs() <= tol
-        && h[1][0].abs() <= tol
-        && h[1][2].abs() <= tol
-        && h[2][0].abs() <= tol
-        && h[2][1].abs() <= tol
-}
-
 impl Cell {
     /// Diagonal box with origin at zero.
     ///
@@ -132,6 +123,14 @@ impl Cell {
         origin: [f64; 3],
     ) -> Result<Self, Error> {
         let h = [a, b, c];
+        // Diagonal reciprocals do not depend on the face widths, so the
+        // divisions overlap those square roots instead of following them.
+        let lx = a[0];
+        let ly = b[1];
+        let lz = c[2];
+        let inv_lx = 1.0 / lx;
+        let inv_ly = 1.0 / ly;
+        let inv_lz = 1.0 / lz;
         let (hinv, det) = build_invert(h).ok_or(Error::BadBox)?;
         if !det.is_finite() || det.abs() < 1e-18 {
             return Err(Error::BadBox);
@@ -139,23 +138,44 @@ impl Cell {
         let bc = build_cross(b, c);
         let ca = build_cross(c, a);
         let ab = build_cross(a, b);
-        let wa = det.abs() / build_norm(bc);
-        let wb = det.abs() / build_norm(ca);
-        let wc = det.abs() / build_norm(ab);
+        let ad = det.abs();
+        let wa = ad / build_norm(bc);
+        let wb = ad / build_norm(ca);
+        let wc = ad / build_norm(ab);
         if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
             return Err(Error::BadBox);
         }
-        // Same ortho test as the width norms: three vector lengths.
-        // Restricted is the three off-axis zeros, scaled by the widths
-        // already in hand, so it does not add another square root.
-        let ortho = build_aligned(h);
-        let tol = 1e-10 * (wa + wb + wc).max(1.0);
-        let restricted = h[0][1].abs() <= tol
-            && h[0][2].abs() <= tol
-            && h[1][2].abs() <= tol
-            && h[0][0].abs() >= 1e-18
-            && h[1][1].abs() >= 1e-18
-            && h[2][2].abs() >= 1e-18;
+        // Each face width is at most that edge length, so this scale is
+        // at most the length sum. The frame tests stay the stricter ones
+        // and do not take another three square roots.
+        let scale = (wa + wb + wc).max(1.0);
+        let ortho = kernel::is_axis_aligned_scaled(h, scale);
+        let restricted = kernel::is_restricted_scaled(h, scale);
+        let tri = if restricted {
+            kernel::Tri {
+                lx,
+                ly,
+                lz,
+                xy: b[0],
+                xz: c[0],
+                yz: c[1],
+                inv_lx,
+                inv_ly,
+                inv_lz,
+            }
+        } else {
+            kernel::Tri {
+                lx: 0.0,
+                ly: 0.0,
+                lz: 0.0,
+                xy: 0.0,
+                xz: 0.0,
+                yz: 0.0,
+                inv_lx: 0.0,
+                inv_ly: 0.0,
+                inv_lz: 0.0,
+            }
+        };
         Ok(Self {
             h,
             hinv,
@@ -163,6 +183,7 @@ impl Cell {
             widths: [wa, wb, wc],
             ortho,
             restricted,
+            tri,
         })
     }
 
@@ -393,7 +414,7 @@ impl Cell {
             ];
         }
         if self.restricted {
-            return kernel::wrap_restricted(self.h, dp);
+            return self.tri.wrap(dp);
         }
         kernel::general_wrap(self.h, self.hinv, dp)
     }
