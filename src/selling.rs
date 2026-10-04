@@ -29,6 +29,8 @@
 //! minimum cut of the paper is this enumeration. The series reaches a
 //! closest lattice point.
 
+use std::cell::RefCell;
+
 use crate::kernel::{self, invert_columns};
 
 /// Selling superbasis. `prepared` is false on an orthorhombic cell,
@@ -37,6 +39,10 @@ use crate::kernel::{self, invert_columns};
 pub(crate) struct Obtuse {
     v: [[f64; 3]; 4],
     inv: [[f64; 3]; 3],
+    /// Subset sums of `v`, structure of arrays. Slot 15 is unused.
+    ox: [f64; 16],
+    oy: [f64; 16],
+    oz: [f64; 16],
     idx: [u8; 3],
     pub ok: bool,
     pub prepared: bool,
@@ -49,18 +55,9 @@ impl PartialEq for Obtuse {
             && self.idx == other.idx
             && self.v == other.v
             && self.inv == other.inv
-    }
-}
-
-impl Obtuse {
-    pub(crate) const fn empty() -> Self {
-        Self {
-            v: [[0.0; 3]; 4],
-            inv: [[0.0; 3]; 3],
-            idx: [0, 1, 2],
-            ok: false,
-            prepared: false,
-        }
+            && self.ox == other.ox
+            && self.oy == other.oy
+            && self.oz == other.oz
     }
 }
 
@@ -98,6 +95,9 @@ pub(crate) fn obtuse_superbasis(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Obtuse
     Obtuse {
         v: original,
         inv: [[0.0; 3]; 3],
+        ox: [0.0; 16],
+        oy: [0.0; 16],
+        oz: [0.0; 16],
         idx: [0, 1, 2],
         ok: false,
         prepared: true,
@@ -184,21 +184,56 @@ fn finish(v: [[f64; 3]; 4]) -> Obtuse {
         }
     }
     match best {
-        Some((idx, inv)) if best_abs > 1e-18 => Obtuse {
+        Some((idx, inv)) if best_abs > 1e-18 => pack(Obtuse {
             v,
             inv,
+            ox: [0.0; 16],
+            oy: [0.0; 16],
+            oz: [0.0; 16],
             idx,
             ok: true,
             prepared: true,
-        },
+        }),
         _ => Obtuse {
             v,
             inv: [[0.0; 3]; 3],
+            ox: [0.0; 16],
+            oy: [0.0; 16],
+            oz: [0.0; 16],
             idx: [0, 1, 2],
             ok: false,
             prepared: true,
         },
     }
+}
+
+thread_local! {
+    /// Last Selling superbasis, keyed by the nine entries of H.
+    /// Construction stays the inverse and the widths. The first
+    /// Euclidean query for a lattice builds the superbasis; the next
+    /// query on this thread reuses it.
+    static CACHED_OBTUSE: RefCell<Option<([f64; 9], Obtuse)>> = const { RefCell::new(None) };
+}
+
+/// Closest displacement on the thread-cached superbasis of `h`.
+pub(crate) fn cached_closest(h: [[f64; 3]; 3], y: [f64; 3]) -> [f64; 3] {
+    let key = [
+        h[0][0], h[0][1], h[0][2], h[1][0], h[1][1], h[1][2], h[2][0], h[2][1], h[2][2],
+    ];
+    CACHED_OBTUSE.with(|slot| {
+        {
+            let borrow = slot.borrow();
+            if let Some((cached, superbasis)) = borrow.as_ref() {
+                if *cached == key {
+                    return closest_displacement(superbasis, y);
+                }
+            }
+        }
+        let superbasis = obtuse_superbasis(h[0], h[1], h[2]);
+        let displacement = closest_displacement(&superbasis, y);
+        *slot.borrow_mut() = Some((key, superbasis));
+        displacement
+    })
 }
 
 /// Cartesian `y - v`, `v` a closest lattice point.
@@ -208,6 +243,49 @@ pub(crate) fn closest_displacement(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     } else {
         shell(s.v[0], s.v[1], s.v[2], y)
     }
+}
+
+/// Fifteen subset sums of the superbasis, structure of arrays.
+/// Slot 15 is left enormous so a 16-wide score cannot select it:
+/// the four vectors sum to zero, and mask 15 is the same point as mask 0.
+fn subset_soa(v: &[[f64; 3]; 4]) -> ([f64; 16], [f64; 16], [f64; 16]) {
+    let mut x = [0.0; 16];
+    let mut y = [0.0; 16];
+    let mut z = [0.0; 16];
+    for mask in 1..15 {
+        if mask & 1 != 0 {
+            x[mask] += v[0][0];
+            y[mask] += v[0][1];
+            z[mask] += v[0][2];
+        }
+        if mask & 2 != 0 {
+            x[mask] += v[1][0];
+            y[mask] += v[1][1];
+            z[mask] += v[1][2];
+        }
+        if mask & 4 != 0 {
+            x[mask] += v[2][0];
+            y[mask] += v[2][1];
+            z[mask] += v[2][2];
+        }
+        if mask & 8 != 0 {
+            x[mask] += v[3][0];
+            y[mask] += v[3][1];
+            z[mask] += v[3][2];
+        }
+    }
+    x[15] = 1.0e300;
+    y[15] = 1.0e300;
+    z[15] = 1.0e300;
+    (x, y, z)
+}
+
+fn pack(mut s: Obtuse) -> Obtuse {
+    let (ox, oy, oz) = subset_soa(&s.v);
+    s.ox = ox;
+    s.oy = oy;
+    s.oz = oz;
+    s
 }
 
 fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
@@ -227,45 +305,11 @@ fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
             base[1] += ui * v[i][1];
             base[2] += ui * v[i][2];
         }
-        let mut best_mask = 0u8;
-        let mut best_d2 = f64::INFINITY;
-        best_d = [0.0; 3];
-        // The four superbasis vectors sum to zero, so mask 15 is the
-        // same lattice point as mask 0 and cannot win the strict test.
-        for mask in 0..15u8 {
-            let mut px = base[0];
-            let mut py = base[1];
-            let mut pz = base[2];
-            if mask & 1 != 0 {
-                px += v[0][0];
-                py += v[0][1];
-                pz += v[0][2];
-            }
-            if mask & 2 != 0 {
-                px += v[1][0];
-                py += v[1][1];
-                pz += v[1][2];
-            }
-            if mask & 4 != 0 {
-                px += v[2][0];
-                py += v[2][1];
-                pz += v[2][2];
-            }
-            if mask & 8 != 0 {
-                px += v[3][0];
-                py += v[3][1];
-                pz += v[3][2];
-            }
-            let dx = y[0] - px;
-            let dy = y[1] - py;
-            let dz = y[2] - pz;
-            let d2 = dx * dx + dy * dy + dz * dz;
-            if d2 < best_d2 {
-                best_d2 = d2;
-                best_mask = mask;
-                best_d = [dx, dy, dz];
-            }
-        }
+        let rx = y[0] - base[0];
+        let ry = y[1] - base[1];
+        let rz = y[2] - base[2];
+        let (best_mask, _best_d2, disp) = score_steps(rx, ry, rz, &s.ox, &s.oy, &s.oz);
+        best_d = disp;
         if best_mask == 0 {
             break;
         }
@@ -283,6 +327,107 @@ fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
         }
     }
     best_d
+}
+
+/// Strict `<`, so an equal length keeps the lower mask. Mask 0 is the
+/// initial champion.
+fn score_steps(
+    rx: f64,
+    ry: f64,
+    rz: f64,
+    ox: &[f64; 16],
+    oy: &[f64; 16],
+    oz: &[f64; 16],
+) -> (u8, f64, [f64; 3]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx") {
+            // SAFETY: `avx` was detected. The three tables have length 16.
+            return unsafe { score_steps_avx(rx, ry, rz, ox, oy, oz) };
+        }
+    }
+    score_steps_scalar(rx, ry, rz, ox, oy, oz)
+}
+
+fn score_steps_scalar(
+    rx: f64,
+    ry: f64,
+    rz: f64,
+    ox: &[f64; 16],
+    oy: &[f64; 16],
+    oz: &[f64; 16],
+) -> (u8, f64, [f64; 3]) {
+    let mut best_mask = 0u8;
+    let mut best_d2 = rx * rx + ry * ry + rz * rz;
+    let mut best_d = [rx, ry, rz];
+    for mask in 1..15 {
+        let dx = rx - ox[mask];
+        let dy = ry - oy[mask];
+        let dz = rz - oz[mask];
+        let d2 = dx * dx + dy * dy + dz * dz;
+        if d2 < best_d2 {
+            best_d2 = d2;
+            best_mask = mask as u8;
+            best_d = [dx, dy, dz];
+        }
+    }
+    (best_mask, best_d2, best_d)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx")]
+unsafe fn score_steps_avx(
+    rx: f64,
+    ry: f64,
+    rz: f64,
+    ox: &[f64; 16],
+    oy: &[f64; 16],
+    oz: &[f64; 16],
+) -> (u8, f64, [f64; 3]) {
+    use std::arch::x86_64::*;
+    let vx = _mm256_set1_pd(rx);
+    let vy = _mm256_set1_pd(ry);
+    let vz = _mm256_set1_pd(rz);
+    let mut best_d2v = _mm256_set1_pd(f64::INFINITY);
+    let mut best_iv = _mm256_set1_pd(0.0);
+    let mut mask = 0usize;
+    while mask < 16 {
+        let dx = _mm256_sub_pd(vx, _mm256_loadu_pd(ox.as_ptr().add(mask)));
+        let dy = _mm256_sub_pd(vy, _mm256_loadu_pd(oy.as_ptr().add(mask)));
+        let dz = _mm256_sub_pd(vz, _mm256_loadu_pd(oz.as_ptr().add(mask)));
+        let d2 = _mm256_add_pd(
+            _mm256_mul_pd(dx, dx),
+            _mm256_add_pd(_mm256_mul_pd(dy, dy), _mm256_mul_pd(dz, dz)),
+        );
+        let ids = _mm256_set_pd(
+            (mask + 3) as f64,
+            (mask + 2) as f64,
+            (mask + 1) as f64,
+            mask as f64,
+        );
+        let lt = _mm256_cmp_pd(d2, best_d2v, _CMP_LT_OQ);
+        best_d2v = _mm256_blendv_pd(best_d2v, d2, lt);
+        best_iv = _mm256_blendv_pd(best_iv, ids, lt);
+        mask += 4;
+    }
+    let mut lane_d2 = [0.0; 4];
+    let mut lane_i = [0.0; 4];
+    _mm256_storeu_pd(lane_d2.as_mut_ptr(), best_d2v);
+    _mm256_storeu_pd(lane_i.as_mut_ptr(), best_iv);
+    let mut best_mask = 0u8;
+    let mut best_d2 = rx * rx + ry * ry + rz * rz;
+    for k in 0..4 {
+        let id = lane_i[k] as u8;
+        if id == 0 || id >= 15 {
+            continue;
+        }
+        if lane_d2[k] < best_d2 {
+            best_d2 = lane_d2[k];
+            best_mask = id;
+        }
+    }
+    let m = best_mask as usize;
+    (best_mask, best_d2, [rx - ox[m], ry - oy[m], rz - oz[m]])
 }
 
 /// Widening `{-r..r}^3` on the original basis. Used only when Selling
