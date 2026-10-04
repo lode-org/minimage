@@ -104,16 +104,6 @@ pub(crate) fn is_axis_aligned_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
         && h[2][1].abs() <= tol
 }
 
-/// `a` along x and `b` in the xy plane, same tolerance as [`Tri::restricted`].
-#[inline(always)]
-pub(crate) fn is_restricted_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
-    let tol = 1e-10 * scale;
-    if h[0][1].abs() > tol || h[0][2].abs() > tol || h[1][2].abs() > tol {
-        return false;
-    }
-    h[0][0].abs() >= 1e-18 && h[1][1].abs() >= 1e-18 && h[2][2].abs() >= 1e-18
-}
-
 /// Orthorhombic signed wrap into `[-L/2, L/2)`.
 ///
 /// `d - L * floor(d / L + 1/2)`. Every image, not one subtraction.

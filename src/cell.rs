@@ -51,66 +51,49 @@ pub struct Cell {
     tri: kernel::Tri,
 }
 
-fn build_cross(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
-    [
-        u[1] * v[2] - u[2] * v[1],
-        u[2] * v[0] - u[0] * v[2],
-        u[0] * v[1] - u[1] * v[0],
-    ]
-}
-
-fn build_norm(v: [f64; 3]) -> f64 {
-    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
-}
-
-/// One load per element.
+/// Load `v` with the store sizes a `[f64; 3]` argument uses.
 ///
-/// A 16-byte load at element 0 straddles the 8-byte store and the
-/// 16-byte store the caller just wrote for a `[f64; 3]`. That load
-/// cannot forward, and the cell build then waits on the store buffer.
+/// Element 0 is an 8-byte store. Elements 1 and 2 are one 16-byte
+/// store. A scalar load of either of those two is narrower than the
+/// store and cannot forward.
+#[cfg(target_arch = "x86_64")]
 #[inline(always)]
-fn load3(v: [f64; 3]) -> [f64; 3] {
+fn load3(v: [f64; 3]) -> (f64, f64, f64) {
     let p = v.as_ptr();
-    // SAFETY: `v` is a live `[f64; 3]`. Each index is in range and
-    // aligned for `f64`. The loads stay split so each one sits inside
-    // a single store.
+    let x: f64;
+    let y: f64;
+    let z: f64;
+    // SAFETY: `v` is a live `[f64; 3]`, so `p` covers 24 aligned
+    // bytes. The 16-byte load starts at element 1.
     unsafe {
-        [
+        std::arch::asm!(
+            "movsd ({p}), {x}",
+            "movupd 8({p}), {y}",
+            "movapd {y}, {z}",
+            "unpckhpd {y}, {z}",
+            p = in(reg) p,
+            x = out(xmm_reg) x,
+            y = out(xmm_reg) y,
+            z = out(xmm_reg) z,
+            options(nostack, preserves_flags),
+        );
+    }
+    (x, y, z)
+}
+
+/// Load `v` one element at a time.
+#[cfg(not(target_arch = "x86_64"))]
+#[inline(always)]
+fn load3(v: [f64; 3]) -> (f64, f64, f64) {
+    let p = v.as_ptr();
+    // SAFETY: `v` is a live `[f64; 3]`. Each index is in range.
+    unsafe {
+        (
             std::ptr::read_volatile(p),
             std::ptr::read_volatile(p.add(1)),
             std::ptr::read_volatile(p.add(2)),
-        ]
+        )
     }
-}
-
-fn build_invert(h: [[f64; 3]; 3]) -> Option<([[f64; 3]; 3], f64)> {
-    let a = h[0];
-    let b = h[1];
-    let c = h[2];
-    let det = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
-        + a[2] * (b[0] * c[1] - b[1] * c[0]);
-    if !det.is_finite() || det.abs() < 1e-18 {
-        return None;
-    }
-    let invdet = 1.0 / det;
-    let inv = [
-        [
-            (b[1] * c[2] - b[2] * c[1]) * invdet,
-            (a[2] * c[1] - a[1] * c[2]) * invdet,
-            (a[1] * b[2] - a[2] * b[1]) * invdet,
-        ],
-        [
-            (b[2] * c[0] - b[0] * c[2]) * invdet,
-            (a[0] * c[2] - a[2] * c[0]) * invdet,
-            (a[2] * b[0] - a[0] * b[2]) * invdet,
-        ],
-        [
-            (b[0] * c[1] - b[1] * c[0]) * invdet,
-            (a[1] * c[0] - a[0] * c[1]) * invdet,
-            (a[0] * b[1] - a[1] * b[0]) * invdet,
-        ],
-    ];
-    Some((inv, det))
 }
 
 impl Cell {
@@ -142,22 +125,29 @@ impl Cell {
         c: [f64; 3],
         origin: [f64; 3],
     ) -> Result<Self, Error> {
-        let a = load3(a);
-        let b = load3(b);
-        let c = load3(c);
-        let origin = load3(origin);
-        let h = [a, b, c];
-        let (hinv, det) = build_invert(h).ok_or(Error::BadBox)?;
+        let (ax, ay, az) = load3(a);
+        let (bx, by, bz) = load3(b);
+        let (cx, cy, cz) = load3(c);
+        let (ox, oy, oz) = load3(origin);
+        // b × c, c × a, a × b. The determinant is a · (b × c).
+        let bcx = by * cz - bz * cy;
+        let bcy = bz * cx - bx * cz;
+        let bcz = bx * cy - by * cx;
+        let cax = cy * az - cz * ay;
+        let cay = cz * ax - cx * az;
+        let caz = cx * ay - cy * ax;
+        let abx = ay * bz - az * by;
+        let aby = az * bx - ax * bz;
+        let abz = ax * by - ay * bx;
+        let det = ax * bcx + ay * bcy + az * bcz;
         if !det.is_finite() || det.abs() < 1e-18 {
             return Err(Error::BadBox);
         }
-        let bc = build_cross(b, c);
-        let ca = build_cross(c, a);
-        let ab = build_cross(a, b);
+        let invdet = 1.0 / det;
         let ad = det.abs();
-        let wa = ad / build_norm(bc);
-        let wb = ad / build_norm(ca);
-        let wc = ad / build_norm(ab);
+        let wa = ad / (bcx * bcx + bcy * bcy + bcz * bcz).sqrt();
+        let wb = ad / (cax * cax + cay * cay + caz * caz).sqrt();
+        let wc = ad / (abx * abx + aby * aby + abz * abz).sqrt();
         if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
             return Err(Error::BadBox);
         }
@@ -165,22 +155,29 @@ impl Cell {
         // at most the length sum. The frame tests stay the stricter ones
         // and do not take another three square roots.
         let scale = (wa + wb + wc).max(1.0);
-        let ortho = kernel::is_axis_aligned_scaled(h, scale);
-        let restricted = kernel::is_restricted_scaled(h, scale);
+        let tol = 1e-12 * scale;
+        let ortho = ay.abs() <= tol
+            && az.abs() <= tol
+            && bx.abs() <= tol
+            && bz.abs() <= tol
+            && cx.abs() <= tol
+            && cy.abs() <= tol;
+        let rtol = 1e-10 * scale;
+        let restricted = !(ay.abs() > rtol || az.abs() > rtol || bz.abs() > rtol)
+            && ax.abs() >= 1e-18
+            && by.abs() >= 1e-18
+            && cz.abs() >= 1e-18;
         let tri = if restricted {
-            let lx = a[0];
-            let ly = b[1];
-            let lz = c[2];
             kernel::Tri {
-                lx,
-                ly,
-                lz,
-                xy: b[0],
-                xz: c[0],
-                yz: c[1],
-                inv_lx: 1.0 / lx,
-                inv_ly: 1.0 / ly,
-                inv_lz: 1.0 / lz,
+                lx: ax,
+                ly: by,
+                lz: cz,
+                xy: bx,
+                xz: cx,
+                yz: cy,
+                inv_lx: 1.0 / ax,
+                inv_ly: 1.0 / by,
+                inv_lz: 1.0 / cz,
             }
         } else {
             kernel::Tri {
@@ -196,9 +193,13 @@ impl Cell {
             }
         };
         Ok(Self {
-            h,
-            hinv,
-            origin,
+            h: [[ax, ay, az], [bx, by, bz], [cx, cy, cz]],
+            hinv: [
+                [bcx * invdet, cax * invdet, abx * invdet],
+                [bcy * invdet, cay * invdet, aby * invdet],
+                [bcz * invdet, caz * invdet, abz * invdet],
+            ],
+            origin: [ox, oy, oz],
             widths: [wa, wb, wc],
             ortho,
             restricted,
