@@ -1,0 +1,94 @@
+// Certified checks for the orthorhombic wrap and two finite shells.
+//
+// On each piece [n - 1/2, n + 1/2], checkinfnorm proves
+// ||x - n||_inf <= 1/2 (Chevillard, Joldes, Lauter: the Sollya
+// infinity norm). The endpoints are exact: both land on residual
+// -1/2, which is the half-box tie. Integer wrap values and the
+// Delone determinant are dyadic and compare equal.
+
+verbosity = 0!;
+prec = 165!;
+bad = 0;
+
+procedure mark() {
+  bad = bad + 1;
+};
+
+if (15 - 10 * floor(15/10 + 1/2) != -5) then mark();
+if (5 - 10 * floor(5/10 + 1/2) != -5) then mark();
+if ((-5) - 10 * floor((-5)/10 + 1/2) != -5) then mark();
+if (25 - 10 * floor(25/10 + 1/2) != -5) then mark();
+if (0 - 10 * floor(0/10 + 1/2) != 0) then mark();
+if ((-18) - 11 * floor((-18)/11 + 1/2) != 4) then mark();
+if (12 - 12 * floor(12/12 + 1/2) != 0) then mark();
+if (6 - 12 * floor(6/12 + 1/2) != -6) then mark();
+
+for n from -8 to 8 do {
+  a = n - 1/2;
+  b = n + 1/2;
+  left = a - floor(a + 1/2);
+  right = b - floor(b + 1/2);
+  if (left != -1/2) then mark();
+  if (right != -1/2) then mark();
+  if (checkinfnorm(x - n, [a; b], 1/2) != true) then mark();
+  if (checkinfnorm(x - n + 1/2, [a; b], 1) != true) then mark();
+};
+
+// (-1)(1*1 - 0*0) - 0*(0*1 - 1*0) + 1*(0*0 - 1*0)
+det = (-1) * (1 * 1 - 0 * 0) - 0 * (0 * 1 - 1 * 0) + 1 * (0 * 0 - 1 * 0);
+if (det != -1) then mark();
+
+// v0=(1,2,3), v1=(4,-1,2), v2=(0,5,1). Pair dot is 8. The step on
+// that pair drops the sum of four squared lengths by 2*8.
+v0x = 1; v0y = 2; v0z = 3;
+v1x = 4; v1y = -1; v1z = 2;
+v2x = 0; v2y = 5; v2z = 1;
+v3x = -(v0x + v1x + v2x);
+v3y = -(v0y + v1y + v2y);
+v3z = -(v0z + v1z + v2z);
+oldsq = v0x^2 + v0y^2 + v0z^2 + v1x^2 + v1y^2 + v1z^2 + v2x^2 + v2y^2 + v2z^2 + v3x^2 + v3y^2 + v3z^2;
+n0x = -v0x; n0y = -v0y; n0z = -v0z;
+n2x = v2x + v0x; n2y = v2y + v0y; n2z = v2z + v0z;
+n3x = v3x + v0x; n3y = v3y + v0y; n3z = v3z + v0z;
+newsq = n0x^2 + n0y^2 + n0z^2 + v1x^2 + v1y^2 + v1z^2 + n2x^2 + n2y^2 + n2z^2 + n3x^2 + n3y^2 + n3z^2;
+pair = v0x * v1x + v0y * v1y + v0z * v1z;
+if (oldsq - newsq != 2 * pair) then mark();
+
+best = 10^6;
+for i from -4 to 4 do {
+  for j from -4 to 4 do {
+    for k from -4 to 4 do {
+      dx = 25 - 10 * i;
+      dy = (-18) - 11 * j;
+      dz = 3 - 12 * k;
+      d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < best) then { best = d2; };
+    };
+  };
+};
+if (best != 50) then mark();
+
+// a = (1,0,0), b = (1 - 1/128, 1/128, 0), y = 2(a - b) = (1/64, -1/64, 0).
+sbest = 10^6;
+for i from -4 to 4 do {
+  for j from -4 to 4 do {
+    for k from -4 to 4 do {
+      px = i + j * (1 - 1/128);
+      py = j * (1/128);
+      pz = k;
+      dx = 1/64 - px;
+      dy = (-1/64) - py;
+      dz = 0 - pz;
+      d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < sbest) then { sbest = d2; };
+    };
+  };
+};
+if (sbest != 0) then mark();
+
+if (bad == 0) then {
+  print("{\"agent\":\"sollya\",\"choice\":\"accept\"}");
+} else {
+  print("{\"agent\":\"sollya\",\"choice\":\"reject\"}");
+};
+quit;

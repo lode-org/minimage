@@ -17,6 +17,8 @@ skip `Hinv` and use the per-axis wrap; the batch feeds the AVX kernel. `dist2_sh
 and `mi_dist2_shifted_many` are Rapaport's one-shift bin pair for
 linkcell. Constructors that only publish `mi_cell` skip Selling. A repeated
 C call on the same twelve doubles reuses that inverse.
+SymPy, Sollya, and Lean (mathlib) each check the wrap and the Delone
+step; `ljos-consensus` settles those ballots.
 
 ## 0.1.2 - 2026-09-27
 

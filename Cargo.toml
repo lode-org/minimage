@@ -13,7 +13,7 @@ categories = ["science", "algorithms"]
 readme = "README.md"
 
 [workspace]
-members = ["python"]
+members = ["python", "validate/consensus"]
 resolver = "2"
 
 [lib]
