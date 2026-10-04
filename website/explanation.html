@@ -103,7 +103,9 @@ piece with <code>checkinfnorm</code> (Chevillard, Joldeş, Lauter, 2010, the Sol
 infinity norm). Lean with mathlib proves the range, the half-box tie,
 the sum, and the determinant, and decides the ortho and skew shells.
 <code>scripts/validate-consensus.sh</code> runs the three and settles with
-<code>ljos-consensus</code>. A dissenter keeps the accept share below one.
+<code>ljos-consensus</code>. The Lean ballot is the shell's accept line after
+<code>lake build</code>, so a passing run settles as three accepts. The vote
+covers the wrap and Delone fixtures.
 </p>
 </div>
 </section>
