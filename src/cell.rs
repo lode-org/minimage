@@ -51,26 +51,23 @@ pub struct Cell {
     tri: kernel::Tri,
 }
 
-/// Load the `[f64; 3]` at `p` with the store sizes of that argument.
+/// Load an 8-byte element 0 and the 16-byte tail at `p + 8`.
 ///
-/// Element 0 is an 8-byte store. Elements 1 and 2 are one 16-byte
-/// store. A scalar load of either of those two is narrower than the
-/// store and cannot forward. `p` is the argument address; a by-value
-/// copy is a 16-byte load at element 0 and misses the same way.
+/// A zero tail is stored that way. A 16-byte load at element 0
+/// straddles the two stores and cannot forward.
 ///
 /// # Safety
 ///
 /// `p` points at a live `[f64; 3]` and is aligned for `f64`.
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-unsafe fn load3(p: *const f64) -> (f64, f64, f64) {
+unsafe fn load_lo8_hi16(p: *const f64) -> (f64, f64, f64) {
     let x: f64;
     let y: f64;
     let z: f64;
     // Register names arrive without a percent prefix, so the
-    // instructions are Intel syntax. `movsd` needs the size or it
-    // is the string move. `readonly` keeps this from clobbering the
-    // argument and forcing a stack copy.
+    // instructions are Intel syntax. `readonly` keeps the asm from
+    // copying the argument onto the stack.
     std::arch::asm!(
         "movsd {x}, qword ptr [{p}]",
         "movupd {y}, xmmword ptr [{p} + 8]",
@@ -85,19 +82,58 @@ unsafe fn load3(p: *const f64) -> (f64, f64, f64) {
     (x, y, z)
 }
 
-/// Load the `[f64; 3]` at `p` one element at a time.
+/// Load a 16-byte pair at `p` and an 8-byte element 2.
+///
+/// Two leading lanes are stored that way. A 16-byte load at element
+/// 1 straddles the pair and element 2 and cannot forward.
+///
+/// # Safety
+///
+/// `p` points at a live `[f64; 3]` and is aligned for `f64`.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn load_lo16_hi8(p: *const f64) -> (f64, f64, f64) {
+    let x: f64;
+    let y: f64;
+    let z: f64;
+    std::arch::asm!(
+        "movupd {x}, xmmword ptr [{p}]",
+        "movapd {y}, {x}",
+        "unpckhpd {y}, {x}",
+        "movsd {z}, qword ptr [{p} + 16]",
+        p = in(reg) p,
+        x = out(xmm_reg) x,
+        y = out(xmm_reg) y,
+        z = out(xmm_reg) z,
+        options(nostack, preserves_flags, readonly),
+    );
+    (x, y, z)
+}
+
+/// Load three elements. The caller has no split store to match.
 ///
 /// # Safety
 ///
 /// `p` points at a live `[f64; 3]` and is aligned for `f64`.
 #[cfg(not(target_arch = "x86_64"))]
 #[inline(always)]
-unsafe fn load3(p: *const f64) -> (f64, f64, f64) {
+unsafe fn load_lo8_hi16(p: *const f64) -> (f64, f64, f64) {
     (
         std::ptr::read_volatile(p),
         std::ptr::read_volatile(p.add(1)),
         std::ptr::read_volatile(p.add(2)),
     )
+}
+
+/// Load three elements. The caller has no split store to match.
+///
+/// # Safety
+///
+/// `p` points at a live `[f64; 3]` and is aligned for `f64`.
+#[cfg(not(target_arch = "x86_64"))]
+#[inline(always)]
+unsafe fn load_lo16_hi8(p: *const f64) -> (f64, f64, f64) {
+    load_lo8_hi16(p)
 }
 
 impl Cell {
@@ -130,11 +166,13 @@ impl Cell {
         origin: [f64; 3],
     ) -> Result<Self, Error> {
         // SAFETY: each argument is a live `[f64; 3]`. The pointer is the
-        // argument itself, not a stack copy.
-        let (ax, ay, az) = unsafe { load3(std::ptr::addr_of!(a).cast()) };
-        let (bx, by, bz) = unsafe { load3(std::ptr::addr_of!(b).cast()) };
-        let (cx, cy, cz) = unsafe { load3(std::ptr::addr_of!(c).cast()) };
-        let (ox, oy, oz) = unsafe { load3(std::ptr::addr_of!(origin).cast()) };
+        // argument itself, not a stack copy. `a` is the 8-byte lane
+        // plus a 16-byte tail. `b`, `c`, and `origin` are a 16-byte
+        // pair plus an 8-byte element 2.
+        let (ax, ay, az) = unsafe { load_lo8_hi16(std::ptr::addr_of!(a).cast()) };
+        let (bx, by, bz) = unsafe { load_lo16_hi8(std::ptr::addr_of!(b).cast()) };
+        let (cx, cy, cz) = unsafe { load_lo16_hi8(std::ptr::addr_of!(c).cast()) };
+        let (ox, oy, oz) = unsafe { load_lo16_hi8(std::ptr::addr_of!(origin).cast()) };
         // b × c, c × a, a × b. The determinant is a · (b × c).
         let bcx = by * cz - bz * cy;
         let bcy = bz * cx - bx * cz;
