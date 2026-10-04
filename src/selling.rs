@@ -243,13 +243,13 @@ struct BasisCache {
     hand: usize,
 }
 
-// An inline const block is newer than rustc 1.70.
-#[allow(clippy::missing_const_for_thread_local)]
 thread_local! {
-    static BASIS: RefCell<BasisCache> = RefCell::new(BasisCache {
-        slots: [None, None, None, None],
-        hand: 0,
-    });
+    static BASIS: RefCell<BasisCache> = const {
+        RefCell::new(BasisCache {
+            slots: [None, None, None, None],
+            hand: 0,
+        })
+    };
 }
 
 /// Closest displacement on the Selling superbasis of `h`.
