@@ -109,6 +109,8 @@ fn already_obtuse(v: &[[f64; 3]; 4], tol: f64) -> bool {
     true
 }
 
+// `mask` is the subset bitfield and the corner slot.
+#[allow(clippy::needless_range_loop)]
 fn corners_of(v: [[f64; 3]; 4]) -> [[f64; 3]; 16] {
     let mut corner = [[0.0; 3]; 16];
     for mask in 1..16 {
@@ -241,6 +243,8 @@ struct BasisCache {
     hand: usize,
 }
 
+// An inline const block is newer than rustc 1.70.
+#[allow(clippy::missing_const_for_thread_local)]
 thread_local! {
     static BASIS: RefCell<BasisCache> = RefCell::new(BasisCache {
         slots: [None, None, None, None],
@@ -256,6 +260,7 @@ thread_local! {
 pub(crate) fn closest_for(h: [[f64; 3]; 3], y: [f64; 3]) -> [f64; 3] {
     BASIS.with(|cache| {
         let mut cache = cache.borrow_mut();
+        #[allow(clippy::manual_flatten)]
         for slot in &cache.slots {
             if let Some(slot) = slot {
                 if slot.h == h {
@@ -295,6 +300,8 @@ fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
         // The four superbasis vectors sum to zero, so mask 15 is the
         // same lattice point as mask 0 and cannot win the strict test.
         let corner = &s.corner;
+        // `mask` is the subset bitfield. Mask 15 repeats the origin.
+        #[allow(clippy::needless_range_loop)]
         for mask in 0..15usize {
             let p = corner[mask];
             let dx = y[0] - (base[0] + p[0]);
