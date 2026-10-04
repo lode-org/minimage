@@ -58,9 +58,9 @@ reciprocal per axis, <code>abs</code>, then <code>round</code>. AVX issues four 
 when the CPU has it.
 </p>
 
-<section id="outline-container-org42d2804" class="outline-2">
-<h2 id="org42d2804">Nearest image</h2>
-<div class="outline-text-2" id="text-org42d2804">
+<section id="outline-container-org0503cf2" class="outline-2">
+<h2 id="org0503cf2">Nearest image</h2>
+<div class="outline-text-2" id="text-org0503cf2">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -84,15 +84,16 @@ certificate. The linked-cell pair itself is Rapaport's shift,
 <code>|q + shift - p|^2</code>, exposed as <code>dist2_shifted_many</code>. A bin that
 is an index list rather than a contiguous slice is
 <code>dist2_shifted_indexed</code>: it gathers a chunk of those positions into
-the same kernel. A bin of one occupant is a single subtract, and
-gathering that one point is extra work.
+the same kernel. The gather copies every point first. On a long
+index list that copy was slower than the inlined subtract, so the
+production walk keeps the subtract.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org55f7798" class="outline-2">
-<h2 id="org55f7798">Validation</h2>
-<div class="outline-text-2" id="text-org55f7798">
+<section id="outline-container-orge3e4910" class="outline-2">
+<h2 id="orge3e4910">Validation</h2>
+<div class="outline-text-2" id="text-orge3e4910">
 <p>
 The wrap and the Delone step are checked by three independent tools,
 then settled as a DeGroot vote (Friedkin and Johnsen when a voter is
@@ -107,9 +108,9 @@ the sum, and the determinant, and decides the ortho and skew shells.
 </div>
 </section>
 
-<section id="outline-container-org5b46bc9" class="outline-2">
-<h2 id="org5b46bc9">Profiling</h2>
-<div class="outline-text-2" id="text-org5b46bc9">
+<section id="outline-container-orgecddddb" class="outline-2">
+<h2 id="orgecddddb">Profiling</h2>
+<div class="outline-text-2" id="text-orgecddddb">
 <p>
 The hot path is read with the POP3 hierarchy (Performance
 Optimisation and Productivity 3, EuroHPC, 2024–2026). Global
@@ -127,19 +128,21 @@ reference is the per-pair wrap. The Euclidean region's reference
 is the engine wrap, and a ratio below one is the cost of the
 closest-point search. <code>scripts/ab_vs_main.sh</code> times the shared
 calls against published 0.1.2. The gate covers the orthorhombic
-batches, the far Euclidean query, and the C <code>mi_dist2</code> /
-<code>mi_dist2_many</code> / <code>mi_dist2_pairs</code> loop. Each of those must be at
-least five percent faster. Skew-cell construction and the per-pair
-Rust wrap of an already built cell are printed beside that gate.
-Published 0.1.2 wraps a single neighbouring image; the per-pair
-Rust number is that in-box case.
+batches, the near and far Euclidean queries, and the C <code>mi_dist2</code>
+/ <code>mi_dist2_many</code> / <code>mi_dist2_pairs</code> loop. Each of those must be
+at least five percent faster. The in-box per-pair Rust wrap is
+two comparisons for one neighbouring image and a floor past that
+image; the script fails if that path is more than five percent
+slower than published 0.1.2. Skew-cell construction is printed
+beside the gate, because Selling is paid once when the cell is
+built.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org12dd552" class="outline-2">
-<h2 id="org12dd552">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-org12dd552">
+<section id="outline-container-org2314b69" class="outline-2">
+<h2 id="org2314b69">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-org2314b69">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -159,9 +162,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-orgc50fad3" class="outline-2">
-<h2 id="orgc50fad3">vesin images</h2>
-<div class="outline-text-2" id="text-orgc50fad3">
+<section id="outline-container-org133b30e" class="outline-2">
+<h2 id="org133b30e">vesin images</h2>
+<div class="outline-text-2" id="text-org133b30e">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -171,9 +174,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-org44cc98b" class="outline-2">
-<h2 id="org44cc98b">Consumers</h2>
-<div class="outline-text-2" id="text-org44cc98b">
+<section id="outline-container-org1efbdd7" class="outline-2">
+<h2 id="org1efbdd7">Consumers</h2>
+<div class="outline-text-2" id="text-org1efbdd7">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,

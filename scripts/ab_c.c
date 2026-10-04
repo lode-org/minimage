@@ -1,6 +1,7 @@
 /* Same C driver against this tree and against published 0.1.2.
  * Prints `name ns_per_pair=<f64>` for the seams-shaped calls.
  */
+#define _POSIX_C_SOURCE 199309L
 #include "minimage.h"
 
 #include <math.h>

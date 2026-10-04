@@ -108,8 +108,28 @@ pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
 }
 
 /// `d - L * floor(d * (1/L) + 1/2)`. The reciprocal is the cell's.
+///
+/// A separation inside one neighbouring image is two comparisons and
+/// one add or subtract, the same shape as the single-image wrap.
+/// Anything past that image uses the floor, so a later image still
+/// lands in `[-L/2, L/2)`.
 #[inline]
 pub(crate) fn wrap_half_recip(d: f64, length: f64, recip: f64) -> f64 {
+    let half = 0.5 * length;
+    if d < half {
+        if d >= -half {
+            return d;
+        }
+        let w = d + length;
+        if w >= -half {
+            return w;
+        }
+    } else {
+        let w = d - length;
+        if w < half {
+            return w;
+        }
+    }
     d - length * (d * recip + 0.5).floor()
 }
 
