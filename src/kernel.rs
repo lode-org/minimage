@@ -128,26 +128,81 @@ pub(crate) fn is_axis_aligned_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
 /// Keeps `-L/2` and maps `+L/2` onto `-L/2`.
 #[inline(always)]
 pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
+    if d.abs() >= length {
+        return wrap_half_far(d, length);
+    }
+    wrap_one(d, length)
+}
+
+/// One neighbouring image. Exact for `|d| < L`, which is every pair of
+/// positions folded into the box. Two selects, no branch.
+#[inline(always)]
+pub(crate) fn wrap_one(d: f64, length: f64) -> f64 {
     let half = 0.5 * length;
-    let mut w = d;
-    if w < -half {
-        w += length;
-    }
+    let w = if d < -half { d + length } else { d };
     if w >= half {
-        w -= length;
-    }
-    if w < -half || w >= half {
-        wrap_half_far(d, length)
+        w - length
     } else {
         w
     }
 }
 
-/// Images past one neighbouring cell. Kept off the one-image path.
+/// Orthorhombic wrap of one difference. A pair of folded positions is
+/// inside one box on every axis, so the three selects run without a
+/// branch; one combined test sends anything longer to the floor form.
+#[inline(always)]
+pub(crate) fn ortho_wrap(l: [f64; 3], dp: [f64; 3]) -> [f64; 3] {
+    let far = (dp[0].abs() >= l[0]) | (dp[1].abs() >= l[1]) | (dp[2].abs() >= l[2]);
+    if far {
+        return ortho_wrap_far(l[0], l[1], l[2], dp[0], dp[1], dp[2]);
+    }
+    [
+        wrap_one(dp[0], l[0]),
+        wrap_one(dp[1], l[1]),
+        wrap_one(dp[2], l[2]),
+    ]
+}
+
+/// Squared orthorhombic minimum image. For `|d| < L` the wrapped
+/// length on an axis is `min(|d|, L - |d|)`: `L - |d|` is exactly
+/// `|d - L|`, and at `|d| = L/2` both are `L/2`, so the square is the
+/// signed wrap's square bit for bit with a third of the selects.
+#[inline(always)]
+pub(crate) fn ortho_dist2(l: [f64; 3], dp: [f64; 3]) -> f64 {
+    let ax = dp[0].abs();
+    let ay = dp[1].abs();
+    let az = dp[2].abs();
+    if (ax >= l[0]) | (ay >= l[1]) | (az >= l[2]) {
+        return n2(ortho_wrap_far(l[0], l[1], l[2], dp[0], dp[1], dp[2]));
+    }
+    let bx = l[0] - ax;
+    let by = l[1] - ay;
+    let bz = l[2] - az;
+    let wx = if bx < ax { bx } else { ax };
+    let wy = if by < ay { by } else { ay };
+    let wz = if bz < az { bz } else { az };
+    wx * wx + wy * wy + wz * wz
+}
+
+#[cold]
+#[inline(never)]
+fn ortho_wrap_far(lx: f64, ly: f64, lz: f64, dx: f64, dy: f64, dz: f64) -> [f64; 3] {
+    [wrap_half(dx, lx), wrap_half(dy, ly), wrap_half(dz, lz)]
+}
+
+/// Images past one neighbouring cell. The floor estimate can miss by
+/// one image at a tie; the two exact selects put it back.
 #[cold]
 #[inline(never)]
 fn wrap_half_far(d: f64, length: f64) -> f64 {
-    d - length * floor_fast(d / length + 0.5)
+    let w = d - length * floor_fast(d / length + 0.5);
+    let half = 0.5 * length;
+    let w = if w < -half { w + length } else { w };
+    if w >= half {
+        w - length
+    } else {
+        w
+    }
 }
 
 /// `d - L * floor(d * (1/L) + 1/2)`. The reciprocal is the cell's.
@@ -185,7 +240,7 @@ pub(crate) fn ortho_wrap_recip(l: [f64; 3], recip: [f64; 3], dp: [f64; 3]) -> [f
     ]
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn general_wrap(h: [[f64; 3]; 3], hinv: [[f64; 3]; 3], dp: [f64; 3]) -> [f64; 3] {
     let mut ds = mul(hinv, dp);
     ds[0] -= round_away(ds[0]);
@@ -356,5 +411,39 @@ mod tests {
         }
         assert!(round_away(f64::NAN).is_nan());
         assert!(floor_fast(f64::NAN).is_nan());
+    }
+
+    #[test]
+    fn ortho_square_is_the_signed_wrap_square() {
+        let l = [10.0, 11.0, 12.0];
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut unit = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let mut cases = vec![
+            [5.0, -5.5, 6.0],
+            [-5.0, 5.5, -6.0],
+            [10.0, -11.0, 12.0],
+            [15.0, -16.5, 18.0],
+            [-15.0, 16.5, -18.0],
+            [9.999_999_999_999_998, 0.0, 0.0],
+        ];
+        for _ in 0..4000 {
+            cases.push([
+                (unit() - 0.5) * 6.0 * l[0],
+                (unit() - 0.5) * 2.0 * l[1],
+                (unit() - 0.5) * 2.0 * l[2],
+            ]);
+        }
+        for dp in cases {
+            let signed = ortho_wrap(l, dp);
+            for a in 0..3 {
+                assert!(signed[a] >= -0.5 * l[a] && signed[a] < 0.5 * l[a], "{dp:?}");
+            }
+            assert_eq!(ortho_dist2(l, dp).to_bits(), n2(signed).to_bits(), "{dp:?}");
+        }
     }
 }
