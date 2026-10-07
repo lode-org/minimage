@@ -219,6 +219,18 @@ int mi_dist2(const struct mi_cell *simbox,
              double *out);
 
 /**
+ * Squared engine-wrap distance between two fixed-point positions.
+ *
+ * # Safety
+ *
+ * `a` and `b` are three `uint64_t`. `out` is one writable double.
+ */
+int mi_dist2_fixed(const struct mi_cell *simbox,
+                   const uint64_t *a,
+                   const uint64_t *b,
+                   double *out);
+
+/**
  * Squared MIC distances from `p` to `n` packed candidates in `qs`.
  *
  * # Safety
@@ -230,6 +242,21 @@ int mi_dist2_many(const struct mi_cell *simbox,
                   const double *qs,
                   size_t n,
                   double *out);
+
+/**
+ * Squared engine-wrap distances from fixed-point `p` to `n` packed
+ * fixed-point candidates.
+ *
+ * # Safety
+ *
+ * `p` is three `uint64_t`. `qs` is `n * 3` `uint64_t`. `out` is `n`
+ * doubles.
+ */
+int mi_dist2_many_fixed(const struct mi_cell *simbox,
+                        const uint64_t *p,
+                        const uint64_t *qs,
+                        size_t n,
+                        double *out);
 
 /**
  * Orthorhombic wrap of precomputed differences (Highway kernel).
@@ -261,6 +288,19 @@ int mi_dist2_pairs(const struct mi_cell *simbox,
                    double *out);
 
 /**
+ * Squared engine-wrap distances for `n` packed fixed-point pairs.
+ *
+ * # Safety
+ *
+ * `ps` and `qs` are `n * 3` `uint64_t`. `out` is `n` doubles.
+ */
+int mi_dist2_pairs_fixed(const struct mi_cell *simbox,
+                         const uint64_t *ps,
+                         const uint64_t *qs,
+                         size_t n,
+                         double *out);
+
+/**
  * Squared distances from `p` to `n` points in `qs`, plus one lattice
  * shift `(sx, sy, sz)` on every candidate. Rapaport's bin pair.
  *
@@ -273,6 +313,19 @@ int mi_dist2_shifted_many(const double *p,
                           const double *shift,
                           size_t n,
                           double *out);
+
+/**
+ * Fixed-point fractional coordinates of `n` packed positions: three
+ * `uint64_t` per position, each fraction times `2^64`.
+ *
+ * # Safety
+ *
+ * `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint64_t`.
+ */
+int mi_fixed_many(const struct mi_cell *simbox,
+                  const double *rs,
+                  size_t n,
+                  uint64_t *out);
 
 /**
  * Thread-local last-error string from this thread's most recent `mi_*`

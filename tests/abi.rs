@@ -37,6 +37,66 @@ extern "C" {
     ) -> c_int;
 }
 
+extern "C" {
+    fn mi_fixed_many(simbox: *const mi_cell, rs: *const f64, n: usize, out: *mut u64) -> c_int;
+    fn mi_dist2_fixed(simbox: *const mi_cell, a: *const u64, b: *const u64, out: *mut f64)
+        -> c_int;
+    fn mi_dist2_pairs_fixed(
+        simbox: *const mi_cell,
+        ps: *const u64,
+        qs: *const u64,
+        n: usize,
+        out: *mut f64,
+    ) -> c_int;
+}
+
+#[test]
+fn fixed_abi_matches_rust() {
+    let raw = hex_raw();
+    let cell = Cell::from_vectors(
+        [10.0, 0.0, 0.0],
+        [5.0, 8.660254037844386, 0.0],
+        [0.0, 0.0, 10.0],
+        [0.0; 3],
+    )
+    .unwrap();
+    let rs = [
+        [0.5, 0.25, 9.75],
+        [9.5, 8.0, 0.5],
+        [-3.0, 14.0, 22.0],
+        [4.0, 4.0, 4.0],
+        [1.0, 2.0, 3.0],
+    ];
+    let mut fx = [[0u64; 3]; 5];
+    let status = unsafe { mi_fixed_many(&raw, rs.as_ptr().cast(), 5, fx.as_mut_ptr().cast()) };
+    assert_eq!(status, 0);
+    for (r, f) in rs.iter().zip(&fx) {
+        assert_eq!(*f, cell.fixed(*r));
+    }
+    let mut d2 = 0.0;
+    let status = unsafe { mi_dist2_fixed(&raw, fx[0].as_ptr(), fx[1].as_ptr(), &mut d2) };
+    assert_eq!(status, 0);
+    assert_eq!(d2.to_bits(), cell.dist2_fixed(fx[0], fx[1]).to_bits());
+    let ps = [fx[0], fx[1], fx[2], fx[3], fx[4]];
+    let qs = [fx[4], fx[3], fx[2], fx[1], fx[0]];
+    let mut out = [0.0; 5];
+    let status = unsafe {
+        mi_dist2_pairs_fixed(
+            &raw,
+            ps.as_ptr().cast(),
+            qs.as_ptr().cast(),
+            5,
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(status, 0);
+    for k in 0..5 {
+        assert_eq!(out[k].to_bits(), cell.dist2_fixed(ps[k], qs[k]).to_bits());
+        let float = cell.dist2(rs[k], rs[4 - k]);
+        assert!((out[k] - float).abs() <= 1e-12 * (1.0 + float));
+    }
+}
+
 fn hex_raw() -> mi_cell {
     mi_cell {
         ax: 10.0,

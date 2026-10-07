@@ -14,7 +14,10 @@
 //! superbasis cached on the calling thread. Lagrange size reduction runs before
 //! that Delone step. [`dist2_many`], [`dist2_pairs`], [`wrap_many`], and
 //! [`dist2_ortho_diffs`] batch the engine wrap. The orthorhombic SoA
-//! kernel is AVX when the CPU has it.
+//! kernel is AVX when the CPU has it. [`Cell::fixed`] stores a position
+//! as 64-bit fixed-point fractions, and the wrap between two of them is
+//! exact integer arithmetic ([`Cell::dist2_fixed`], [`dist2_many_fixed`],
+//! [`dist2_pairs_fixed`]).
 //! [`Cell::dist2_shifted_indexed`] gathers a linked-cell bin's index
 //! list into that shifted kernel. [`reduce_pairs`] turns
 //! a vesin image pair list into one minimum-image pair and drops the
@@ -43,6 +46,7 @@
 mod batch;
 mod cell;
 mod error;
+mod fixed;
 mod fused;
 mod kernel;
 mod minkowski;
@@ -50,7 +54,9 @@ mod pairs;
 mod selling;
 mod simd;
 
-pub use batch::{dist2_many, dist2_ortho_diffs, dist2_pairs, wrap_many};
+pub use batch::{
+    dist2_many, dist2_many_fixed, dist2_ortho_diffs, dist2_pairs, dist2_pairs_fixed, wrap_many,
+};
 pub use cell::{dump_bounds_to_h, Cell};
 pub use error::Error;
 pub use minkowski::{is_minkowski_reduced, minkowski_reduce};
