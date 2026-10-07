@@ -917,7 +917,7 @@ pub fn dump_bounds_to_h(
 
 #[inline]
 fn wrap01(mut s: f64) -> f64 {
-    s -= s.floor();
+    s -= kernel::floor_fast(s);
     if s >= 1.0 {
         0.0
     } else {
