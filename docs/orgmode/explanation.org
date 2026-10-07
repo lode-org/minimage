@@ -87,6 +87,23 @@ the same kernel. The gather copies every point first. On a long
 index list that copy was slower than the inlined subtract, so the
 production walk keeps the subtract.
 
+* Fixed-point fractions
+
+=Cell::fixed= stores a position folded into the cell as three
+fractions on 64 bits, =s * 2^64=. The engine wrap of a difference is
+then integer arithmetic: =b - a= modulo =2^64=, read as signed, is the
+wrapped fraction in =[-1/2, 1/2)=, exactly. The top 52 bits of that
+difference convert to a double exactly, and one product with =H= gives
+the Cartesian vector, for any cell shape, with no =Hinv= and no
+rounding step. That is the exact integer split of the Ozaki scheme
+(Ozaki, Ogita, Oishi, and Rump, Numer. Algorithms 59, 95, 2012) applied
+to the periodic wrap, and the fixed-point positions of Anton (Shaw et
+al., Commun. ACM 51, 91, 2008). Convert positions once per frame; a
+pair list over them then costs a subtraction, a conversion, and a
+matrix product per pair. A fraction exactly one half apart wraps to
+=-1/2=, and the distance agrees with =dist2= to a few units in the
+last place.
+
 * Dump bounds are not H
 
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt =xy, xz, yz=.
