@@ -375,3 +375,5 @@ nohup.out
 /subprojects/*
 !/subprojects/*.wrap
 !/subprojects/packagefiles/
+/burn/target/
+/burn/Cargo.lock

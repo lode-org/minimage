@@ -31,6 +31,11 @@ or CuPy host arrays) in place, with no `tolist`, and return numpy
 arrays that own their buffers through a DLPack 1.0 capsule; a list in
 still gives a list out. `dist2_pairs`, `fixed`, `fixed_many`,
 `dist2_fixed`, `dist2_many_fixed`, and `dist2_pairs_fixed` are bound.
+`minimage-burn` (in `burn/`, outside the workspace, Rust 1.95) puts
+the wrap on Burn tensors, whose device picks the backend at run time:
+CPU, wgpu, Vulkan, Metal, CUDA, or ROCm. Fractions folded on the CPU in
+double precision wrap exactly on a single- or half-precision device,
+since `ds - round(ds)` is exact for `|ds| < 1`.
 
 ## 0.1.3 - 2026-10-04
 
