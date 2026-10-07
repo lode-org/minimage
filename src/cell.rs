@@ -637,12 +637,12 @@ impl Cell {
         self.euclidean_far(dp, frac, f2)
     }
 
-    /// Smith missed: the closest point on the cached superbasis. It
-    /// takes the raw difference, not the wrapped one, so the predicted
-    /// miss starts this search before the engine wrap finishes.
+    /// Smith missed: the closest point on the cached superbasis. Babai's
+    /// start reads the raw difference, so a predicted miss begins before
+    /// the engine wrap finishes; a short engine basis starts from the wrap.
     #[inline(never)]
     fn euclidean_far(&self, dp: [f64; 3], frac: [f64; 3], f2: f64) -> [f64; 3] {
-        let euc = selling::closest_for(self.h, dp);
+        let euc = selling::closest_for(self.h, dp, frac);
         let e2 = kernel::n2(euc);
         if e2 + 1e-12 * (1.0 + f2) < f2 {
             euc
@@ -887,6 +887,48 @@ mod cartesian_tests {
         assert!((a[0] - b[0]).abs() < 1e-15);
         assert!((a[1] - b[1]).abs() < 1e-15);
         assert!((a[2] - b[2]).abs() < 1e-15);
+    }
+
+    #[test]
+    fn reduced_tilt_euclidean_matches_an_image_search() {
+        let mut state = 0xbb67_ae85_84ca_a73bu64;
+        let mut unit = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for _ in 0..60 {
+            let lx = 4.0 + 8.0 * unit();
+            let ly = 4.0 + 8.0 * unit();
+            let lz = 4.0 + 8.0 * unit();
+            let c = Cell::from_vectors(
+                [lx, 0.0, 0.0],
+                [(unit() - 0.5) * lx, ly, 0.0],
+                [(unit() - 0.5) * lx, (unit() - 0.5) * ly, lz],
+                [0.0; 3],
+            )
+            .unwrap();
+            assert!(c.tilts_reduced());
+            for _ in 0..40 {
+                let p = [unit() * 30.0, unit() * 30.0, unit() * 30.0];
+                let q = [unit() * 12.0, unit() * 12.0, unit() * 12.0];
+                let euc = c.displacement_euclidean(p, q);
+                let e2 = euc[0] * euc[0] + euc[1] * euc[1] + euc[2] * euc[2];
+                let frac = c.displacement(p, q);
+                let mut best = f64::INFINITY;
+                for na in -3..=3 {
+                    for nb in -3..=3 {
+                        for nc in -3..=3 {
+                            let s = c.lattice_shift(na, nb, nc);
+                            let t = [frac[0] + s[0], frac[1] + s[1], frac[2] + s[2]];
+                            best = best.min(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+                        }
+                    }
+                }
+                assert!(e2 <= best + 1e-9 * (1.0 + best), "{e2} > {best}");
+            }
+        }
     }
 
     #[test]
