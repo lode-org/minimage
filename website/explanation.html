@@ -40,7 +40,19 @@ origin)</code>, wrap each component into the central image, then map back
 Orthorhombic boxes are the diagonal case (Allen and Tildesley;
 Frenkel and Smit). Each axis is <code>d - L floor(d/L + 1/2)</code>, every
 image, not one subtraction. The tie keeps <code>-L/2</code> and maps <code>+L/2</code>
-onto <code>-L/2</code>, matching dump <code>relDist</code>.
+onto <code>-L/2</code>, matching dump <code>relDist</code>. Two positions folded into the
+box are less than one length apart on every axis, so the wrap is two
+selects and the floor runs only past that. A squared distance needs
+no sign: for <code>|d| &lt; L</code> the wrapped length is <code>min(|d|, L - |d|)</code>, the
+same square bit for bit with a third of the selects.
+</p>
+
+<p>
+Baseline x86-64 has no rounding instruction, so <code>f64::round</code> and
+<code>floor</code> are libm calls. Rounding half away from zero adds the largest
+double below one half, with the sign of the argument, and truncates
+with <code>cvttsd2si</code>. That is the same integer for every double, and the
+expansion LLVM itself uses when SSE4.1 is present.
 </p>
 
 <p>
@@ -53,14 +65,20 @@ general-to-restricted rotation.
 </p>
 
 <p>
-The SoA orthorhombic kernel is Highway <code>BatchPeriodicDistSq</code>: one
-reciprocal per axis, <code>abs</code>, then <code>round</code>. AVX issues four doubles
-when the CPU has it.
+<code>dist2_many</code>, <code>dist2_pairs</code>, and <code>wrap_many</code> are one AVX pass over
+the packed rows for every cell shape: four rows load as three vectors,
+subtract while still packed, and transpose once in registers, with no
+staging buffer (map fusion in the sense of DaCe and Futhark). An
+orthorhombic wrap is per element and does not transpose at all. Each
+lane runs the per-pair operations in the per-pair order, so a batch
+entry equals the per-pair call bit for bit. <code>dist2_ortho_diffs</code> keeps
+the Highway <code>BatchPeriodicDistSq</code> shape: precomputed differences, one
+reciprocal per axis, <code>abs</code>, then <code>round</code>.
 </p>
 
-<section id="outline-container-org0503cf2" class="outline-2">
-<h2 id="org0503cf2">Nearest image</h2>
-<div class="outline-text-2" id="text-org0503cf2">
+<section id="outline-container-orgcad1ccf" class="outline-2">
+<h2 id="orgcad1ccf">Nearest image</h2>
+<div class="outline-text-2" id="text-orgcad1ccf">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -70,13 +88,22 @@ than another image.
 </p>
 
 <p>
-Past that test the closest point is McKilliam, Grant, and Clarkson,
-SIAM J. Discrete Math. 28, 1405 (2014), on the obtuse superbasis
+Past that test the closest point comes from the obtuse superbasis
 every three-dimensional lattice has (Selling, 1874; Conway and
 Sloane, Proc. R. Soc. Lond. A 436, 55, 1992). A near-parallel basis
 makes the one-vector Delone step linear in the reciprocal of the
 angle, so Lagrange's size reduction (1773; Gauss, 1801) shortens
 the edges first. The superbasis is cached on the calling thread and built on the first query that fails the Smith test.
+The query rounds in three of the four superbasis vectors (Babai,
+Combinatorica 6, 1, 1986), then runs the iterative slicer of Sommer,
+Feder, and Shalvi, SIAM J. Discrete Math. 23, 715 (2009): while some
+relevant vector <code>r</code> has <code>2 |x · r| &gt; |r|^2</code>, step by <code>r</code>. Every
+Voronoi-relevant vector of an obtuse superbasis is one of seven
+classes <code>±v_S</code> (Conway and Sloane), so where the walk stops <code>x</code> is the
+shortest vector of its coset. A restricted cell with its tilts inside
+half an edge starts from the engine wrap instead of Babai's point.
+McKilliam, Grant, and Clarkson, SIAM J. Discrete Math. 28, 1405
+(2014), search the same subset sums in three rounds of fifteen.
 A tie keeps the engine vector.
 Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
 Minkowski-reduces a basis; that reduction is not the closest-vector
@@ -91,9 +118,9 @@ production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-org2314b69" class="outline-2">
-<h2 id="org2314b69">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-org2314b69">
+<section id="outline-container-orgbdac1cf" class="outline-2">
+<h2 id="orgbdac1cf">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-orgbdac1cf">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -113,9 +140,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-org133b30e" class="outline-2">
-<h2 id="org133b30e">vesin images</h2>
-<div class="outline-text-2" id="text-org133b30e">
+<section id="outline-container-org060de99" class="outline-2">
+<h2 id="org060de99">vesin images</h2>
+<div class="outline-text-2" id="text-org060de99">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -125,9 +152,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-org1efbdd7" class="outline-2">
-<h2 id="org1efbdd7">Consumers</h2>
-<div class="outline-text-2" id="text-org1efbdd7">
+<section id="outline-container-orgf523ac9" class="outline-2">
+<h2 id="orgf523ac9">Consumers</h2>
+<div class="outline-text-2" id="text-orgf523ac9">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
