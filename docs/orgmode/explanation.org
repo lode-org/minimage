@@ -23,7 +23,17 @@ origin)=, wrap each component into the central image, then map back
 Orthorhombic boxes are the diagonal case (Allen and Tildesley;
 Frenkel and Smit). Each axis is =d - L floor(d/L + 1/2)=, every
 image, not one subtraction. The tie keeps =-L/2= and maps =+L/2=
-onto =-L/2=, matching dump =relDist=.
+onto =-L/2=, matching dump =relDist=. Two positions folded into the
+box are less than one length apart on every axis, so the wrap is two
+selects and the floor runs only past that. A squared distance needs
+no sign: for =|d| < L= the wrapped length is =min(|d|, L - |d|)=, the
+same square bit for bit with a third of the selects.
+
+Baseline x86-64 has no rounding instruction, so =f64::round= and
+=floor= are libm calls. Rounding half away from zero adds the largest
+double below one half, with the sign of the argument, and truncates
+with =cvttsd2si=. That is the same integer for every double, and the
+expansion LLVM itself uses when SSE4.1 is present.
 
 A restricted triclinic box (=a= along x, =b= in the xy plane) uses
 the triangular lamda step of LAMMPS =Domain::minimum_image=, HOOMD
@@ -32,9 +42,15 @@ general orientation is two products with =Hinv=. =Cell::reduce_tilts=
 is GROMACS =correct_box=. =Cell::to_restricted= is the LAMMPS
 general-to-restricted rotation.
 
-The SoA orthorhombic kernel is Highway =BatchPeriodicDistSq=: one
-reciprocal per axis, =abs=, then =round=. AVX issues four doubles
-when the CPU has it.
+=dist2_many=, =dist2_pairs=, and =wrap_many= are one AVX pass over
+the packed rows for every cell shape: four rows load as three vectors,
+subtract while still packed, and transpose once in registers, with no
+staging buffer (map fusion in the sense of DaCe and Futhark). An
+orthorhombic wrap is per element and does not transpose at all. Each
+lane runs the per-pair operations in the per-pair order, so a batch
+entry equals the per-pair call bit for bit. =dist2_ortho_diffs= keeps
+the Highway =BatchPeriodicDistSq= shape: precomputed differences, one
+reciprocal per axis, =abs=, then =round=.
 
 * Nearest image
 
@@ -44,13 +60,22 @@ face altitude. That is the cutoff regime. Linkcell k-NN has no
 cutoff. A hex-prism body diagonal is an engine wrap that is longer
 than another image.
 
-Past that test the closest point is McKilliam, Grant, and Clarkson,
-SIAM J. Discrete Math. 28, 1405 (2014), on the obtuse superbasis
+Past that test the closest point comes from the obtuse superbasis
 every three-dimensional lattice has (Selling, 1874; Conway and
 Sloane, Proc. R. Soc. Lond. A 436, 55, 1992). A near-parallel basis
 makes the one-vector Delone step linear in the reciprocal of the
 angle, so Lagrange's size reduction (1773; Gauss, 1801) shortens
 the edges first. The superbasis is cached on the calling thread and built on the first query that fails the Smith test.
+The query rounds in three of the four superbasis vectors (Babai,
+Combinatorica 6, 1, 1986), then runs the iterative slicer of Sommer,
+Feder, and Shalvi, SIAM J. Discrete Math. 23, 715 (2009): while some
+relevant vector =r= has =2 |x · r| > |r|^2=, step by =r=. Every
+Voronoi-relevant vector of an obtuse superbasis is one of seven
+classes =±v_S= (Conway and Sloane), so where the walk stops =x= is the
+shortest vector of its coset. A restricted cell with its tilts inside
+half an edge starts from the engine wrap instead of Babai's point.
+McKilliam, Grant, and Clarkson, SIAM J. Discrete Math. 28, 1405
+(2014), search the same subset sums in three rounds of fifteen.
 A tie keeps the engine vector.
 Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
 Minkowski-reduces a basis; that reduction is not the closest-vector
