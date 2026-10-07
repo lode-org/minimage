@@ -77,9 +77,9 @@ the Highway <code>BatchPeriodicDistSq</code> shape: precomputed differences, one
 reciprocal per axis, <code>abs</code>, then <code>round</code>.
 </p>
 
-<section id="outline-container-org4dd9bf5" class="outline-2">
-<h2 id="org4dd9bf5">Nearest image</h2>
-<div class="outline-text-2" id="text-org4dd9bf5">
+<section id="outline-container-org99f2679" class="outline-2">
+<h2 id="org99f2679">Nearest image</h2>
+<div class="outline-text-2" id="text-org99f2679">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -119,9 +119,9 @@ production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-org645758b" class="outline-2">
-<h2 id="org645758b">Fixed-point fractions</h2>
-<div class="outline-text-2" id="text-org645758b">
+<section id="outline-container-orga428655" class="outline-2">
+<h2 id="orga428655">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-orga428655">
 <p>
 <code>Cell::fixed</code> stores a position folded into the cell as three
 fractions on 64 bits, <code>s * 2^64</code>. The engine wrap of a difference is
@@ -132,7 +132,12 @@ the Cartesian vector, for any cell shape, with no <code>Hinv</code> and no
 rounding step. That is the exact integer split of the Ozaki scheme
 (Ozaki, Ogita, Oishi, and Rump, Numer. Algorithms 59, 95, 2012) applied
 to the periodic wrap, and the fixed-point positions of Anton (Shaw et
-al., Commun. ACM 51, 91, 2008). Convert positions once per frame; a
+al., Commun. ACM 51, 91, 2008). The wrap is the symmetric residue
+<code>a - m floor(a/m + 1/2)</code> of Ozaki Scheme II (Ozaki, Uchino, and
+Imamura, arXiv:2504.08009, 2025) with the one modulus <code>m = 2^64</code>;
+two's complement computes it, so no Chinese remainder step is needed.
+The orthorhombic wrap above is the same residue with <code>m = L</code>.
+Convert positions once per frame; a
 pair list over them then costs a subtraction, a conversion, and a
 matrix product per pair. A fraction exactly one half apart wraps to
 <code>-1/2</code>, and the distance agrees with <code>dist2</code> to a few units in the
@@ -141,9 +146,9 @@ last place.
 </div>
 </section>
 
-<section id="outline-container-orgea2f630" class="outline-2">
-<h2 id="orgea2f630">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-orgea2f630">
+<section id="outline-container-orgbf56970" class="outline-2">
+<h2 id="orgbf56970">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-orgbf56970">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -163,9 +168,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-org5de1333" class="outline-2">
-<h2 id="org5de1333">vesin images</h2>
-<div class="outline-text-2" id="text-org5de1333">
+<section id="outline-container-orge561359" class="outline-2">
+<h2 id="orge561359">vesin images</h2>
+<div class="outline-text-2" id="text-orge561359">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -175,9 +180,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-org6e0ffc7" class="outline-2">
-<h2 id="org6e0ffc7">Consumers</h2>
-<div class="outline-text-2" id="text-org6e0ffc7">
+<section id="outline-container-orga059bb0" class="outline-2">
+<h2 id="orga059bb0">Consumers</h2>
+<div class="outline-text-2" id="text-orga059bb0">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,

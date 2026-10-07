@@ -10,7 +10,11 @@
 //! step, and no branch. This is the exact integer split of the Ozaki
 //! scheme (Ozaki, Ogita, Oishi, and Rump, *Numer. Algorithms* **59**, 95,
 //! 2012) applied to the periodic wrap, and the fixed-point positions of
-//! Anton (Shaw et al., *Commun. ACM* **51**, 91, 2008).
+//! Anton (Shaw et al., *Commun. ACM* **51**, 91, 2008). The wrap is the
+//! symmetric residue `a - m floor(a/m + 1/2)` of Ozaki Scheme II (Ozaki,
+//! Uchino, and Imamura, arXiv:2504.08009, 2025) with the one modulus
+//! `m = 2^64`; two's complement computes it, so no Chinese remainder
+//! step is needed.
 //!
 //! A tie, a fraction exactly one half apart, wraps to `-1/2`. The
 //! squared distance agrees with [`Cell::dist2`](crate::Cell::dist2) to a
