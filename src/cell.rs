@@ -465,21 +465,17 @@ impl Cell {
     ///
     /// Orthorhombic boxes wrap each axis independently. The general path
     /// is `ds = wrap(Hinv (q - p))`, then `dr = H ds`.
-    #[inline]
+    #[inline(always)]
     pub fn displacement(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
         let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
         self.wrap_diff(dp)
     }
 
     /// Engine wrap of a Cartesian difference. The origin does not enter.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn wrap_diff(&self, dp: [f64; 3]) -> [f64; 3] {
         if self.ortho {
-            return [
-                kernel::wrap_half(dp[0], self.widths[0]),
-                kernel::wrap_half(dp[1], self.widths[1]),
-                kernel::wrap_half(dp[2], self.widths[2]),
-            ];
+            return kernel::ortho_wrap(self.widths, dp);
         }
         if self.restricted {
             return self.tri.wrap(dp);
@@ -488,10 +484,13 @@ impl Cell {
     }
 
     /// Squared minimum-image distance.
-    #[inline]
+    #[inline(always)]
     pub fn dist2(&self, p: [f64; 3], q: [f64; 3]) -> f64 {
-        let dr = self.displacement(p, q);
-        dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2]
+        let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+        if self.ortho {
+            return kernel::ortho_dist2(self.widths, dp);
+        }
+        kernel::n2(self.wrap_diff(dp))
     }
 
     /// Euclidean MIC by checking the 27 nearest lattice images.
@@ -596,21 +595,28 @@ impl Cell {
     /// keyed by `H`, and is not stored in the cell. A tie keeps the
     /// engine vector. [`Self::displacement`] stays that engine vector
     /// on the caller's `H`.
-    #[inline]
+    #[inline(always)]
     pub fn displacement_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
-        if self.ortho {
-            return self.displacement(p, q);
-        }
         let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
         let frac = self.wrap_diff(dp);
+        if self.ortho {
+            return frac;
+        }
         let f2 = kernel::n2(frac);
         let w = self.widths;
-        let half_min = 0.5 * w[0].min(w[1]).min(w[2]);
+        let mut min_w = if w[1] < w[0] { w[1] } else { w[0] };
+        min_w = if w[2] < min_w { w[2] } else { min_w };
         // sqrt(f2) + 1e-12 < half_min, without the square root.
-        let room = half_min - 1e-12;
+        let room = 0.5 * min_w - 1e-12;
         if room > 0.0 && f2 < room * room {
             return frac;
         }
+        self.euclidean_far(dp, frac, f2)
+    }
+
+    /// Smith missed: the closest point on the cached superbasis.
+    #[inline(never)]
+    fn euclidean_far(&self, dp: [f64; 3], frac: [f64; 3], f2: f64) -> [f64; 3] {
         let euc = selling::closest_for(self.h, dp);
         let e2 = kernel::n2(euc);
         if e2 + 1e-12 * (1.0 + f2) < f2 {
@@ -678,8 +684,11 @@ impl Cell {
     }
 
     /// Squared Euclidean MIC distance.
-    #[inline]
+    #[inline(always)]
     pub fn dist2_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> f64 {
+        if self.ortho {
+            return self.dist2(p, q);
+        }
         let dr = self.displacement_euclidean(p, q);
         dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2]
     }
