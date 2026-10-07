@@ -1,8 +1,14 @@
 //! Thin Python bindings for [`minimage::Cell`].
 
-use minimage::{dist2_many, reduce_pairs, wrap_many, Cell as RustCell};
+mod dlpack;
+
+use minimage::{
+    dist2_many, dist2_many_fixed, dist2_pairs, dist2_pairs_fixed, fixed_many, reduce_pairs,
+    wrap_many, Cell as RustCell,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
 
 fn as_nested<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     if obj.extract::<Vec<f64>>().is_ok() || obj.extract::<Vec<Vec<f64>>>().is_ok() {
@@ -56,6 +62,66 @@ fn triples(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<Vec<[f64; 3]>> {
 
 fn map_err(err: minimage::Error) -> PyErr {
     PyValueError::new_err(err.to_string())
+}
+
+fn fixed_triple(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[u64; 3]> {
+    if let Some(b) = dlpack::borrow(obj)? {
+        let rows = b.rows_u64(what)?;
+        if rows.len() == 1 {
+            return Ok(rows[0]);
+        }
+        return Err(PyValueError::new_err(format!("{what} must have length 3")));
+    }
+    let v: Vec<u64> = as_nested(obj)?
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must be three uint64")))?;
+    if v.len() != 3 {
+        return Err(PyValueError::new_err(format!("{what} must have length 3")));
+    }
+    Ok([v[0], v[1], v[2]])
+}
+
+fn fixed_triples(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<Vec<[u64; 3]>> {
+    let v: Vec<Vec<u64>> = as_nested(obj)?
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must be (N, 3) uint64")))?;
+    v.iter()
+        .enumerate()
+        .map(|(i, row)| {
+            if row.len() == 3 {
+                Ok([row[0], row[1], row[2]])
+            } else {
+                Err(PyValueError::new_err(format!(
+                    "{what}[{i}] must have length 3"
+                )))
+            }
+        })
+        .collect()
+}
+
+/// A numpy array when numpy is present, else a list.
+fn out_f64(py: Python<'_>, values: Vec<f64>) -> PyResult<PyObject> {
+    if dlpack::have_numpy(py) {
+        dlpack::array_f64(py, values)
+    } else {
+        values.into_py_any(py)
+    }
+}
+
+fn out_rows_f64(py: Python<'_>, rows: Vec<[f64; 3]>) -> PyResult<PyObject> {
+    if dlpack::have_numpy(py) {
+        dlpack::array_rows_f64(py, rows)
+    } else {
+        rows.into_py_any(py)
+    }
+}
+
+fn out_rows_u64(py: Python<'_>, rows: Vec<[u64; 3]>) -> PyResult<PyObject> {
+    if dlpack::have_numpy(py) {
+        dlpack::array_rows_u64(py, rows)
+    } else {
+        rows.into_py_any(py)
+    }
 }
 
 /// Periodic parallelepiped: lattice vectors a, b, c and origin.
@@ -145,11 +211,128 @@ impl PyCell {
         Ok(self.inner.displacement(triple(p, "p")?, triple(q, "q")?))
     }
 
-    fn dist2_many(&self, p: &Bound<'_, PyAny>, qs: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    /// Squared distances from `p` to each row of `qs`. An array in (any
+    /// DLPack producer) is read in place and a numpy array comes back; a
+    /// list in gives a list.
+    fn dist2_many(
+        &self,
+        py: Python<'_>,
+        p: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let p = triple(p, "p")?;
+        if let Some(b) = dlpack::borrow(qs)? {
+            let rows = b.rows_f64("qs")?;
+            let mut out = vec![0.0; rows.len()];
+            dist2_many(&self.inner, p, &rows, &mut out).map_err(map_err)?;
+            drop(rows);
+            drop(b);
+            return out_f64(py, out);
+        }
         let packed = triples(qs, "qs")?;
         let mut out = vec![0.0; packed.len()];
-        dist2_many(&self.inner, triple(p, "p")?, &packed, &mut out).map_err(map_err)?;
-        Ok(out)
+        dist2_many(&self.inner, p, &packed, &mut out).map_err(map_err)?;
+        out.into_py_any(py)
+    }
+
+    /// Squared distances for paired rows of `ps` and `qs`.
+    fn dist2_pairs(
+        &self,
+        py: Python<'_>,
+        ps: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let bp = dlpack::borrow(ps)?;
+        let bq = dlpack::borrow(qs)?;
+        let array = bp.is_some() || bq.is_some();
+        let rp = match &bp {
+            Some(b) => b.rows_f64("ps")?,
+            None => dlpack::Rows::Owned(triples(ps, "ps")?),
+        };
+        let rq = match &bq {
+            Some(b) => b.rows_f64("qs")?,
+            None => dlpack::Rows::Owned(triples(qs, "qs")?),
+        };
+        let mut out = vec![0.0; rp.len()];
+        dist2_pairs(&self.inner, &rp, &rq, &mut out).map_err(map_err)?;
+        if array {
+            out_f64(py, out)
+        } else {
+            out.into_py_any(py)
+        }
+    }
+
+    /// Fixed-point fractional coordinates of one position.
+    fn fixed(&self, r: &Bound<'_, PyAny>) -> PyResult<[u64; 3]> {
+        Ok(self.inner.fixed(triple(r, "r")?))
+    }
+
+    /// Fixed-point fractional coordinates of each row, as uint64.
+    fn fixed_many(&self, py: Python<'_>, rs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let Some(b) = dlpack::borrow(rs)? {
+            let rows = b.rows_f64("rs")?;
+            let mut out = vec![[0u64; 3]; rows.len()];
+            fixed_many(&self.inner, &rows, &mut out).map_err(map_err)?;
+            return out_rows_u64(py, out);
+        }
+        let packed = triples(rs, "rs")?;
+        let mut out = vec![[0u64; 3]; packed.len()];
+        fixed_many(&self.inner, &packed, &mut out).map_err(map_err)?;
+        out.into_py_any(py)
+    }
+
+    /// Squared distance between two fixed-point positions.
+    fn dist2_fixed(&self, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<f64> {
+        Ok(self
+            .inner
+            .dist2_fixed(fixed_triple(a, "a")?, fixed_triple(b, "b")?))
+    }
+
+    /// Squared distances from fixed-point `p` to each fixed-point row.
+    fn dist2_many_fixed(
+        &self,
+        py: Python<'_>,
+        p: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let p = fixed_triple(p, "p")?;
+        if let Some(b) = dlpack::borrow(qs)? {
+            let rows = b.rows_u64("qs")?;
+            let mut out = vec![0.0; rows.len()];
+            dist2_many_fixed(&self.inner, p, &rows, &mut out).map_err(map_err)?;
+            return out_f64(py, out);
+        }
+        let packed = fixed_triples(qs, "qs")?;
+        let mut out = vec![0.0; packed.len()];
+        dist2_many_fixed(&self.inner, p, &packed, &mut out).map_err(map_err)?;
+        out.into_py_any(py)
+    }
+
+    /// Squared distances for paired fixed-point rows.
+    fn dist2_pairs_fixed(
+        &self,
+        py: Python<'_>,
+        ps: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let bp = dlpack::borrow(ps)?;
+        let bq = dlpack::borrow(qs)?;
+        let array = bp.is_some() || bq.is_some();
+        let rp = match &bp {
+            Some(b) => b.rows_u64("ps")?,
+            None => dlpack::Rows::Owned(fixed_triples(ps, "ps")?),
+        };
+        let rq = match &bq {
+            Some(b) => b.rows_u64("qs")?,
+            None => dlpack::Rows::Owned(fixed_triples(qs, "qs")?),
+        };
+        let mut out = vec![0.0; rp.len()];
+        dist2_pairs_fixed(&self.inner, &rp, &rq, &mut out).map_err(map_err)?;
+        if array {
+            out_f64(py, out)
+        } else {
+            out.into_py_any(py)
+        }
     }
 
     fn wrap(&self, diff: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
@@ -210,11 +393,18 @@ impl PyCell {
         self.inner.fractional_matches_cartesian()
     }
 
-    fn wrap_many(&self, diffs: &Bound<'_, PyAny>) -> PyResult<Vec<[f64; 3]>> {
+    /// Engine wrap of each difference row. Array in, numpy array out.
+    fn wrap_many(&self, py: Python<'_>, diffs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let Some(b) = dlpack::borrow(diffs)? {
+            let rows = b.rows_f64("diffs")?;
+            let mut out = vec![[0.0, 0.0, 0.0]; rows.len()];
+            wrap_many(&self.inner, &rows, &mut out).map_err(map_err)?;
+            return out_rows_f64(py, out);
+        }
         let packed = triples(diffs, "diffs")?;
         let mut out = vec![[0.0, 0.0, 0.0]; packed.len()];
         wrap_many(&self.inner, &packed, &mut out).map_err(map_err)?;
-        Ok(out)
+        out.into_py_any(py)
     }
 
     fn is_ortho(&self) -> bool {
