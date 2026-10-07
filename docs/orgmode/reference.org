@@ -46,3 +46,30 @@ failure; read =mi_last_error()= on the same thread.
 
 The C++ header =minimage.hpp= is a RAII wrap of this ABI.
 =docs.rs/minimage= is the Rust reference.
+
+* Python
+
+| Method | Role |
+|--------+------|
+| =dist2_many(p, qs)= | One source, rows of candidates |
+| =dist2_pairs(ps, qs)= | Paired rows |
+| =wrap_many(diffs)= | Engine wrap of each row |
+| =fixed(r)=, =fixed_many(rs)= | Fixed-point fractions, uint64 |
+| =dist2_fixed(a, b)= | Two fixed-point positions |
+| =dist2_many_fixed(p, qs)= | One fixed-point source, rows |
+| =dist2_pairs_fixed(ps, qs)= | Paired fixed-point rows |
+
+An array argument is any DLPack producer on the host, read in place;
+an array result is a numpy array. A list in gives a list out.
+
+* Burn
+
+| Item | Role |
+|------+------|
+| =Lattice::new(cell, device, dtype)= | =H= and =Hinv= on a device |
+| =Lattice::rows= | Packed rows to an =(n, 3)= tensor |
+| =Lattice::fractions= | Fold on the CPU in double precision, upload |
+| =Lattice::fractional= | Fold on the device |
+| =Lattice::wrap=, =dist2_pairs=, =dist2_many= | Cartesian rows |
+| =Lattice::displacement_fractional=, =dist2_pairs_fractional=, =dist2_many_fractional= | Fraction rows, exact wrap |
+| =to_vec= | A rank-one tensor back as doubles |

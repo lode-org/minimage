@@ -77,9 +77,19 @@ the Highway <code>BatchPeriodicDistSq</code> shape: precomputed differences, one
 reciprocal per axis, <code>abs</code>, then <code>round</code>.
 </p>
 
-<section id="outline-container-org2ac711a" class="outline-2">
-<h2 id="org2ac711a">Nearest image</h2>
-<div class="outline-text-2" id="text-org2ac711a">
+<p>
+Where the processor has AVX-512F and DQ, eight rows go per pass:
+two-source permutes transpose them, and the last rows load and store
+under a lane mask, so no batch ends in a scalar tail. The intrinsics
+are stable from Rust 1.89, which <code>build.rs</code> checks; an older compiler
+keeps the AVX path. The orthorhombic wrap stays at four rows. It
+stores as much as it loads, and a 64-byte store splits a cache line
+on all but one alignment in eight.
+</p>
+
+<section id="outline-container-orgb9178df" class="outline-2">
+<h2 id="orgb9178df">Nearest image</h2>
+<div class="outline-text-2" id="text-orgb9178df">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -119,15 +129,15 @@ production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-org4a6a355" class="outline-2">
-<h2 id="org4a6a355">Fixed-point fractions</h2>
-<div class="outline-text-2" id="text-org4a6a355">
+<section id="outline-container-org47b99c7" class="outline-2">
+<h2 id="org47b99c7">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-org47b99c7">
 <p>
 <code>Cell::fixed</code> stores a position folded into the cell as three
 fractions on 64 bits, <code>round(s * 2^52) * 2^12</code>: the low 52 bits of
 <code>s + 1</code> are that integer, so a position converts with an add and a
 mask, no conversion instruction and no branch, and <code>fixed_many</code> does
-four at once. The engine wrap of a difference is
+four or eight at once. The engine wrap of a difference is
 then integer arithmetic: <code>b - a</code> modulo <code>2^64</code>, read as signed, is the
 wrapped fraction in <code>[-1/2, 1/2)</code>, exactly. The top 52 bits of that
 difference convert to a double exactly, and one product with <code>H</code> gives
@@ -140,6 +150,12 @@ al., Commun. ACM 51, 91, 2008). The wrap is the symmetric residue
 Imamura, arXiv:2504.08009, 2025) with the one modulus <code>m = 2^64</code>;
 two's complement computes it, so no Chinese remainder step is needed.
 The orthorhombic wrap above is the same residue with <code>m = L</code>.
+Scheme II splits a product over several small moduli so that INT8
+units compute each part exactly, then rebuilds it by the Chinese
+remainder theorem; that pays when many products share one rebuild,
+as along the inner dimension of a matrix product. A wrap has one
+subtraction per axis and the product with <code>H</code> has three terms, so on
+a CPU the double-precision units are already the fast path.
 Convert positions once per frame; a
 pair list over them then costs a subtraction, a conversion, and a
 matrix product per pair. A fraction exactly one half apart wraps to
@@ -149,9 +165,38 @@ last place.
 </div>
 </section>
 
-<section id="outline-container-orga5ea079" class="outline-2">
-<h2 id="orga5ea079">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-orga5ea079">
+<section id="outline-container-orge2d4f11" class="outline-2">
+<h2 id="orge2d4f11">Arrays and devices</h2>
+<div class="outline-text-2" id="text-orge2d4f11">
+<p>
+The Python methods take any DLPack producer, numpy, PyTorch, JAX, or
+CuPy host memory, and read contiguous rows where they lie; the result
+is a numpy array that owns its buffer through a DLPack 1.0 capsule,
+so <code>torch.from_dlpack</code> shares it too. A batch of 100 000 rows from
+numpy is 150 to 250 times faster than through lists.
+</p>
+
+<p>
+<code>minimage-burn</code> puts the wrap on Burn tensors. Burn 0.22 picks the
+backend from the device at run time, so one code path serves the CPU,
+wgpu, Vulkan, Metal, CUDA, and ROCm, and every step is a matrix
+product or an element-wise map that Burn's fusion joins per batch.
+Positions folded into <code>[0, 1)</code> on the CPU in double precision wrap
+exactly on the device in any float width: for <code>|ds| &lt; 1</code>, <code>ds -
+round(ds)</code> subtracts zero or a neighbour of <code>ds</code>, which is exact by
+Sterbenz's lemma. A single- or half-precision device then rounds only
+<code>ds</code> and the product with <code>H</code>. That is the reduced precision of
+kernel_float (Heldens, Netherlands eScience Center), chosen per call,
+around an exact wrap. Folding on a single-precision device would lose
+the digits of a position far from the origin, so the fold stays on
+the CPU.
+</p>
+</div>
+</section>
+
+<section id="outline-container-orgc75d1ca" class="outline-2">
+<h2 id="orgc75d1ca">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-orgc75d1ca">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -171,9 +216,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-org4577e4e" class="outline-2">
-<h2 id="org4577e4e">vesin images</h2>
-<div class="outline-text-2" id="text-org4577e4e">
+<section id="outline-container-org428e5a0" class="outline-2">
+<h2 id="org428e5a0">vesin images</h2>
+<div class="outline-text-2" id="text-org428e5a0">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -183,9 +228,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-org7adec31" class="outline-2">
-<h2 id="org7adec31">Consumers</h2>
-<div class="outline-text-2" id="text-org7adec31">
+<section id="outline-container-orge6c0d17" class="outline-2">
+<h2 id="orge6c0d17">Consumers</h2>
+<div class="outline-text-2" id="text-orge6c0d17">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
