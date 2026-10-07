@@ -92,36 +92,6 @@ pub(crate) fn floor_fast(x: f64) -> f64 {
     }
 }
 
-/// Positive orthorhombic lengths when `H` is diagonal, else `None`.
-pub(crate) fn ortho_lengths(h: [[f64; 3]; 3]) -> Option<[f64; 3]> {
-    if !is_axis_aligned(h) {
-        return None;
-    }
-    let l = [h[0][0].abs(), h[1][1].abs(), h[2][2].abs()];
-    if l[0] > 0.0 && l[1] > 0.0 && l[2] > 0.0 {
-        Some(l)
-    } else {
-        None
-    }
-}
-
-#[inline(always)]
-pub(crate) fn is_axis_aligned(h: [[f64; 3]; 3]) -> bool {
-    let scale = (norm(h[0]) + norm(h[1]) + norm(h[2])).max(1.0);
-    is_axis_aligned_scaled(h, scale)
-}
-
-#[inline(always)]
-pub(crate) fn is_axis_aligned_scaled(h: [[f64; 3]; 3], scale: f64) -> bool {
-    let tol = 1e-12 * scale;
-    h[0][1].abs() <= tol
-        && h[0][2].abs() <= tol
-        && h[1][0].abs() <= tol
-        && h[1][2].abs() <= tol
-        && h[2][0].abs() <= tol
-        && h[2][1].abs() <= tol
-}
-
 /// Orthorhombic signed wrap into `[-L/2, L/2)`.
 ///
 /// `d - L * floor(d / L + 1/2)`. Every image, not one subtraction.
@@ -203,41 +173,6 @@ fn wrap_half_far(d: f64, length: f64) -> f64 {
     } else {
         w
     }
-}
-
-/// `d - L * floor(d * (1/L) + 1/2)`. The reciprocal is the cell's.
-///
-/// A separation inside one neighbouring image is two comparisons and
-/// one add or subtract, the same shape as the single-image wrap.
-/// Anything past that image uses the floor, so a later image still
-/// lands in `[-L/2, L/2)`.
-#[inline]
-pub(crate) fn wrap_half_recip(d: f64, length: f64, recip: f64) -> f64 {
-    let half = 0.5 * length;
-    if d < half {
-        if d >= -half {
-            return d;
-        }
-        let w = d + length;
-        if w >= -half {
-            return w;
-        }
-    } else {
-        let w = d - length;
-        if w < half {
-            return w;
-        }
-    }
-    d - length * floor_fast(d * recip + 0.5)
-}
-
-#[inline]
-pub(crate) fn ortho_wrap_recip(l: [f64; 3], recip: [f64; 3], dp: [f64; 3]) -> [f64; 3] {
-    [
-        wrap_half_recip(dp[0], l[0], recip[0]),
-        wrap_half_recip(dp[1], l[1], recip[1]),
-        wrap_half_recip(dp[2], l[2], recip[2]),
-    ]
 }
 
 #[inline(always)]
@@ -328,7 +263,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recip_wrap_matches_the_division_form() {
+    fn wrap_matches_the_division_form() {
         let l = [10.0, 11.0, 12.0];
         let samples = [
             [0.0, 0.0, 0.0],
@@ -338,17 +273,11 @@ mod tests {
             [6.0, 12.0, -6.0],
         ];
         for dp in samples {
-            let recip = [1.0 / l[0], 1.0 / l[1], 1.0 / l[2]];
-            let direct = ortho_wrap_recip(l, recip, dp);
-            let via = [
-                wrap_half(dp[0], l[0]),
-                wrap_half(dp[1], l[1]),
-                wrap_half(dp[2], l[2]),
-            ];
+            let via = ortho_wrap(l, dp);
             for a in 0..3 {
                 let floor = dp[a] - l[a] * (dp[a] / l[a] + 0.5).floor();
+                assert!((wrap_half(dp[a], l[a]) - floor).abs() < 1e-12);
                 assert!((via[a] - floor).abs() < 1e-12);
-                assert!((direct[a] - floor).abs() < 1e-12);
             }
         }
     }
