@@ -48,7 +48,8 @@ subtract while still packed, and transpose once in registers, with no
 staging buffer (map fusion in the sense of DaCe and Futhark). An
 orthorhombic wrap is per element and does not transpose at all. Each
 lane runs the per-pair operations in the per-pair order, so a batch
-entry equals the per-pair call bit for bit. =dist2_ortho_diffs= keeps
+squared distance equals the per-pair call bit for bit and a wrapped
+vector equals it up to the sign of a zero. =dist2_ortho_diffs= keeps
 the Highway =BatchPeriodicDistSq= shape: precomputed differences, one
 reciprocal per axis, =abs=, then =round=.
 
