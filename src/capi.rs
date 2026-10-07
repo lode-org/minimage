@@ -104,6 +104,17 @@ fn cell_key(raw: &mi_cell) -> [f64; 12] {
     ]
 }
 
+/// Twelve components equal, without an early exit, so the hit test is a
+/// few packed compares.
+#[inline(always)]
+fn same_key(a: &[f64; 12], b: &[f64; 12]) -> bool {
+    let mut same = true;
+    for (x, y) in a.iter().zip(b) {
+        same &= x == y;
+    }
+    same
+}
+
 fn set_error(msg: &str) {
     let cstr = CString::new(msg).unwrap_or_else(|_| {
         CString::new("error message contained NUL").expect("fallback has no NUL")
@@ -149,7 +160,7 @@ fn with_cell<R>(simbox: *const mi_cell, f: impl FnOnce(&Cell) -> R) -> Result<R,
     let key = cell_key(raw);
     STATE.with(|st| {
         if let Some((cached, cell)) = st.cell.borrow().as_ref() {
-            if *cached == key {
+            if same_key(cached, &key) {
                 let out = f(cell);
                 clear_in(st);
                 return Ok(out);
