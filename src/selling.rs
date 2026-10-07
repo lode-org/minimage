@@ -22,12 +22,19 @@
 //! (Andrews, Bernstein, and Sauter, *Acta Cryst.* A **75**, 115, 2019,
 //! cap their Selling loop at 1000).
 //!
-//! McKilliam, Grant, and Clarkson, *SIAM J. Discrete Math.* **28**, 1405
-//! (2014): write the target in the superbasis, start at the component
-//! floor, and at most three times add the `{0,1}^4` step that most
-//! shortens the residual. Dimension 3 has sixteen such steps, so the
-//! minimum cut of the paper is this enumeration. The series reaches a
-//! closest lattice point.
+//! The closest point starts from Babai's rounding (*Combinatorica* **6**,
+//! 1, 1986) in three of the four superbasis vectors, then runs the
+//! iterative slicer of Sommer, Feder, and Shalvi (*SIAM J. Discrete
+//! Math.* **23**, 715, 2009): while some Voronoi-relevant vector `r`
+//! has `2 |x · r| > |r|^2`, step `x` by `r` toward the origin. Every
+//! Voronoi-relevant vector of a lattice with an obtuse superbasis is
+//! one of the fourteen `±v_S`, `S` a nonempty proper subset of the four
+//! (Conway and Sloane, 1992), seven up to sign. Each step shortens `x`,
+//! so the walk stops, and where it stops `x` is inside the Voronoi cell:
+//! the shortest vector of its coset. McKilliam, Grant, and Clarkson
+//! (*SIAM J. Discrete Math.* **28**, 1405, 2014) search the same sixteen
+//! subset sums; seven dot products and a reduced starting point replace
+//! their three rounds of fifteen candidates.
 
 use std::cell::RefCell;
 
@@ -40,10 +47,15 @@ use crate::kernel::{self, invert_columns};
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Obtuse {
     v: [[f64; 3]; 4],
-    /// Subset sums of `v`. Index `mask` is the sum of the vectors whose
-    /// bits are set. Mask 0 is the origin. The query adds one of these
-    /// to the floored lattice point instead of branching on each bit.
-    corner: [[f64; 3]; 16],
+    /// Voronoi-relevant vectors up to sign, by component: `v0, v1, v2,
+    /// v3, v0 + v1, v0 + v2, v0 + v3`, then a zero pad. Every other
+    /// `±v_S` is one of these negated.
+    rel: [[f64; 8]; 3],
+    /// `|r|^2 / 2` plus a rounding margin, the slicer's step threshold.
+    /// The pad is infinite, so it never steps.
+    half_n2: [f64; 8],
+    /// `r_j · r_k`. A step by `r_j` moves every `x · r_k` by row `j`.
+    gram: [[f64; 8]; 8],
     inv: [[f64; 3]; 3],
     idx: [u8; 3],
     pub ok: bool,
@@ -89,9 +101,16 @@ pub(crate) fn obtuse_superbasis(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Obtuse
             return finish(v);
         }
     }
+    unfinished(original)
+}
+
+fn unfinished(v: [[f64; 3]; 4]) -> Obtuse {
+    let (rel, half_n2, gram) = relevant_of(v);
     Obtuse {
-        v: original,
-        corner: corners_of(original),
+        v,
+        rel,
+        half_n2,
+        gram,
         inv: [[0.0; 3]; 3],
         idx: [0, 1, 2],
         ok: false,
@@ -109,22 +128,37 @@ fn already_obtuse(v: &[[f64; 3]; 4], tol: f64) -> bool {
     true
 }
 
-// `mask` is the subset bitfield and the corner slot.
-#[allow(clippy::needless_range_loop)]
-fn corners_of(v: [[f64; 3]; 4]) -> [[f64; 3]; 16] {
-    let mut corner = [[0.0; 3]; 16];
-    for mask in 1..16 {
-        let mut p = [0.0; 3];
-        for i in 0..4 {
-            if mask & (1 << i) != 0 {
-                p[0] += v[i][0];
-                p[1] += v[i][1];
-                p[2] += v[i][2];
-            }
+/// The seven `v_S` classes and their step thresholds. The margin is far
+/// above the rounding of `x · r` for a reduced `x`, so a point on a
+/// Voronoi face does not step back and forth.
+type Relevant = ([[f64; 8]; 3], [f64; 8], [[f64; 8]; 8]);
+
+fn relevant_of(v: [[f64; 3]; 4]) -> Relevant {
+    let vecs = [
+        v[0],
+        v[1],
+        v[2],
+        v[3],
+        kernel::add(v[0], v[1]),
+        kernel::add(v[0], v[2]),
+        kernel::add(v[0], v[3]),
+        [0.0; 3],
+    ];
+    let mut rel = [[0.0; 8]; 3];
+    let mut half_n2 = [f64::INFINITY; 8];
+    let mut gram = [[0.0; 8]; 8];
+    for (k, r) in vecs.iter().enumerate() {
+        rel[0][k] = r[0];
+        rel[1][k] = r[1];
+        rel[2][k] = r[2];
+        if k < 7 {
+            half_n2[k] = 0.5 * kernel::n2(*r) * (1.0 + 1e-12);
         }
-        corner[mask] = p;
+        for (j, q) in vecs.iter().enumerate() {
+            gram[k][j] = kernel::dot(*r, *q);
+        }
     }
-    corner
+    (rel, half_n2, gram)
 }
 
 /// Subtract rounded projections onto shorter edges. Each update is
@@ -207,27 +241,26 @@ fn finish(v: [[f64; 3]; 4]) -> Obtuse {
         }
     }
     match best {
-        Some((idx, inv)) if best_abs > 1e-18 => Obtuse {
-            corner: corners_of(v),
-            v,
-            inv,
-            idx,
-            ok: true,
-        },
-        _ => Obtuse {
-            corner: corners_of(v),
-            v,
-            inv: [[0.0; 3]; 3],
-            idx: [0, 1, 2],
-            ok: false,
-        },
+        Some((idx, inv)) if best_abs > 1e-18 => {
+            let (rel, half_n2, gram) = relevant_of(v);
+            Obtuse {
+                v,
+                rel,
+                half_n2,
+                gram,
+                inv,
+                idx,
+                ok: true,
+            }
+        }
+        _ => unfinished(v),
     }
 }
 
 /// Cartesian `y - v`, `v` a closest lattice point.
 pub(crate) fn closest_displacement(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     if s.ok {
-        mckilliam(s, y)
+        slice(s, y)
     } else {
         shell(s.v[0], s.v[1], s.v[2], y)
     }
@@ -277,57 +310,76 @@ pub(crate) fn closest_for(h: [[f64; 3]; 3], y: [f64; 3]) -> [f64; 3] {
     })
 }
 
-fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
+/// Babai's point in the reduced basis, then slicer steps until no
+/// relevant vector shortens the residual.
+///
+/// A reduced basis leaves zero or one step, about evenly, so a branch on
+/// it would miss half the time. The first step always runs and is
+/// scaled to zero when nothing is violated; the dot products after it
+/// come from one Gram row. Only a second violation loops, and the cap is
+/// far past what a reduced basis leaves.
+fn slice(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     let c = kernel::mul(s.inv, y);
-    let mut z = [0.0; 4];
-    z[s.idx[0] as usize] = c[0];
-    z[s.idx[1] as usize] = c[1];
-    z[s.idx[2] as usize] = c[2];
-    let mut u = [
-        kernel::floor_fast(z[0]),
-        kernel::floor_fast(z[1]),
-        kernel::floor_fast(z[2]),
-        kernel::floor_fast(z[3]),
+    let b0 = s.v[s.idx[0] as usize];
+    let b1 = s.v[s.idx[1] as usize];
+    let b2 = s.v[s.idx[2] as usize];
+    let z0 = kernel::round_away(c[0]);
+    let z1 = kernel::round_away(c[1]);
+    let z2 = kernel::round_away(c[2]);
+    let mut x = [
+        y[0] - (z0 * b0[0] + z1 * b1[0] + z2 * b2[0]),
+        y[1] - (z0 * b0[1] + z1 * b1[1] + z2 * b2[1]),
+        y[2] - (z0 * b0[2] + z1 * b1[2] + z2 * b2[2]),
     ];
-    let v = &s.v;
-    let mut best_d = [0.0; 3];
-    for _ in 0..3 {
-        let mut base = [0.0; 3];
-        for i in 0..4 {
-            let ui = u[i];
-            base[0] += ui * v[i][0];
-            base[1] += ui * v[i][1];
-            base[2] += ui * v[i][2];
-        }
-        let mut best_mask = 0u8;
-        let mut best_d2 = f64::INFINITY;
-        best_d = [0.0; 3];
-        // The four superbasis vectors sum to zero, so mask 15 is the
-        // same lattice point as mask 0 and cannot win the strict test.
-        let corner = &s.corner;
-        // `mask` is the subset bitfield. Mask 15 repeats the origin.
-        #[allow(clippy::needless_range_loop)]
-        for mask in 0..15usize {
-            let p = corner[mask];
-            let dx = y[0] - (base[0] + p[0]);
-            let dy = y[1] - (base[1] + p[1]);
-            let dz = y[2] - (base[2] + p[2]);
-            let d2 = dx * dx + dy * dy + dz * dz;
-            if d2 < best_d2 {
-                best_d2 = d2;
-                best_mask = mask as u8;
-                best_d = [dx, dy, dz];
+    let mut t = [0.0; 8];
+    for (k, slot) in t.iter_mut().enumerate() {
+        *slot = x[0] * s.rel[0][k] + x[1] * s.rel[1][k] + x[2] * s.rel[2][k];
+    }
+    for _ in 0..64 {
+        let (best, gain) = most_violated(&t, &s.half_n2);
+        let f = if gain > 0.0 {
+            if t[best] > 0.0 {
+                1.0
+            } else {
+                -1.0
             }
+        } else {
+            0.0
+        };
+        x[0] -= f * s.rel[0][best];
+        x[1] -= f * s.rel[1][best];
+        x[2] -= f * s.rel[2][best];
+        for (slot, g) in t.iter_mut().zip(s.gram[best]) {
+            *slot -= f * g;
         }
-        if best_mask == 0 {
+        let again = most_violated(&t, &s.half_n2).1 > 0.0;
+        if !again {
             break;
         }
-        u[0] += f64::from(best_mask & 1);
-        u[1] += f64::from((best_mask >> 1) & 1);
-        u[2] += f64::from((best_mask >> 2) & 1);
-        u[3] += f64::from((best_mask >> 3) & 1);
     }
-    best_d
+    x
+}
+
+/// Index and size of the largest `|t_k| - h_k`. A three-level tree of
+/// selects, so the latency is three compares rather than six.
+#[inline(always)]
+fn most_violated(t: &[f64; 8], h: &[f64; 8]) -> (usize, f64) {
+    let mut g = [0.0; 8];
+    for ((slot, tk), hk) in g.iter_mut().zip(t).zip(h) {
+        *slot = tk.abs() - hk;
+    }
+    let (i01, g01) = larger(0, g[0], 1, g[1]);
+    let (i23, g23) = larger(2, g[2], 3, g[3]);
+    let (i45, g45) = larger(4, g[4], 5, g[5]);
+    let (i03, g03) = larger(i01, g01, i23, g23);
+    let (i46, g46) = larger(i45, g45, 6, g[6]);
+    larger(i03, g03, i46, g46)
+}
+
+#[inline(always)]
+fn larger(i: usize, gi: f64, j: usize, gj: f64) -> (usize, f64) {
+    let take = usize::from(gj > gi).wrapping_neg();
+    (i ^ ((i ^ j) & take), if gj > gi { gj } else { gi })
 }
 
 /// Widening `{-r..r}^3` on the original basis. Used only when Selling
@@ -411,6 +463,70 @@ mod tests {
         let got = kernel::n2(closest_displacement(&s, probe));
         let oracle = brute(a, b, c, probe);
         assert!(got <= oracle + 1e-6 * (1.0 + oracle));
+    }
+
+    #[test]
+    fn slicer_matches_a_reduced_shell_on_faces_and_skews() {
+        let mut state = 0xd1b5_4a32_d192_ed03u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
+        };
+        for cell in 0..300 {
+            let a = [3.0 + next(), next(), next()];
+            let mut b = [next(), 3.0 + next(), next()];
+            let c = [next(), next(), 3.0 + next()];
+            if cell % 3 == 0 {
+                let t = 1e-3 * (1.0 + next());
+                b = [a[0] + t * next(), a[1] + t * next(), a[2] + t];
+            }
+            if invert_columns([a, b, c]).is_none() {
+                continue;
+            }
+            let s = obtuse_superbasis(a, b, c);
+            assert!(s.ok);
+            let mut ys = Vec::new();
+            for _ in 0..30 {
+                ys.push([8.0 * next(), 8.0 * next(), 8.0 * next()]);
+            }
+            for k in 0..7 {
+                let r = [s.rel[0][k], s.rel[1][k], s.rel[2][k]];
+                for f in [0.5 - 1e-9, 0.5, 0.5 + 1e-9, -0.5] {
+                    ys.push(kernel::scale(f, r));
+                }
+            }
+            for y in ys {
+                let got = kernel::n2(closest_displacement(&s, y));
+                let v = s.v;
+                let mut oracle = f64::INFINITY;
+                let base = slice(&s, y);
+                for i in -3i32..=3 {
+                    for j in -3i32..=3 {
+                        for k in -3i32..=3 {
+                            let p = [
+                                f64::from(i) * v[0][0]
+                                    + f64::from(j) * v[1][0]
+                                    + f64::from(k) * v[2][0],
+                                f64::from(i) * v[0][1]
+                                    + f64::from(j) * v[1][1]
+                                    + f64::from(k) * v[2][1],
+                                f64::from(i) * v[0][2]
+                                    + f64::from(j) * v[1][2]
+                                    + f64::from(k) * v[2][2],
+                            ];
+                            let d = [base[0] - p[0], base[1] - p[1], base[2] - p[2]];
+                            oracle = oracle.min(kernel::n2(d));
+                        }
+                    }
+                }
+                assert!(
+                    got <= oracle + 1e-9 * (1.0 + oracle),
+                    "cell {cell}: slicer {got} longer than shell {oracle}"
+                );
+            }
+        }
     }
 
     #[test]
