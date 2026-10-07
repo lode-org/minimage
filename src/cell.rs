@@ -598,12 +598,14 @@ impl Cell {
     /// Linkcell k-NN has no cutoff. A hex-prism body diagonal is an
     /// engine wrap that is longer than another image.
     ///
-    /// Past that test the Selling superbasis of `H` is handed to
-    /// McKilliam, Grant, and Clarkson, *SIAM J. Discrete Math.* **28**,
-    /// 1405 (2014). The superbasis is cached on the calling thread,
-    /// keyed by `H`, and is not stored in the cell. A tie keeps the
-    /// engine vector. [`Self::displacement`] stays that engine vector
-    /// on the caller's `H`.
+    /// Past that test the closest point is Babai's rounding in the
+    /// Selling superbasis of `H`, then the iterative slicer of Sommer,
+    /// Feder, and Shalvi (*SIAM J. Discrete Math.* **23**, 715, 2009) over
+    /// the seven Voronoi-relevant vector classes of that superbasis. The
+    /// superbasis is cached on the calling thread, keyed by `H`, and is
+    /// not stored in the cell. A tie keeps the engine vector.
+    /// [`Self::displacement`] stays that engine vector on the caller's
+    /// `H`.
     #[inline(always)]
     pub fn displacement_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
         let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
@@ -623,7 +625,9 @@ impl Cell {
         self.euclidean_far(dp, frac, f2)
     }
 
-    /// Smith missed: the closest point on the cached superbasis.
+    /// Smith missed: the closest point on the cached superbasis. It
+    /// takes the raw difference, not the wrapped one, so the predicted
+    /// miss starts this search before the engine wrap finishes.
     #[inline(never)]
     fn euclidean_far(&self, dp: [f64; 3], frac: [f64; 3], f2: f64) -> [f64; 3] {
         let euc = selling::closest_for(self.h, dp);
