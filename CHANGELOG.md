@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+Every skewed-cell wrap rounds half away from zero without the libm
+call: add the largest double below one half with the sign of the
+argument and truncate with `cvttsd2si`, the same integer for every
+double. `dist2`, `displacement`, and the Smith-hit Euclidean query
+inline into the caller. Orthorhombic `dist2` squares
+`min(|d|, L - |d|)`, the signed wrap's square bit for bit. A diagonal
+H builds with three reciprocals and no square roots; a restricted H
+takes its inverse from the lamda reciprocals, and its c-face width is
+`|c_z|`. The hand-placed lattice loads are gone.
+The Euclidean far query rounds in three Selling vectors (Babai) and
+runs the Sommer-Feder-Shalvi slicer over the seven Voronoi-relevant
+classes of the obtuse superbasis, in place of three McKilliam rounds.
+A restricted cell with reduced tilts starts the slicer from the engine
+wrap. `dist2_many`, `dist2_pairs`, and `wrap_many`, and their C
+entries, are one fused AVX pass over the packed rows for every cell
+shape, and each entry equals the per-pair call bit for bit. A C call
+looks up its cell once and borrows it in place.
+
 ## 0.1.3 - 2026-10-04
 
 Orthorhombic wrap is `d - L floor(d/L + 1/2)` for every image, and
