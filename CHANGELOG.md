@@ -26,6 +26,11 @@ the cell. `dist2_fixed`, `displacement_fixed`, `dist2_many_fixed`,
 `mi_dist2_fixed`, `mi_dist2_many_fixed`, and `mi_dist2_pairs_fixed`,
 wrap with integer subtraction modulo `2^64`, exact, then one product
 with H for any cell shape (the Ozaki integer split).
+Python batch methods read any DLPack producer (numpy, PyTorch, JAX,
+or CuPy host arrays) in place, with no `tolist`, and return numpy
+arrays that own their buffers through a DLPack 1.0 capsule; a list in
+still gives a list out. `dist2_pairs`, `fixed`, `fixed_many`,
+`dist2_fixed`, `dist2_many_fixed`, and `dist2_pairs_fixed` are bound.
 
 ## 0.1.3 - 2026-10-04
 
