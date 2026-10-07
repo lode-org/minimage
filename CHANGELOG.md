@@ -17,7 +17,8 @@ classes of the obtuse superbasis, in place of three McKilliam rounds.
 A restricted cell with reduced tilts starts the slicer from the engine
 wrap. `dist2_many`, `dist2_pairs`, and `wrap_many`, and their C
 entries, are one fused AVX pass over the packed rows for every cell
-shape, and each entry equals the per-pair call bit for bit. A C call
+shape; a squared distance equals the per-pair call bit for bit, and a
+wrapped vector equals it up to the sign of a zero. A C call
 looks up its cell once and borrows it in place.
 `Cell::fixed` stores positions as 64-bit fixed-point fractions of
 the cell. `dist2_fixed`, `displacement_fixed`, `dist2_many_fixed`,

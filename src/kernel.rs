@@ -110,12 +110,10 @@ pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
 #[inline(always)]
 pub(crate) fn wrap_one(d: f64, length: f64) -> f64 {
     let half = 0.5 * length;
-    let w = if d < -half { d + length } else { d };
-    if w >= half {
-        w - length
-    } else {
-        w
-    }
+    // Adding a masked length is one operation in a vector lane; only an
+    // exact -0.0 comes back as +0.0.
+    let w = d + if d < -half { length } else { 0.0 };
+    w - if w >= half { length } else { 0.0 }
 }
 
 /// Orthorhombic wrap of one difference. A pair of folded positions is

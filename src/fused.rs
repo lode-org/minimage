@@ -3,9 +3,11 @@
 //! One pass per batch: four rows load as three vectors and transpose in
 //! registers, then the difference, the wrap, and the square or the
 //! store happen without a staging buffer. Each lane runs the per-pair
-//! arithmetic in the per-pair order, so a batch entry equals the
-//! per-pair call bit for bit. A group of four with any pair a full box
-//! apart, and the tail, run the per-pair code itself.
+//! arithmetic in the per-pair order, so a batch squared distance equals
+//! the per-pair call bit for bit, and a wrapped vector equals it up to
+//! the sign of a zero (vector rounding keeps the sign of a tiny
+//! negative, the scalar truncation does not). A group of four with any
+//! pair a full box apart, and the tail, run the per-pair code itself.
 
 use crate::kernel::{self, n2, Tri};
 
@@ -370,9 +372,9 @@ mod avx {
             far = _mm256_or_pd(far, _mm256_cmp_pd(mag, l[k], _CMP_GE_OQ));
             let neg_half = _mm256_xor_pd(half[k], sign);
             let up = _mm256_cmp_pd(d[k], neg_half, _CMP_LT_OQ);
-            let x = _mm256_blendv_pd(d[k], _mm256_add_pd(d[k], l[k]), up);
+            let x = _mm256_add_pd(d[k], _mm256_and_pd(up, l[k]));
             let down = _mm256_cmp_pd(x, half[k], _CMP_GE_OQ);
-            w[k] = _mm256_blendv_pd(x, _mm256_sub_pd(x, l[k]), down);
+            w[k] = _mm256_sub_pd(x, _mm256_and_pd(down, l[k]));
         }
         if _mm256_movemask_pd(far) != 0 {
             return None;
