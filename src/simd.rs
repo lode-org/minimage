@@ -16,7 +16,7 @@ fn ortho_diff_one(d: [f64; 3], len: [f64; 3], recip: [f64; 3]) -> f64 {
     let mut acc = 0.0;
     for a in 0..3 {
         let mut x = d[a].abs();
-        x -= len[a] * (x * recip[a]).round();
+        x -= len[a] * crate::kernel::round_away(x * recip[a]);
         acc += x * x;
     }
     acc

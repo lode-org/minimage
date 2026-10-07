@@ -36,14 +36,59 @@ impl Tri {
         let mut sz = dp[2] * self.inv_lz;
         let mut sy = (dp[1] - self.yz * sz) * self.inv_ly;
         let mut sx = (dp[0] - self.xy * sy - self.xz * sz) * self.inv_lx;
-        sx -= sx.round();
-        sy -= sy.round();
-        sz -= sz.round();
+        sx -= round_away(sx);
+        sy -= round_away(sy);
+        sz -= round_away(sz);
         [
             self.lx * sx + self.xy * sy + self.xz * sz,
             self.ly * sy + self.yz * sz,
             self.lz * sz,
         ]
+    }
+}
+
+/// Below this magnitude a double may have a fractional part.
+const INTEGRAL: f64 = 4503599627370496.0;
+
+/// `f64::round`, half away from zero, without the libm call.
+///
+/// Baseline x86-64 has no rounding instruction, so `f64::round` is a
+/// call. Adding the largest double below one half, with the sign of
+/// `x`, and truncating gives the same integer for every double; LLVM
+/// expands `round` the same way when SSE4.1 is present. Truncation is
+/// `cvttsd2si`, which is baseline. Other targets have the instruction.
+#[inline(always)]
+pub(crate) fn round_away(x: f64) -> f64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if x.abs() < INTEGRAL {
+            let t = x + 0.499_999_999_999_999_94_f64.copysign(x);
+            // SAFETY: |t| < 2^52 + 1 is inside the i64 range.
+            return unsafe { t.to_int_unchecked::<i64>() } as f64;
+        }
+        x
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        x.round()
+    }
+}
+
+/// `f64::floor` without the libm call on baseline x86-64.
+#[inline(always)]
+pub(crate) fn floor_fast(x: f64) -> f64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if x.abs() < INTEGRAL {
+            // SAFETY: |x| < 2^52 is inside the i64 range.
+            let t = unsafe { x.to_int_unchecked::<i64>() } as f64;
+            return if t > x { t - 1.0 } else { t };
+        }
+        x
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        x.floor()
     }
 }
 
@@ -102,7 +147,7 @@ pub(crate) fn wrap_half(d: f64, length: f64) -> f64 {
 #[cold]
 #[inline(never)]
 fn wrap_half_far(d: f64, length: f64) -> f64 {
-    d - length * (d / length + 0.5).floor()
+    d - length * floor_fast(d / length + 0.5)
 }
 
 /// `d - L * floor(d * (1/L) + 1/2)`. The reciprocal is the cell's.
@@ -128,7 +173,7 @@ pub(crate) fn wrap_half_recip(d: f64, length: f64, recip: f64) -> f64 {
             return w;
         }
     }
-    d - length * (d * recip + 0.5).floor()
+    d - length * floor_fast(d * recip + 0.5)
 }
 
 #[inline]
@@ -143,9 +188,9 @@ pub(crate) fn ortho_wrap_recip(l: [f64; 3], recip: [f64; 3], dp: [f64; 3]) -> [f
 #[inline]
 pub(crate) fn general_wrap(h: [[f64; 3]; 3], hinv: [[f64; 3]; 3], dp: [f64; 3]) -> [f64; 3] {
     let mut ds = mul(hinv, dp);
-    ds[0] -= ds[0].round();
-    ds[1] -= ds[1].round();
-    ds[2] -= ds[2].round();
+    ds[0] -= round_away(ds[0]);
+    ds[1] -= round_away(ds[1]);
+    ds[2] -= round_away(ds[2]);
     mul(h, ds)
 }
 
@@ -251,5 +296,65 @@ mod tests {
                 assert!((direct[a] - floor).abs() < 1e-12);
             }
         }
+    }
+
+    /// Doubles near every half integer, near 2^52, signed zeros,
+    /// subnormals, and random bit patterns.
+    fn awkward_doubles() -> Vec<f64> {
+        let mut xs = vec![
+            0.0,
+            -0.0,
+            0.5,
+            -0.5,
+            0.499_999_999_999_999_94,
+            -0.499_999_999_999_999_94,
+            1.5,
+            2.5,
+            -2.5,
+            4_503_599_627_370_495.5,
+            -4_503_599_627_370_495.5,
+            4_503_599_627_370_496.0,
+            9_007_199_254_740_993.0,
+            1e300,
+            -1e300,
+            f64::MIN_POSITIVE,
+            -f64::MIN_POSITIVE * 0.5,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        for k in -40i32..=40 {
+            let h = f64::from(k) + 0.5;
+            let mut lo = h;
+            let mut hi = h;
+            for _ in 0..3 {
+                lo = f64::from_bits(lo.to_bits() - 1);
+                hi = f64::from_bits(hi.to_bits() + 1);
+                xs.extend([lo, hi, -lo, -hi]);
+            }
+            xs.extend([h, -h]);
+        }
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..20_000 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let x = f64::from_bits(state);
+            if x.is_finite() {
+                xs.push(x);
+                xs.push(x * 1e-300);
+            }
+            xs.push((state >> 11) as f64 / (1u64 << 40) as f64 - 4096.0);
+        }
+        xs
+    }
+
+    #[test]
+    fn round_and_floor_match_libm() {
+        for x in awkward_doubles() {
+            assert_eq!(round_away(x), x.round(), "round {x:e}");
+            assert_eq!(floor_fast(x), x.floor(), "floor {x:e}");
+        }
+        assert!(round_away(f64::NAN).is_nan());
+        assert!(floor_fast(f64::NAN).is_nan());
     }
 }

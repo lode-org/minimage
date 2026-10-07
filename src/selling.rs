@@ -145,7 +145,7 @@ fn lagrange_reduce(mut v: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
                 if lj < 1e-30 {
                     continue;
                 }
-                let q = (kernel::dot(v[i], v[j]) / lj).round();
+                let q = kernel::round_away(kernel::dot(v[i], v[j]) / lj);
                 if q != 0.0 {
                     v[i] = kernel::add(v[i], kernel::scale(-q, v[j]));
                     changed = true;
@@ -283,7 +283,12 @@ fn mckilliam(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     z[s.idx[0] as usize] = c[0];
     z[s.idx[1] as usize] = c[1];
     z[s.idx[2] as usize] = c[2];
-    let mut u = [z[0].floor(), z[1].floor(), z[2].floor(), z[3].floor()];
+    let mut u = [
+        kernel::floor_fast(z[0]),
+        kernel::floor_fast(z[1]),
+        kernel::floor_fast(z[2]),
+        kernel::floor_fast(z[3]),
+    ];
     let v = &s.v;
     let mut best_d = [0.0; 3];
     for _ in 0..3 {
