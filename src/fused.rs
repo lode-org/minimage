@@ -45,6 +45,21 @@ fn sub(q: [f64; 3], p: [f64; 3]) -> [f64; 3] {
 
 /// `out[k] = |wrap(qs[k] - ps[k])|^2`.
 pub(crate) fn dist2_pairs(frame: Frame, ps: &[[f64; 3]], qs: &[[f64; 3]], out: &mut [f64]) {
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if avx512::detected() {
+            // SAFETY: AVX-512F and DQ were detected. The slices share one
+            // length.
+            unsafe {
+                match frame {
+                    Frame::Ortho(l) => avx512::ortho_pairs(l, ps, qs, out),
+                    Frame::Tri(t) => avx512::tri_pairs(&t, ps, qs, out),
+                    Frame::General(h, hinv) => avx512::general_pairs(&h, &hinv, ps, qs, out),
+                }
+            }
+            return;
+        }
+    }
     #[cfg(target_arch = "x86_64")]
     {
         if ps.len() >= 4 && std::is_x86_feature_detected!("avx") {
@@ -66,6 +81,21 @@ pub(crate) fn dist2_pairs(frame: Frame, ps: &[[f64; 3]], qs: &[[f64; 3]], out: &
 
 /// `out[k] = |wrap(qs[k] - p)|^2`.
 pub(crate) fn dist2_many(frame: Frame, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if avx512::detected() {
+            // SAFETY: AVX-512F and DQ were detected. `qs` and `out` share
+            // one length.
+            unsafe {
+                match frame {
+                    Frame::Ortho(l) => avx512::ortho_many(l, p, qs, out),
+                    Frame::Tri(t) => avx512::tri_many(&t, p, qs, out),
+                    Frame::General(h, hinv) => avx512::general_many(&h, &hinv, p, qs, out),
+                }
+            }
+            return;
+        }
+    }
     #[cfg(target_arch = "x86_64")]
     {
         if qs.len() >= 4 && std::is_x86_feature_detected!("avx") {
@@ -87,6 +117,23 @@ pub(crate) fn dist2_many(frame: Frame, p: [f64; 3], qs: &[[f64; 3]], out: &mut [
 
 /// `out[k] = wrap(diffs[k])`.
 pub(crate) fn wrap_many(frame: Frame, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) {
+    // The orthorhombic wrap stores as much as it loads; three 64-byte
+    // stores per eight rows split cache lines often enough that the
+    // 32-byte AVX kernel is faster there.
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if avx512::detected() {
+            // SAFETY: AVX-512F and DQ were detected. `diffs` and `out`
+            // share one length.
+            match frame {
+                Frame::Tri(t) => return unsafe { avx512::tri_wrap(&t, diffs, out) },
+                Frame::General(h, hinv) => {
+                    return unsafe { avx512::general_wrap(&h, &hinv, diffs, out) }
+                }
+                Frame::Ortho(_) => {}
+            }
+        }
+    }
     #[cfg(target_arch = "x86_64")]
     {
         if diffs.len() >= 4 && std::is_x86_feature_detected!("avx") {
@@ -103,6 +150,359 @@ pub(crate) fn wrap_many(frame: Frame, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) 
     }
     for (d, o) in diffs.iter().zip(out.iter_mut()) {
         *o = frame.wrap(*d);
+    }
+}
+
+/// The AVX kernels on eight lanes. A short group, the tail of a batch,
+/// loads and stores under a lane mask and runs the same arithmetic, so a
+/// batch of any length equals the per-pair calls.
+#[cfg(all(target_arch = "x86_64", minimage_avx512))]
+#[allow(clippy::incompatible_msrv)]
+mod avx512 {
+    use std::arch::x86_64::*;
+
+    use super::{sub, Frame};
+    use crate::kernel::Tri;
+
+    type V = __m512d;
+    type M = __mmask8;
+
+    pub(super) fn detected() -> bool {
+        std::is_x86_feature_detected!("avx512f") && std::is_x86_feature_detected!("avx512dq")
+    }
+
+    /// Lane masks for `r <= 8` rows: `3 r` doubles over three vectors,
+    /// and `r` results.
+    #[inline(always)]
+    fn masks(r: usize) -> ([M; 3], M) {
+        let lanes = |k: usize| -> M {
+            let m = (3 * r).saturating_sub(8 * k).min(8);
+            ((1u16 << m) - 1) as M
+        };
+        ([lanes(0), lanes(1), lanes(2)], ((1u16 << r) - 1) as M)
+    }
+
+    #[inline(always)]
+    unsafe fn idx(i: [i64; 8]) -> __m512i {
+        _mm512_setr_epi64(i[0], i[1], i[2], i[3], i[4], i[5], i[6], i[7])
+    }
+
+    /// Eight packed rows, three vectors in row order, as x, y, z.
+    #[inline(always)]
+    unsafe fn transpose_in(a: V, b: V, c: V) -> [V; 3] {
+        let x = _mm512_permutex2var_pd(a, idx([0, 3, 6, 9, 12, 15, 0, 0]), b);
+        let y = _mm512_permutex2var_pd(a, idx([1, 4, 7, 10, 13, 0, 0, 0]), b);
+        let z = _mm512_permutex2var_pd(a, idx([2, 5, 8, 11, 14, 0, 0, 0]), b);
+        [
+            _mm512_permutex2var_pd(x, idx([0, 1, 2, 3, 4, 5, 10, 13]), c),
+            _mm512_permutex2var_pd(y, idx([0, 1, 2, 3, 4, 8, 11, 14]), c),
+            _mm512_permutex2var_pd(z, idx([0, 1, 2, 3, 4, 9, 12, 15]), c),
+        ]
+    }
+
+    /// Inverse of [`transpose_in`].
+    #[inline(always)]
+    unsafe fn transpose_out(x: V, y: V, z: V) -> [V; 3] {
+        let a = _mm512_permutex2var_pd(x, idx([0, 8, 0, 1, 9, 0, 2, 10]), y);
+        let b = _mm512_permutex2var_pd(x, idx([0, 3, 11, 0, 4, 12, 0, 5]), y);
+        let c = _mm512_permutex2var_pd(x, idx([13, 0, 6, 14, 0, 7, 15, 0]), y);
+        [
+            _mm512_permutex2var_pd(a, idx([0, 1, 8, 3, 4, 9, 6, 7]), z),
+            _mm512_permutex2var_pd(b, idx([10, 1, 2, 11, 4, 5, 12, 7]), z),
+            _mm512_permutex2var_pd(c, idx([0, 13, 2, 3, 14, 5, 6, 15]), z),
+        ]
+    }
+
+    /// Per-axis values in packed-row order for eight rows.
+    #[inline(always)]
+    unsafe fn splat(p: [f64; 3]) -> [V; 3] {
+        let [x, y, z] = p;
+        [
+            _mm512_setr_pd(x, y, z, x, y, z, x, y),
+            _mm512_setr_pd(z, x, y, z, x, y, z, x),
+            _mm512_setr_pd(y, z, x, y, z, x, y, z),
+        ]
+    }
+
+    /// Up to eight packed rows, zero past `r`.
+    #[inline(always)]
+    unsafe fn load(rows: *const f64, m: &[M; 3]) -> [V; 3] {
+        [
+            _mm512_maskz_loadu_pd(m[0], rows),
+            _mm512_maskz_loadu_pd(m[1], rows.add(8)),
+            _mm512_maskz_loadu_pd(m[2], rows.add(16)),
+        ]
+    }
+
+    #[inline(always)]
+    unsafe fn store(rows: *mut f64, m: &[M; 3], v: [V; 3]) {
+        _mm512_mask_storeu_pd(rows, m[0], v[0]);
+        _mm512_mask_storeu_pd(rows.add(8), m[1], v[1]);
+        _mm512_mask_storeu_pd(rows.add(16), m[2], v[2]);
+    }
+
+    /// `qs[k] - ps[k]` on packed rows, zero past `r`, then transposed.
+    #[inline(always)]
+    unsafe fn diff(qs: *const f64, ps: *const f64, m: &[M; 3]) -> [V; 3] {
+        let q = load(qs, m);
+        let p = load(ps, m);
+        transpose_in(
+            _mm512_sub_pd(q[0], p[0]),
+            _mm512_sub_pd(q[1], p[1]),
+            _mm512_sub_pd(q[2], p[2]),
+        )
+    }
+
+    /// `qs[k] - p`, zero past `r`.
+    #[inline(always)]
+    unsafe fn diff_from(qs: *const f64, p: &[V; 3], m: &[M; 3]) -> [V; 3] {
+        let q = load(qs, m);
+        transpose_in(
+            _mm512_maskz_sub_pd(m[0], q[0], p[0]),
+            _mm512_maskz_sub_pd(m[1], q[1], p[1]),
+            _mm512_maskz_sub_pd(m[2], q[2], p[2]),
+        )
+    }
+
+    /// `kernel::round_away` per lane.
+    #[inline(always)]
+    unsafe fn round_away(x: V) -> V {
+        let signed = _mm512_or_pd(
+            _mm512_and_pd(x, _mm512_set1_pd(-0.0)),
+            _mm512_set1_pd(0.499_999_999_999_999_94),
+        );
+        _mm512_roundscale_pd::<0x0B>(_mm512_add_pd(x, signed))
+    }
+
+    #[inline(always)]
+    unsafe fn norm(w: [V; 3]) -> V {
+        _mm512_add_pd(
+            _mm512_add_pd(_mm512_mul_pd(w[0], w[0]), _mm512_mul_pd(w[1], w[1])),
+            _mm512_mul_pd(w[2], w[2]),
+        )
+    }
+
+    /// `kernel::ortho_dist2` per lane, or `None` when a lane is a full
+    /// box away.
+    #[inline(always)]
+    unsafe fn ortho_dist2(l: &[V; 3], d: [V; 3]) -> Option<V> {
+        let sign = _mm512_set1_pd(-0.0);
+        let a = [
+            _mm512_andnot_pd(sign, d[0]),
+            _mm512_andnot_pd(sign, d[1]),
+            _mm512_andnot_pd(sign, d[2]),
+        ];
+        let b = [
+            _mm512_sub_pd(l[0], a[0]),
+            _mm512_sub_pd(l[1], a[1]),
+            _mm512_sub_pd(l[2], a[2]),
+        ];
+        let any = _mm512_or_pd(_mm512_or_pd(b[0], b[1]), b[2]);
+        if _mm512_movepi64_mask(_mm512_castpd_si512(any)) != 0 {
+            return None;
+        }
+        Some(norm([
+            _mm512_min_pd(b[0], a[0]),
+            _mm512_min_pd(b[1], a[1]),
+            _mm512_min_pd(b[2], a[2]),
+        ]))
+    }
+
+    /// `Tri::wrap` per lane.
+    #[inline(always)]
+    unsafe fn tri_wrap8(t: &Tri, d: [V; 3]) -> [V; 3] {
+        let s1 = _mm512_set1_pd;
+        let (xy, xz, yz) = (s1(t.xy), s1(t.xz), s1(t.yz));
+        let sz = _mm512_mul_pd(d[2], s1(t.inv_lz));
+        let sy = _mm512_mul_pd(_mm512_sub_pd(d[1], _mm512_mul_pd(yz, sz)), s1(t.inv_ly));
+        let sx = _mm512_mul_pd(
+            _mm512_sub_pd(
+                _mm512_sub_pd(d[0], _mm512_mul_pd(xy, sy)),
+                _mm512_mul_pd(xz, sz),
+            ),
+            s1(t.inv_lx),
+        );
+        let sx = _mm512_sub_pd(sx, round_away(sx));
+        let sy = _mm512_sub_pd(sy, round_away(sy));
+        let sz = _mm512_sub_pd(sz, round_away(sz));
+        [
+            _mm512_add_pd(
+                _mm512_add_pd(_mm512_mul_pd(s1(t.lx), sx), _mm512_mul_pd(xy, sy)),
+                _mm512_mul_pd(xz, sz),
+            ),
+            _mm512_add_pd(_mm512_mul_pd(s1(t.ly), sy), _mm512_mul_pd(yz, sz)),
+            _mm512_mul_pd(s1(t.lz), sz),
+        ]
+    }
+
+    /// `kernel::mul(m, v)` per lane, column-major `m`.
+    #[inline(always)]
+    unsafe fn mul(m: &[[f64; 3]; 3], v: [V; 3]) -> [V; 3] {
+        let mut out = [_mm512_setzero_pd(); 3];
+        for (i, slot) in out.iter_mut().enumerate() {
+            *slot = _mm512_add_pd(
+                _mm512_add_pd(
+                    _mm512_mul_pd(_mm512_set1_pd(m[0][i]), v[0]),
+                    _mm512_mul_pd(_mm512_set1_pd(m[1][i]), v[1]),
+                ),
+                _mm512_mul_pd(_mm512_set1_pd(m[2][i]), v[2]),
+            );
+        }
+        out
+    }
+
+    /// `kernel::general_wrap` per lane.
+    #[inline(always)]
+    unsafe fn general_wrap8(h: &[[f64; 3]; 3], hinv: &[[f64; 3]; 3], d: [V; 3]) -> [V; 3] {
+        let s = mul(hinv, d);
+        mul(
+            h,
+            [
+                _mm512_sub_pd(s[0], round_away(s[0])),
+                _mm512_sub_pd(s[1], round_away(s[1])),
+                _mm512_sub_pd(s[2], round_away(s[2])),
+            ],
+        )
+    }
+
+    /// Groups of eight rows, then one masked group of `r < 8`.
+    #[inline(always)]
+    unsafe fn groups(n: usize, mut f: impl FnMut(usize, usize, &[M; 3], M)) {
+        let full = masks(8);
+        let mut i = 0;
+        while i + 8 <= n {
+            f(i, 8, &full.0, full.1);
+            i += 8;
+        }
+        if i < n {
+            let (m, mo) = masks(n - i);
+            f(i, n - i, &m, mo);
+        }
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn ortho_pairs(
+        l: [f64; 3],
+        ps: &[[f64; 3]],
+        qs: &[[f64; 3]],
+        out: &mut [f64],
+    ) {
+        let lv = [
+            _mm512_set1_pd(l[0]),
+            _mm512_set1_pd(l[1]),
+            _mm512_set1_pd(l[2]),
+        ];
+        let frame = Frame::Ortho(l);
+        groups(ps.len(), |i, r, m, mo| {
+            let d = diff(qs.as_ptr().add(i).cast(), ps.as_ptr().add(i).cast(), m);
+            match ortho_dist2(&lv, d) {
+                Some(r2) => _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, r2),
+                None => {
+                    for j in i..i + r {
+                        out[j] = frame.dist2(sub(qs[j], ps[j]));
+                    }
+                }
+            }
+        });
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn ortho_many(l: [f64; 3], p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
+        let lv = [
+            _mm512_set1_pd(l[0]),
+            _mm512_set1_pd(l[1]),
+            _mm512_set1_pd(l[2]),
+        ];
+        let frame = Frame::Ortho(l);
+        let pv = splat(p);
+        groups(qs.len(), |i, r, m, mo| {
+            let d = diff_from(qs.as_ptr().add(i).cast(), &pv, m);
+            match ortho_dist2(&lv, d) {
+                Some(r2) => _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, r2),
+                None => {
+                    for j in i..i + r {
+                        out[j] = frame.dist2(sub(qs[j], p));
+                    }
+                }
+            }
+        });
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn tri_pairs(t: &Tri, ps: &[[f64; 3]], qs: &[[f64; 3]], out: &mut [f64]) {
+        groups(ps.len(), |i, _, m, mo| {
+            let d = diff(qs.as_ptr().add(i).cast(), ps.as_ptr().add(i).cast(), m);
+            _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, norm(tri_wrap8(t, d)));
+        });
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn tri_many(t: &Tri, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
+        let pv = splat(p);
+        groups(qs.len(), |i, _, m, mo| {
+            let d = diff_from(qs.as_ptr().add(i).cast(), &pv, m);
+            _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, norm(tri_wrap8(t, d)));
+        });
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn tri_wrap(t: &Tri, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) {
+        groups(diffs.len(), |i, _, m, _| {
+            let v = load(diffs.as_ptr().add(i).cast(), m);
+            let w = tri_wrap8(t, transpose_in(v[0], v[1], v[2]));
+            store(
+                out.as_mut_ptr().add(i).cast(),
+                m,
+                transpose_out(w[0], w[1], w[2]),
+            );
+        });
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn general_pairs(
+        h: &[[f64; 3]; 3],
+        hinv: &[[f64; 3]; 3],
+        ps: &[[f64; 3]],
+        qs: &[[f64; 3]],
+        out: &mut [f64],
+    ) {
+        groups(ps.len(), |i, _, m, mo| {
+            let d = diff(qs.as_ptr().add(i).cast(), ps.as_ptr().add(i).cast(), m);
+            _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, norm(general_wrap8(h, hinv, d)));
+        });
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn general_many(
+        h: &[[f64; 3]; 3],
+        hinv: &[[f64; 3]; 3],
+        p: [f64; 3],
+        qs: &[[f64; 3]],
+        out: &mut [f64],
+    ) {
+        let pv = splat(p);
+        groups(qs.len(), |i, _, m, mo| {
+            let d = diff_from(qs.as_ptr().add(i).cast(), &pv, m);
+            _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, norm(general_wrap8(h, hinv, d)));
+        });
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn general_wrap(
+        h: &[[f64; 3]; 3],
+        hinv: &[[f64; 3]; 3],
+        diffs: &[[f64; 3]],
+        out: &mut [[f64; 3]],
+    ) {
+        groups(diffs.len(), |i, _, m, _| {
+            let v = load(diffs.as_ptr().add(i).cast(), m);
+            let w = general_wrap8(h, hinv, transpose_in(v[0], v[1], v[2]));
+            store(
+                out.as_mut_ptr().add(i).cast(),
+                m,
+                transpose_out(w[0], w[1], w[2]),
+            );
+        });
     }
 }
 
@@ -630,7 +1030,7 @@ mod tests {
             (state >> 11) as f64 / (1u64 << 53) as f64
         };
         for cell in cells() {
-            for n in [0usize, 1, 3, 4, 5, 8, 37, 203] {
+            for n in [0usize, 1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 37, 203] {
                 let span = if n == 37 { 60.0 } else { 12.0 };
                 let mut ps = Vec::new();
                 let mut qs = Vec::new();

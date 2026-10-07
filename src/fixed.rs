@@ -75,6 +75,15 @@ impl Fold {
 
 /// `out[k] = fold.fixed(rs[k])`.
 pub(crate) fn fixed_many(fold: &Fold, rs: &[[f64; 3]], out: &mut [[u64; 3]]) {
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if avx512::detected() {
+            // SAFETY: AVX-512F and DQ were detected. `rs` and `out` share
+            // one length.
+            unsafe { avx512::fixed_many(fold, rs, out) };
+            return;
+        }
+    }
     #[cfg(target_arch = "x86_64")]
     {
         if rs.len() >= 4 && std::is_x86_feature_detected!("avx2") {
@@ -146,6 +155,15 @@ impl Lattice {
 
 /// `out[k] = |b(qs[k]) - b(p)|^2` over fixed-point positions.
 pub(crate) fn dist2_many(lat: Lattice, p: [u64; 3], qs: &[[u64; 3]], out: &mut [f64]) {
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if avx512::detected() {
+            // SAFETY: AVX-512F and DQ were detected. `qs` and `out` share
+            // one length.
+            unsafe { avx512::many(&lat, p, qs, out) };
+            return;
+        }
+    }
     #[cfg(target_arch = "x86_64")]
     {
         if qs.len() >= 4 && std::is_x86_feature_detected!("avx2") {
@@ -161,6 +179,15 @@ pub(crate) fn dist2_many(lat: Lattice, p: [u64; 3], qs: &[[u64; 3]], out: &mut [
 
 /// `out[k] = |b(qs[k]) - b(ps[k])|^2` over fixed-point positions.
 pub(crate) fn dist2_pairs(lat: Lattice, ps: &[[u64; 3]], qs: &[[u64; 3]], out: &mut [f64]) {
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if avx512::detected() {
+            // SAFETY: AVX-512F and DQ were detected. The slices share one
+            // length.
+            unsafe { avx512::pairs(&lat, ps, qs, out) };
+            return;
+        }
+    }
     #[cfg(target_arch = "x86_64")]
     {
         if ps.len() >= 4 && std::is_x86_feature_detected!("avx2") {
@@ -171,6 +198,240 @@ pub(crate) fn dist2_pairs(lat: Lattice, ps: &[[u64; 3]], qs: &[[u64; 3]], out: &
     }
     for ((p, q), o) in ps.iter().zip(qs).zip(out.iter_mut()) {
         *o = lat.dist2(*p, *q);
+    }
+}
+
+/// Eight rows per pass. The arithmetic is the scalar order, so a batch
+/// equals the per-pair call bit for bit.
+#[cfg(all(target_arch = "x86_64", minimage_avx512))]
+#[allow(clippy::incompatible_msrv)]
+mod avx512 {
+    use std::arch::x86_64::*;
+
+    use super::{Fold, Lattice};
+
+    type V = __m512d;
+
+    pub(super) fn detected() -> bool {
+        std::is_x86_feature_detected!("avx512f") && std::is_x86_feature_detected!("avx512dq")
+    }
+
+    /// Eight `[x, y, z]` rows of 64-bit differences, three vectors in
+    /// row order, to x, y, z vectors of shifted doubles: two two-source
+    /// permutes and one exact conversion per axis.
+    #[inline(always)]
+    unsafe fn transpose(a: __m512i, b: __m512i, c: __m512i) -> [V; 3] {
+        let axis = |lo: __m512i, hi: __m512i| {
+            let v = _mm512_permutex2var_epi64(_mm512_permutex2var_epi64(a, lo, b), hi, c);
+            _mm512_cvtepi64_pd(_mm512_srai_epi64::<12>(v))
+        };
+        [
+            axis(
+                _mm512_setr_epi64(0, 3, 6, 9, 12, 15, 0, 0),
+                _mm512_setr_epi64(0, 1, 2, 3, 4, 5, 10, 13),
+            ),
+            axis(
+                _mm512_setr_epi64(1, 4, 7, 10, 13, 0, 0, 0),
+                _mm512_setr_epi64(0, 1, 2, 3, 4, 8, 11, 14),
+            ),
+            axis(
+                _mm512_setr_epi64(2, 5, 8, 11, 14, 0, 0, 0),
+                _mm512_setr_epi64(0, 1, 2, 3, 4, 9, 12, 15),
+            ),
+        ]
+    }
+
+    #[inline(always)]
+    unsafe fn dist2(lat: &Lattice, d: [V; 3]) -> V {
+        let [x, y, z] = match lat {
+            Lattice::Diagonal(w) => [
+                _mm512_mul_pd(_mm512_set1_pd(w[0]), d[0]),
+                _mm512_mul_pd(_mm512_set1_pd(w[1]), d[1]),
+                _mm512_mul_pd(_mm512_set1_pd(w[2]), d[2]),
+            ],
+            Lattice::Full(m) => {
+                let mut r = [_mm512_setzero_pd(); 3];
+                for (i, slot) in r.iter_mut().enumerate() {
+                    *slot = _mm512_add_pd(
+                        _mm512_add_pd(
+                            _mm512_mul_pd(_mm512_set1_pd(m[0][i]), d[0]),
+                            _mm512_mul_pd(_mm512_set1_pd(m[1][i]), d[1]),
+                        ),
+                        _mm512_mul_pd(_mm512_set1_pd(m[2][i]), d[2]),
+                    );
+                }
+                r
+            }
+        };
+        _mm512_add_pd(
+            _mm512_add_pd(_mm512_mul_pd(x, x), _mm512_mul_pd(y, y)),
+            _mm512_mul_pd(z, z),
+        )
+    }
+
+    /// Lane masks for `r <= 8` rows: `3 r` lanes over three vectors, and
+    /// `r` results.
+    #[inline(always)]
+    fn tail(r: usize) -> ([__mmask8; 3], __mmask8) {
+        let lanes = |k: usize| -> __mmask8 {
+            let m = (3 * r).saturating_sub(8 * k).min(8);
+            ((1u16 << m) - 1) as __mmask8
+        };
+        (
+            [lanes(0), lanes(1), lanes(2)],
+            ((1u16 << r) - 1) as __mmask8,
+        )
+    }
+
+    #[inline(always)]
+    unsafe fn idx(i: [i64; 8]) -> __m512i {
+        _mm512_setr_epi64(i[0], i[1], i[2], i[3], i[4], i[5], i[6], i[7])
+    }
+
+    /// `Fold::fixed` for eight rows: transpose in, fold, floor, take the
+    /// mantissa of `t + 1`, transpose the integers back out. The last
+    /// `r < 8` rows load and store under a lane mask.
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn fixed_many(fold: &Fold, rs: &[[f64; 3]], out: &mut [[u64; 3]]) {
+        let o = [
+            _mm512_set1_pd(fold.origin[0]),
+            _mm512_set1_pd(fold.origin[1]),
+            _mm512_set1_pd(fold.origin[2]),
+        ];
+        let one = _mm512_set1_pd(1.0);
+        let mask = _mm512_set1_epi64(super::MANTISSA as i64);
+        let n = rs.len();
+        let mut i = 0;
+        while i < n {
+            let r = (n - i).min(8);
+            let (m, _) = tail(r);
+            let src: *const f64 = rs.as_ptr().add(i).cast();
+            let a = _mm512_maskz_loadu_pd(m[0], src);
+            let b = _mm512_maskz_loadu_pd(m[1], src.add(8));
+            let c = _mm512_maskz_loadu_pd(m[2], src.add(16));
+            let x = _mm512_permutex2var_pd(a, idx([0, 3, 6, 9, 12, 15, 0, 0]), b);
+            let y = _mm512_permutex2var_pd(a, idx([1, 4, 7, 10, 13, 0, 0, 0]), b);
+            let z = _mm512_permutex2var_pd(a, idx([2, 5, 8, 11, 14, 0, 0, 0]), b);
+            let d = [
+                _mm512_sub_pd(
+                    _mm512_permutex2var_pd(x, idx([0, 1, 2, 3, 4, 5, 10, 13]), c),
+                    o[0],
+                ),
+                _mm512_sub_pd(
+                    _mm512_permutex2var_pd(y, idx([0, 1, 2, 3, 4, 8, 11, 14]), c),
+                    o[1],
+                ),
+                _mm512_sub_pd(
+                    _mm512_permutex2var_pd(z, idx([0, 1, 2, 3, 4, 9, 12, 15]), c),
+                    o[2],
+                ),
+            ];
+            let s = match fold.inverse {
+                Lattice::Diagonal(inv) => [
+                    _mm512_mul_pd(d[0], _mm512_set1_pd(inv[0])),
+                    _mm512_mul_pd(d[1], _mm512_set1_pd(inv[1])),
+                    _mm512_mul_pd(d[2], _mm512_set1_pd(inv[2])),
+                ],
+                Lattice::Full(h) => {
+                    let mut s = [_mm512_setzero_pd(); 3];
+                    for (k, slot) in s.iter_mut().enumerate() {
+                        *slot = _mm512_add_pd(
+                            _mm512_add_pd(
+                                _mm512_mul_pd(_mm512_set1_pd(h[0][k]), d[0]),
+                                _mm512_mul_pd(_mm512_set1_pd(h[1][k]), d[1]),
+                            ),
+                            _mm512_mul_pd(_mm512_set1_pd(h[2][k]), d[2]),
+                        );
+                    }
+                    s
+                }
+            };
+            let fx = |v: V| {
+                let t = _mm512_add_pd(_mm512_sub_pd(v, _mm512_roundscale_pd::<0x09>(v)), one);
+                _mm512_slli_epi64::<12>(_mm512_and_si512(_mm512_castpd_si512(t), mask))
+            };
+            let (x, y, z) = (fx(s[0]), fx(s[1]), fx(s[2]));
+            let a = _mm512_permutex2var_epi64(x, idx([0, 8, 0, 1, 9, 0, 2, 10]), y);
+            let b = _mm512_permutex2var_epi64(x, idx([0, 3, 11, 0, 4, 12, 0, 5]), y);
+            let c = _mm512_permutex2var_epi64(x, idx([13, 0, 6, 14, 0, 7, 15, 0]), y);
+            let dst: *mut i64 = out.as_mut_ptr().add(i).cast();
+            _mm512_mask_storeu_epi64(
+                dst,
+                m[0],
+                _mm512_permutex2var_epi64(a, idx([0, 1, 8, 3, 4, 9, 6, 7]), z),
+            );
+            _mm512_mask_storeu_epi64(
+                dst.add(8),
+                m[1],
+                _mm512_permutex2var_epi64(b, idx([10, 1, 2, 11, 4, 5, 12, 7]), z),
+            );
+            _mm512_mask_storeu_epi64(
+                dst.add(16),
+                m[2],
+                _mm512_permutex2var_epi64(c, idx([0, 13, 2, 3, 14, 5, 6, 15]), z),
+            );
+            i += r;
+        }
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn many(lat: &Lattice, p: [u64; 3], qs: &[[u64; 3]], out: &mut [f64]) {
+        let [x, y, z] = [p[0] as i64, p[1] as i64, p[2] as i64];
+        let pa = _mm512_setr_epi64(x, y, z, x, y, z, x, y);
+        let pb = _mm512_setr_epi64(z, x, y, z, x, y, z, x);
+        let pc = _mm512_setr_epi64(y, z, x, y, z, x, y, z);
+        let n = qs.len();
+        let mut i = 0;
+        while i + 8 <= n {
+            let q: *const i64 = qs.as_ptr().add(i).cast();
+            let d = transpose(
+                _mm512_sub_epi64(_mm512_loadu_epi64(q), pa),
+                _mm512_sub_epi64(_mm512_loadu_epi64(q.add(8)), pb),
+                _mm512_sub_epi64(_mm512_loadu_epi64(q.add(16)), pc),
+            );
+            _mm512_storeu_pd(out.as_mut_ptr().add(i), dist2(lat, d));
+            i += 8;
+        }
+        if i < n {
+            let ([ma, mb, mc], mo) = tail(n - i);
+            let q: *const i64 = qs.as_ptr().add(i).cast();
+            let d = transpose(
+                _mm512_sub_epi64(_mm512_maskz_loadu_epi64(ma, q), pa),
+                _mm512_sub_epi64(_mm512_maskz_loadu_epi64(mb, q.add(8)), pb),
+                _mm512_sub_epi64(_mm512_maskz_loadu_epi64(mc, q.add(16)), pc),
+            );
+            _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, dist2(lat, d));
+        }
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn pairs(lat: &Lattice, ps: &[[u64; 3]], qs: &[[u64; 3]], out: &mut [f64]) {
+        let n = ps.len();
+        let mut i = 0;
+        while i + 8 <= n {
+            let p: *const i64 = ps.as_ptr().add(i).cast();
+            let q: *const i64 = qs.as_ptr().add(i).cast();
+            let d = transpose(
+                _mm512_sub_epi64(_mm512_loadu_epi64(q), _mm512_loadu_epi64(p)),
+                _mm512_sub_epi64(_mm512_loadu_epi64(q.add(8)), _mm512_loadu_epi64(p.add(8))),
+                _mm512_sub_epi64(_mm512_loadu_epi64(q.add(16)), _mm512_loadu_epi64(p.add(16))),
+            );
+            _mm512_storeu_pd(out.as_mut_ptr().add(i), dist2(lat, d));
+            i += 8;
+        }
+        if i < n {
+            let ([ma, mb, mc], mo) = tail(n - i);
+            let p: *const i64 = ps.as_ptr().add(i).cast();
+            let q: *const i64 = qs.as_ptr().add(i).cast();
+            let load = |m: __mmask8, k: usize| {
+                _mm512_sub_epi64(
+                    _mm512_maskz_loadu_epi64(m, q.add(8 * k)),
+                    _mm512_maskz_loadu_epi64(m, p.add(8 * k)),
+                )
+            };
+            let d = transpose(load(ma, 0), load(mb, 1), load(mc, 2));
+            _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, dist2(lat, d));
+        }
     }
 }
 
@@ -421,7 +682,7 @@ mod tests {
     #[test]
     fn fixed_many_equals_the_per_position_call() {
         for cell in cells() {
-            for n in [0usize, 1, 3, 4, 5, 64, 131] {
+            for n in [0usize, 1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 64, 131] {
                 let rs = points(n, 0x9b05_688c_2b3e_6c1f);
                 let mut out = vec![[0u64; 3]; n];
                 crate::fixed_many(&cell, &rs, &mut out).unwrap();
