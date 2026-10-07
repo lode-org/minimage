@@ -199,22 +199,22 @@ mod avx {
             _mm256_andnot_pd(k.sign, d[1]),
             _mm256_andnot_pd(k.sign, d[2]),
         ];
-        let far = _mm256_or_pd(
-            _mm256_or_pd(
-                _mm256_cmp_pd(a[0], k.l[0], _CMP_GE_OQ),
-                _mm256_cmp_pd(a[1], k.l[1], _CMP_GE_OQ),
-            ),
-            _mm256_cmp_pd(a[2], k.l[2], _CMP_GE_OQ),
-        );
-        if _mm256_movemask_pd(far) != 0 {
+        let b = [
+            _mm256_sub_pd(k.l[0], a[0]),
+            _mm256_sub_pd(k.l[1], a[1]),
+            _mm256_sub_pd(k.l[2], a[2]),
+        ];
+        // A lane is past one image exactly when `L - |d|` is negative,
+        // so the sign bits replace three compares.
+        if _mm256_movemask_pd(_mm256_or_pd(_mm256_or_pd(b[0], b[1]), b[2])) != 0 {
             return None;
         }
         // min(L - |d|, |d|) returns |d| unless L - |d| is smaller, as the
         // scalar select does.
         let w = [
-            _mm256_min_pd(_mm256_sub_pd(k.l[0], a[0]), a[0]),
-            _mm256_min_pd(_mm256_sub_pd(k.l[1], a[1]), a[1]),
-            _mm256_min_pd(_mm256_sub_pd(k.l[2], a[2]), a[2]),
+            _mm256_min_pd(b[0], a[0]),
+            _mm256_min_pd(b[1], a[1]),
+            _mm256_min_pd(b[2], a[2]),
         ];
         Some(norm(w[0], w[1], w[2]))
     }
