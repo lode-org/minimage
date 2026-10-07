@@ -51,91 +51,6 @@ pub struct Cell {
     tri: kernel::Tri,
 }
 
-/// Load an 8-byte element 0 and the 16-byte tail at `p + 8`.
-///
-/// A zero tail is stored that way. A 16-byte load at element 0
-/// straddles the two stores and cannot forward.
-///
-/// # Safety
-///
-/// `p` points at a live `[f64; 3]` and is aligned for `f64`.
-#[cfg(target_arch = "x86_64")]
-#[inline(always)]
-unsafe fn load_lo8_hi16(p: *const f64) -> (f64, f64, f64) {
-    let x: f64;
-    let y: f64;
-    let z: f64;
-    // Register names arrive without a percent prefix, so the
-    // instructions are Intel syntax. `readonly` keeps the asm from
-    // copying the argument onto the stack.
-    std::arch::asm!(
-        "movsd {x}, qword ptr [{p}]",
-        "movupd {y}, xmmword ptr [{p} + 8]",
-        "movapd {z}, {y}",
-        "unpckhpd {z}, {y}",
-        p = in(reg) p,
-        x = out(xmm_reg) x,
-        y = out(xmm_reg) y,
-        z = out(xmm_reg) z,
-        options(nostack, preserves_flags, readonly),
-    );
-    (x, y, z)
-}
-
-/// Load a 16-byte pair at `p` and an 8-byte element 2.
-///
-/// Two leading lanes are stored that way. A 16-byte load at element
-/// 1 straddles the pair and element 2 and cannot forward.
-///
-/// # Safety
-///
-/// `p` points at a live `[f64; 3]` and is aligned for `f64`.
-#[cfg(target_arch = "x86_64")]
-#[inline(always)]
-unsafe fn load_lo16_hi8(p: *const f64) -> (f64, f64, f64) {
-    let x: f64;
-    let y: f64;
-    let z: f64;
-    std::arch::asm!(
-        "movupd {x}, xmmword ptr [{p}]",
-        "movapd {y}, {x}",
-        "unpckhpd {y}, {x}",
-        "movsd {z}, qword ptr [{p} + 16]",
-        p = in(reg) p,
-        x = out(xmm_reg) x,
-        y = out(xmm_reg) y,
-        z = out(xmm_reg) z,
-        options(nostack, preserves_flags, readonly),
-    );
-    (x, y, z)
-}
-
-/// Load three elements. The caller has no split store to match.
-///
-/// # Safety
-///
-/// `p` points at a live `[f64; 3]` and is aligned for `f64`.
-#[cfg(not(target_arch = "x86_64"))]
-#[inline(always)]
-unsafe fn load_lo8_hi16(p: *const f64) -> (f64, f64, f64) {
-    (
-        std::ptr::read_volatile(p),
-        std::ptr::read_volatile(p.add(1)),
-        std::ptr::read_volatile(p.add(2)),
-    )
-}
-
-/// Load three elements. The caller has no split store to match.
-///
-/// # Safety
-///
-/// `p` points at a live `[f64; 3]` and is aligned for `f64`.
-#[cfg(not(target_arch = "x86_64"))]
-#[inline(always)]
-unsafe fn load_lo16_hi8(p: *const f64) -> (f64, f64, f64) {
-    load_lo8_hi16(p)
-}
-
 impl Cell {
     /// Diagonal box with origin at zero.
     ///
@@ -169,14 +84,18 @@ impl Cell {
         c: [f64; 3],
         origin: [f64; 3],
     ) -> Result<Self, Error> {
-        // SAFETY: each argument is a live `[f64; 3]`. The pointer is the
-        // argument itself, not a stack copy. `a` is the 8-byte lane
-        // plus a 16-byte tail. `b`, `c`, and `origin` are a 16-byte
-        // pair plus an 8-byte element 2.
-        let (ax, ay, az) = unsafe { load_lo8_hi16(std::ptr::addr_of!(a).cast()) };
-        let (bx, by, bz) = unsafe { load_lo16_hi8(std::ptr::addr_of!(b).cast()) };
-        let (cx, cy, cz) = unsafe { load_lo16_hi8(std::ptr::addr_of!(c).cast()) };
-        let (ox, oy, oz) = unsafe { load_lo16_hi8(std::ptr::addr_of!(origin).cast()) };
+        let [ax, ay, az] = a;
+        let [bx, by, bz] = b;
+        let [cx, cy, cz] = c;
+        let [ox, oy, oz] = origin;
+        if ay == 0.0 && az == 0.0 && bz == 0.0 {
+            if bx == 0.0 && cx == 0.0 && cy == 0.0 {
+                return Self::diagonal(ax, by, cz, origin);
+            }
+            if ax.abs() >= 1e-18 && by.abs() >= 1e-18 && cz.abs() >= 1e-18 {
+                return Self::lamda(a, b, c, origin);
+            }
+        }
         // b × c, c × a, a × b. The determinant is a · (b × c).
         let bcx = by * cz - bz * cy;
         let bcy = bz * cx - bx * cz;
@@ -252,6 +171,96 @@ impl Cell {
             ortho,
             restricted,
             tri,
+        })
+    }
+
+    /// Exactly diagonal H: three reciprocals, no cross products and no
+    /// square roots. The widths are the edge lengths themselves.
+    #[inline(always)]
+    fn diagonal(lx: f64, ly: f64, lz: f64, origin: [f64; 3]) -> Result<Self, Error> {
+        let det = lx * ly * lz;
+        if !det.is_finite() || det.abs() < 1e-18 {
+            return Err(Error::BadBox);
+        }
+        let inv_lx = 1.0 / lx;
+        let inv_ly = 1.0 / ly;
+        let inv_lz = 1.0 / lz;
+        Ok(Self {
+            h: [[lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz]],
+            hinv: [[inv_lx, 0.0, 0.0], [0.0, inv_ly, 0.0], [0.0, 0.0, inv_lz]],
+            origin,
+            widths: [lx.abs(), ly.abs(), lz.abs()],
+            ortho: true,
+            restricted: true,
+            tri: kernel::Tri {
+                lx,
+                ly,
+                lz,
+                xy: 0.0,
+                xz: 0.0,
+                yz: 0.0,
+                inv_lx,
+                inv_ly,
+                inv_lz,
+            },
+        })
+    }
+
+    /// Restricted triclinic H, exactly: `a` along x, `b` in the xy
+    /// plane. The inverse is the three lamda reciprocals and their
+    /// products, the c-face width is `|c_z|`, and the other two widths
+    /// share one paired square root and division.
+    #[inline(always)]
+    fn lamda(a: [f64; 3], b: [f64; 3], c: [f64; 3], origin: [f64; 3]) -> Result<Self, Error> {
+        let lx = a[0];
+        let [xy, ly, _] = b;
+        let [xz, yz, lz] = c;
+        let det = lx * (ly * lz);
+        if !det.is_finite() || det.abs() < 1e-18 {
+            return Err(Error::BadBox);
+        }
+        let ad = det.abs();
+        // b × c is (ly lz, -xy lz, xy yz - ly xz); c × a is (0, lz lx, -yz lx).
+        let bcx = ly * lz;
+        let bcy = -(xy * lz);
+        let bcz = xy * yz - ly * xz;
+        let cay = lz * lx;
+        let caz = -(yz * lx);
+        let wa = ad / (bcx * bcx + bcy * bcy + bcz * bcz).sqrt();
+        let wb = ad / (cay * cay + caz * caz).sqrt();
+        let wc = lz.abs();
+        if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
+            return Err(Error::BadBox);
+        }
+        let inv_lx = 1.0 / lx;
+        let inv_ly = 1.0 / ly;
+        let inv_lz = 1.0 / lz;
+        let inv_xy = inv_lx * inv_ly;
+        let inv_yz = inv_ly * inv_lz;
+        let scale = (wa + wb + wc).max(1.0);
+        let tol = 1e-12 * scale;
+        Ok(Self {
+            h: [a, b, c],
+            hinv: [
+                [inv_lx, 0.0, 0.0],
+                [-(xy * inv_xy), inv_ly, 0.0],
+                [bcz * (inv_xy * inv_lz), -(yz * inv_yz), inv_lz],
+            ],
+            origin,
+            widths: [wa, wb, wc],
+            ortho: xy.abs() <= tol && xz.abs() <= tol && yz.abs() <= tol,
+            restricted: true,
+            tri: kernel::Tri {
+                lx,
+                ly,
+                lz,
+                xy,
+                xz,
+                yz,
+                inv_lx,
+                inv_ly,
+                inv_lz,
+            },
         })
     }
 
@@ -1057,6 +1066,50 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(Cell::from_vesin(rows).unwrap(), a);
         assert_eq!(Cell::from_con(rows).unwrap(), a);
+    }
+
+    #[test]
+    fn diagonal_and_restricted_match_the_cofactor_cell() {
+        let mut state = 0x3c6e_f372_fe94_f82bu64;
+        let mut unit = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for k in 0..400 {
+            let lx = 2.0 + 20.0 * unit();
+            let ly = 2.0 + 20.0 * unit();
+            let lz = 2.0 + 20.0 * unit();
+            let (xy, xz, yz) = if k % 4 == 0 {
+                (0.0, 0.0, 0.0)
+            } else {
+                (
+                    (unit() - 0.5) * 3.0 * lx,
+                    (unit() - 0.5) * 3.0 * lx,
+                    (unit() - 0.5) * 3.0 * ly,
+                )
+            };
+            let sign = if k % 3 == 0 { -1.0 } else { 1.0 };
+            let h = [[sign * lx, 0.0, 0.0], [xy, ly, 0.0], [xz, yz, sign * lz]];
+            let cell = Cell::from_vectors(h[0], h[1], h[2], [0.5, -0.25, 1.0]).unwrap();
+            assert!(cell.is_restricted());
+            let (inv, det) = kernel::invert_columns(h).unwrap();
+            for (want_col, got_col) in inv.iter().zip(cell.hinv()) {
+                for (want, got) in want_col.iter().zip(got_col) {
+                    assert!((got - want).abs() <= 1e-13 * (1.0 + want.abs()), "{h:?}");
+                }
+            }
+            let widths = [
+                det.abs() / kernel::norm(kernel::cross(h[1], h[2])),
+                det.abs() / kernel::norm(kernel::cross(h[2], h[0])),
+                det.abs() / kernel::norm(kernel::cross(h[0], h[1])),
+            ];
+            for (got, want) in cell.widths().iter().zip(widths) {
+                assert!((got - want).abs() <= 1e-13 * want, "{h:?}");
+            }
+            assert_eq!(cell.is_ortho(), k % 4 == 0);
+        }
     }
 
     #[test]
