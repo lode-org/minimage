@@ -193,8 +193,8 @@ int mi_displacement(const struct mi_cell *simbox,
                     double *dr);
 
 /**
- * Euclidean MIC: Smith half-altitude test, else the Selling closest
- * point, into `dr`.
+ * Euclidean MIC: Smith half-altitude test, else the slicer on the
+ * Selling superbasis, into `dr`.
  *
  * # Safety
  *
