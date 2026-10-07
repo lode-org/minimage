@@ -269,6 +269,23 @@ pub(crate) fn closest_displacement(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
 struct CachedBasis {
     h: [[f64; 3]; 3],
     s: Obtuse,
+    /// The engine wrap of this `H` is a short start for the slicer.
+    engine_start: bool,
+}
+
+/// Restricted with the tilts inside half an edge (GROMACS
+/// `correct_box`): the engine parallelepiped then sits within a step or
+/// two of the Voronoi cell, and the engine wrap replaces Babai's point.
+fn engine_is_short(h: [[f64; 3]; 3]) -> bool {
+    let [a, b, c] = h;
+    let scale = (a[0].abs() + b[1].abs() + c[2].abs()).max(1.0);
+    let tol = 1e-10 * scale;
+    a[1].abs() <= tol
+        && a[2].abs() <= tol
+        && b[2].abs() <= tol
+        && b[0].abs() <= 0.5 * a[0].abs() + tol
+        && c[0].abs() <= 0.5 * a[0].abs() + tol
+        && c[1].abs() <= 0.5 * b[1].abs() + tol
 }
 
 struct BasisCache {
@@ -290,24 +307,42 @@ thread_local! {
 /// The first query for a lattice builds the superbasis. The next
 /// three distinct lattices stay cached on this thread; a fifth
 /// replaces the oldest. A hit compares the nine components of H.
-pub(crate) fn closest_for(h: [[f64; 3]; 3], y: [f64; 3]) -> [f64; 3] {
+///
+/// `y` is the raw difference and `wrapped` its engine wrap; both are in
+/// the same coset.
+pub(crate) fn closest_for(h: [[f64; 3]; 3], y: [f64; 3], wrapped: [f64; 3]) -> [f64; 3] {
     BASIS.with(|cache| {
         let mut cache = cache.borrow_mut();
         #[allow(clippy::manual_flatten)]
         for slot in &cache.slots {
             if let Some(slot) = slot {
                 if slot.h == h {
-                    return closest_displacement(&slot.s, y);
+                    return slot.closest(y, wrapped);
                 }
             }
         }
-        let s = obtuse_superbasis(h[0], h[1], h[2]);
-        let d = closest_displacement(&s, y);
+        let slot = CachedBasis {
+            h,
+            s: obtuse_superbasis(h[0], h[1], h[2]),
+            engine_start: engine_is_short(h),
+        };
+        let d = slot.closest(y, wrapped);
         let i = cache.hand;
         cache.hand = (i + 1) % cache.slots.len();
-        cache.slots[i] = Some(CachedBasis { h, s });
+        cache.slots[i] = Some(slot);
         d
     })
+}
+
+impl CachedBasis {
+    #[inline(always)]
+    fn closest(&self, y: [f64; 3], wrapped: [f64; 3]) -> [f64; 3] {
+        if self.engine_start && self.s.ok {
+            descend(&self.s, wrapped)
+        } else {
+            closest_displacement(&self.s, y)
+        }
+    }
 }
 
 /// Babai's point in the reduced basis, then slicer steps until no
@@ -319,6 +354,12 @@ pub(crate) fn closest_for(h: [[f64; 3]; 3], y: [f64; 3]) -> [f64; 3] {
 /// come from one Gram row. Only a second violation loops, and the cap is
 /// far past what a reduced basis leaves.
 fn slice(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
+    descend(s, babai(s, y))
+}
+
+/// Nearest-integer rounding in three of the superbasis vectors.
+#[inline(always)]
+fn babai(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     let c = kernel::mul(s.inv, y);
     let b0 = s.v[s.idx[0] as usize];
     let b1 = s.v[s.idx[1] as usize];
@@ -326,11 +367,16 @@ fn slice(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     let z0 = kernel::round_away(c[0]);
     let z1 = kernel::round_away(c[1]);
     let z2 = kernel::round_away(c[2]);
-    let mut x = [
+    [
         y[0] - (z0 * b0[0] + z1 * b1[0] + z2 * b2[0]),
         y[1] - (z0 * b0[1] + z1 * b1[1] + z2 * b2[1]),
         y[2] - (z0 * b0[2] + z1 * b1[2] + z2 * b2[2]),
-    ];
+    ]
+}
+
+/// Slicer steps from `x` until no relevant vector shortens it.
+#[inline(always)]
+fn descend(s: &Obtuse, mut x: [f64; 3]) -> [f64; 3] {
     let mut t = [0.0; 8];
     for (k, slot) in t.iter_mut().enumerate() {
         *slot = x[0] * s.rel[0][k] + x[1] * s.rel[1][k] + x[2] * s.rel[2][k];
@@ -352,8 +398,7 @@ fn slice(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
         for (slot, g) in t.iter_mut().zip(s.gram[best]) {
             *slot -= f * g;
         }
-        let again = most_violated(&t, &s.half_n2).1 > 0.0;
-        if !again {
+        if !any_violated(&t, &s.half_n2) {
             break;
         }
     }
@@ -374,6 +419,16 @@ fn most_violated(t: &[f64; 8], h: &[f64; 8]) -> (usize, f64) {
     let (i03, g03) = larger(i01, g01, i23, g23);
     let (i46, g46) = larger(i45, g45, 6, g[6]);
     larger(i03, g03, i46, g46)
+}
+
+/// Whether some `|t_k|` passes its threshold. Compares only, no index.
+#[inline(always)]
+fn any_violated(t: &[f64; 8], h: &[f64; 8]) -> bool {
+    let mut any = false;
+    for (tk, hk) in t.iter().zip(h) {
+        any |= tk.abs() > *hk;
+    }
+    any
 }
 
 #[inline(always)]
