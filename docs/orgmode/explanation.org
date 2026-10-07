@@ -99,7 +99,12 @@ the Cartesian vector, for any cell shape, with no =Hinv= and no
 rounding step. That is the exact integer split of the Ozaki scheme
 (Ozaki, Ogita, Oishi, and Rump, Numer. Algorithms 59, 95, 2012) applied
 to the periodic wrap, and the fixed-point positions of Anton (Shaw et
-al., Commun. ACM 51, 91, 2008). Convert positions once per frame; a
+al., Commun. ACM 51, 91, 2008). The wrap is the symmetric residue
+=a - m floor(a/m + 1/2)= of Ozaki Scheme II (Ozaki, Uchino, and
+Imamura, arXiv:2504.08009, 2025) with the one modulus =m = 2^64=;
+two's complement computes it, so no Chinese remainder step is needed.
+The orthorhombic wrap above is the same residue with =m = L=.
+Convert positions once per frame; a
 pair list over them then costs a subtraction, a conversion, and a
 matrix product per pair. A fraction exactly one half apart wraps to
 =-1/2=, and the distance agrees with =dist2= to a few units in the
