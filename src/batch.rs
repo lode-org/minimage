@@ -1,14 +1,13 @@
 //! Batched minimum-image squared distances.
 //!
-//! Orthorhombic differences are a structure-of-arrays kernel: one
-//! reciprocal per axis, then `abs` and `round`, the Highway
-//! `BatchPeriodicDistSq` arithmetic, issued as AVX when the CPU has
-//! it. Restricted triclinic batches use the triangular
-//! lamda step. A general `H` hoists the inverse and applies it per
-//! row. [`dist2_shifted_many`](crate::Cell::dist2_shifted_many) is
+//! [`dist2_many`], [`dist2_pairs`], and [`wrap_many`] are one fused AVX
+//! pass over the packed rows when the CPU has it, for every cell shape,
+//! and each entry equals the per-pair call bit for bit.
+//! [`dist2_ortho_diffs`] keeps the Highway `BatchPeriodicDistSq` shape:
+//! precomputed differences, one reciprocal per axis, then `abs` and
+//! `round`. [`dist2_shifted_many`](crate::Cell::dist2_shifted_many) is
 //! Rapaport's linked-cell pair, one lattice shift for a whole bin.
 
-use crate::kernel::{self, n2};
 use crate::{Cell, Error};
 
 /// Minimum-image wrap of packed difference vectors.
@@ -19,13 +18,7 @@ pub fn wrap_many(cell: &Cell, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) -> Resul
     if out.len() != diffs.len() {
         return Err(Error::BufferSize);
     }
-    if cell.is_ortho() {
-        crate::simd::wrap_many_ortho(cell.widths(), diffs, out);
-    } else {
-        for (d, o) in diffs.iter().zip(out.iter_mut()) {
-            *o = cell.wrap_diff(*d);
-        }
-    }
+    crate::fused::wrap_many(cell.frame(), diffs, out);
     Ok(())
 }
 
@@ -36,21 +29,7 @@ pub fn dist2_many(cell: &Cell, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) ->
     if out.len() != qs.len() {
         return Err(Error::BufferSize);
     }
-    if cell.is_ortho() {
-        dist2_many_ortho(cell.widths(), p, qs, out);
-    } else if cell.is_restricted() {
-        for (q, o) in qs.iter().zip(out.iter_mut()) {
-            let d = cell.wrap_diff([q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
-            *o = n2(d);
-        }
-    } else {
-        let h = cell.h();
-        let hinv = cell.hinv();
-        for (q, o) in qs.iter().zip(out.iter_mut()) {
-            let d = kernel::general_wrap(h, hinv, [q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
-            *o = n2(d);
-        }
-    }
+    crate::fused::dist2_many(cell.frame(), p, qs, out);
     Ok(())
 }
 
@@ -66,13 +45,7 @@ pub fn dist2_pairs(
     if ps.len() != qs.len() || out.len() != ps.len() {
         return Err(Error::BufferSize);
     }
-    if cell.is_ortho() {
-        dist2_pairs_ortho(cell.widths(), ps, qs, out);
-    } else {
-        for i in 0..ps.len() {
-            out[i] = cell.dist2(ps[i], qs[i]);
-        }
-    }
+    crate::fused::dist2_pairs(cell.frame(), ps, qs, out);
     Ok(())
 }
 
@@ -98,61 +71,6 @@ pub fn dist2_ortho_diffs(
     }
     crate::simd::dist2_ortho_diffs(&dx[..n], &dy[..n], &dz[..n], bx, by, bz, &mut out[..n]);
     Ok(())
-}
-
-pub(crate) fn dist2_pairs_ortho(l: [f64; 3], ps: &[[f64; 3]], qs: &[[f64; 3]], out: &mut [f64]) {
-    const CHUNK: usize = 64;
-    let mut dx = [0.0; CHUNK];
-    let mut dy = [0.0; CHUNK];
-    let mut dz = [0.0; CHUNK];
-    let mut start = 0;
-    while start < ps.len() {
-        let n = (ps.len() - start).min(CHUNK);
-        for k in 0..n {
-            let i = start + k;
-            dx[k] = qs[i][0] - ps[i][0];
-            dy[k] = qs[i][1] - ps[i][1];
-            dz[k] = qs[i][2] - ps[i][2];
-        }
-        crate::simd::dist2_ortho_diffs(
-            &dx[..n],
-            &dy[..n],
-            &dz[..n],
-            l[0],
-            l[1],
-            l[2],
-            &mut out[start..start + n],
-        );
-        start += n;
-    }
-}
-
-pub(crate) fn dist2_many_ortho(l: [f64; 3], p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
-    // Squares match the signed wrap, so the SoA kernel is the same
-    // distance. Chunks stay on the stack.
-    const CHUNK: usize = 64;
-    let mut dx = [0.0; CHUNK];
-    let mut dy = [0.0; CHUNK];
-    let mut dz = [0.0; CHUNK];
-    let mut start = 0;
-    while start < qs.len() {
-        let n = (qs.len() - start).min(CHUNK);
-        for (k, q) in qs[start..start + n].iter().enumerate() {
-            dx[k] = q[0] - p[0];
-            dy[k] = q[1] - p[1];
-            dz[k] = q[2] - p[2];
-        }
-        crate::simd::dist2_ortho_diffs(
-            &dx[..n],
-            &dy[..n],
-            &dz[..n],
-            l[0],
-            l[1],
-            l[2],
-            &mut out[start..start + n],
-        );
-        start += n;
-    }
 }
 
 #[cfg(test)]

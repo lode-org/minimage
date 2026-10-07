@@ -480,6 +480,18 @@ impl Cell {
         self.wrap_diff(dp)
     }
 
+    /// The wrap this cell uses, for the fused batch kernels.
+    #[inline(always)]
+    pub(crate) fn frame(&self) -> crate::fused::Frame {
+        if self.ortho {
+            crate::fused::Frame::Ortho(self.widths)
+        } else if self.restricted {
+            crate::fused::Frame::Tri(self.tri)
+        } else {
+            crate::fused::Frame::General(self.h, self.hinv)
+        }
+    }
+
     /// Engine wrap of a Cartesian difference. The origin does not enter.
     #[inline(always)]
     pub(crate) fn wrap_diff(&self, dp: [f64; 3]) -> [f64; 3] {

@@ -6,8 +6,6 @@
 //! scalar kernel. Squared length matches the signed wrap; the sign at
 //! a tie does not.
 
-use crate::kernel::wrap_half;
-
 #[cfg(target_arch = "x86_64")]
 const ROUND_NEAREST: i32 = 0x08;
 
@@ -56,31 +54,6 @@ pub(crate) fn dist2_ortho_diffs_scalar(
     let recip = [1.0 / bx, 1.0 / by, 1.0 / bz];
     for (((x, y), z), slot) in dx.iter().zip(dy).zip(dz).zip(out.iter_mut()) {
         *slot = ortho_diff_one([*x, *y, *z], len, recip);
-    }
-}
-
-/// Signed AoS wrap. AVX transposes four rows, applies
-/// `floor(d/L + 1/2)`, and writes them back. Short lists stay scalar.
-pub(crate) fn wrap_many_ortho(l: [f64; 3], diffs: &[[f64; 3]], out: &mut [[f64; 3]]) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        let n = diffs.len();
-        if n >= 4 && std::is_x86_feature_detected!("avx") {
-            // SAFETY: `avx` was detected.
-            unsafe { wrap_avx(l, diffs, out) };
-            return;
-        }
-    }
-    wrap_many_ortho_scalar(l, diffs, out);
-}
-
-fn wrap_many_ortho_scalar(l: [f64; 3], diffs: &[[f64; 3]], out: &mut [[f64; 3]]) {
-    for (d, o) in diffs.iter().zip(out.iter_mut()) {
-        *o = [
-            wrap_half(d[0], l[0]),
-            wrap_half(d[1], l[1]),
-            wrap_half(d[2], l[2]),
-        ];
     }
 }
 
@@ -155,45 +128,6 @@ unsafe fn ortho_avx(
     if i < n {
         dist2_ortho_diffs_scalar(&dx[i..], &dy[i..], &dz[i..], bx, by, bz, &mut out[i..]);
     }
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx")]
-unsafe fn wrap_avx(l: [f64; 3], diffs: &[[f64; 3]], out: &mut [[f64; 3]]) {
-    use std::arch::x86_64::*;
-    let n = diffs.len();
-    let inv = [
-        _mm256_set1_pd(1.0 / l[0]),
-        _mm256_set1_pd(1.0 / l[1]),
-        _mm256_set1_pd(1.0 / l[2]),
-    ];
-    let len = [
-        _mm256_set1_pd(l[0]),
-        _mm256_set1_pd(l[1]),
-        _mm256_set1_pd(l[2]),
-    ];
-    let half = _mm256_set1_pd(0.5);
-    let mut i = 0usize;
-    while i + 4 <= n {
-        let mut cols = [[0.0; 4]; 3];
-        for k in 0..4 {
-            cols[0][k] = diffs[i + k][0];
-            cols[1][k] = diffs[i + k][1];
-            cols[2][k] = diffs[i + k][2];
-        }
-        let mut wrapped = [[0.0; 4]; 3];
-        for a in 0..3 {
-            let v = _mm256_loadu_pd(cols[a].as_ptr());
-            let q = _mm256_floor_pd(_mm256_add_pd(_mm256_mul_pd(v, inv[a]), half));
-            let w = _mm256_sub_pd(v, _mm256_mul_pd(len[a], q));
-            _mm256_storeu_pd(wrapped[a].as_mut_ptr(), w);
-        }
-        for k in 0..4 {
-            out[i + k] = [wrapped[0][k], wrapped[1][k], wrapped[2][k]];
-        }
-        i += 4;
-    }
-    wrap_many_ortho_scalar(l, &diffs[i..], &mut out[i..]);
 }
 
 #[cfg(target_arch = "x86_64")]

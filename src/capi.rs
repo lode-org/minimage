@@ -7,7 +7,7 @@ use std::ffi::{c_char, c_int, CString};
 use std::ptr;
 use std::slice;
 
-use crate::batch::{dist2_many_ortho, dist2_pairs_ortho};
+use crate::fused::{self, Frame};
 use crate::kernel::{self, n2};
 use crate::{
     dist2_many, dist2_ortho_diffs, dist2_pairs, reduce_pairs_packed, wrap_many, Cell, Error,
@@ -484,7 +484,7 @@ pub unsafe extern "C" fn mi_wrap_many(
     }
     let out = unsafe { slice::from_raw_parts_mut(out as *mut [f64; 3], n) };
     if let Some((l, _)) = ortho {
-        crate::simd::wrap_many_ortho(l, diffs, out);
+        fused::wrap_many(Frame::Ortho(l), diffs, out);
         clear_error();
         return 0;
     }
@@ -594,7 +594,7 @@ pub unsafe extern "C" fn mi_dist2_many(
     }
     let out = unsafe { slice::from_raw_parts_mut(out, n) };
     if let Some((l, _)) = ortho {
-        dist2_many_ortho(l, p, qs, out);
+        fused::dist2_many(Frame::Ortho(l), p, qs, out);
         clear_error();
         return 0;
     }
@@ -645,7 +645,7 @@ pub unsafe extern "C" fn mi_dist2_pairs(
     }
     let out = unsafe { slice::from_raw_parts_mut(out, n) };
     if let Some((l, _)) = ortho {
-        dist2_pairs_ortho(l, ps, qs, out);
+        fused::dist2_pairs(Frame::Ortho(l), ps, qs, out);
         clear_error();
         return 0;
     }
