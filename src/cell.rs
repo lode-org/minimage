@@ -423,6 +423,65 @@ impl Cell {
         s
     }
 
+    /// Fixed-point fractional coordinates: [`Self::fractional`] on 64
+    /// bits per axis, `s * 2^64`.
+    ///
+    /// Convert positions once; [`Self::dist2_fixed`] and the fixed-point
+    /// batches then wrap with integer subtraction, for any cell shape.
+    #[inline]
+    pub fn fixed(&self, r: [f64; 3]) -> [u64; 3] {
+        let s = self.fractional(r);
+        [
+            crate::fixed::to_fixed(s[0]),
+            crate::fixed::to_fixed(s[1]),
+            crate::fixed::to_fixed(s[2]),
+        ]
+    }
+
+    /// `H` in the units of a wrapped fixed-point difference.
+    #[inline(always)]
+    pub(crate) fn fixed_lattice(&self) -> crate::fixed::Lattice {
+        if self.ortho {
+            crate::fixed::Lattice::diagonal(self.widths)
+        } else {
+            crate::fixed::Lattice::full(self.h)
+        }
+    }
+
+    /// Engine-wrap displacement between two [`Self::fixed`] positions.
+    ///
+    /// The difference modulo `2^64` is the wrap, exactly; a fraction one
+    /// half apart wraps to `-1/2`. Agrees with [`Self::displacement`] to
+    /// a few units in the last place.
+    #[inline(always)]
+    pub fn displacement_fixed(&self, a: [u64; 3], b: [u64; 3]) -> [f64; 3] {
+        use crate::fixed::{wrapped, UNIT};
+        let d = [
+            wrapped(a[0], b[0]),
+            wrapped(a[1], b[1]),
+            wrapped(a[2], b[2]),
+        ];
+        // The batches scale H by the same power of two before the loop;
+        // the products and sums come out identical.
+        if self.ortho {
+            let w = self.widths;
+            return [w[0] * UNIT * d[0], w[1] * UNIT * d[1], w[2] * UNIT * d[2]];
+        }
+        let h = self.h;
+        let m = |c: usize, r: usize| h[c][r] * UNIT;
+        [
+            m(0, 0) * d[0] + m(1, 0) * d[1] + m(2, 0) * d[2],
+            m(0, 1) * d[0] + m(1, 1) * d[1] + m(2, 1) * d[2],
+            m(0, 2) * d[0] + m(1, 2) * d[1] + m(2, 2) * d[2],
+        ]
+    }
+
+    /// Squared engine-wrap distance between two [`Self::fixed`] positions.
+    #[inline(always)]
+    pub fn dist2_fixed(&self, a: [u64; 3], b: [u64; 3]) -> f64 {
+        kernel::n2(self.displacement_fixed(a, b))
+    }
+
     /// Cartesian from fractional: `r = H s + origin`.
     #[inline]
     pub fn cartesian(&self, s: [f64; 3]) -> [f64; 3] {

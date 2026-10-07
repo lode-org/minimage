@@ -573,6 +573,169 @@ pub unsafe extern "C" fn mi_dist2_pairs(
     }
 }
 
+fn read3_fixed(p: *const u64, what: &str) -> Result<[u64; 3], c_int> {
+    if p.is_null() {
+        return Err(fail_msg(what));
+    }
+    Ok(unsafe { [*p, *p.add(1), *p.add(2)] })
+}
+
+fn packed_fixed<'a>(ptr: *const u64, n: usize, what: &str) -> Result<&'a [[u64; 3]], c_int> {
+    if n == 0 {
+        return Ok(&[]);
+    }
+    if ptr.is_null() {
+        return Err(fail_msg(what));
+    }
+    // SAFETY: `n * 3` readable integers, viewed as `n` triples.
+    Ok(unsafe { slice::from_raw_parts(ptr as *const [u64; 3], n) })
+}
+
+/// Fixed-point fractional coordinates of `n` packed positions: three
+/// `uint64_t` per position, each fraction times `2^64`.
+///
+/// # Safety
+///
+/// `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint64_t`.
+#[no_mangle]
+pub unsafe extern "C" fn mi_fixed_many(
+    simbox: *const mi_cell,
+    rs: *const f64,
+    n: usize,
+    out: *mut u64,
+) -> c_int {
+    let rs = match packed_triples(rs, n, "null rs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && out.is_null() {
+        return fail_msg("null out");
+    }
+    let out: &mut [[u64; 3]] = if n == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(out as *mut [u64; 3], n) }
+    };
+    match with_cell(simbox, |cell| {
+        for (r, o) in rs.iter().zip(out.iter_mut()) {
+            *o = cell.fixed(*r);
+        }
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
+/// Squared engine-wrap distance between two fixed-point positions.
+///
+/// # Safety
+///
+/// `a` and `b` are three `uint64_t`. `out` is one writable double.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_fixed(
+    simbox: *const mi_cell,
+    a: *const u64,
+    b: *const u64,
+    out: *mut f64,
+) -> c_int {
+    let a = match read3_fixed(a, "null a") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let b = match read3_fixed(b, "null b") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if out.is_null() {
+        return fail_msg("null out");
+    }
+    match with_cell(simbox, |cell| cell.dist2_fixed(a, b)) {
+        Ok(d2) => {
+            unsafe {
+                *out = d2;
+            }
+            0
+        }
+        Err(e) => e,
+    }
+}
+
+/// Squared engine-wrap distances from fixed-point `p` to `n` packed
+/// fixed-point candidates.
+///
+/// # Safety
+///
+/// `p` is three `uint64_t`. `qs` is `n * 3` `uint64_t`. `out` is `n`
+/// doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_many_fixed(
+    simbox: *const mi_cell,
+    p: *const u64,
+    qs: *const u64,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let p = match read3_fixed(p, "null p") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let qs = match packed_fixed(qs, n, "null qs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && out.is_null() {
+        return fail_msg("null out");
+    }
+    let out: &mut [f64] = if n == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(out, n) }
+    };
+    match with_cell(simbox, |cell| {
+        crate::fixed::dist2_many(cell.fixed_lattice(), p, qs, out)
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
+/// Squared engine-wrap distances for `n` packed fixed-point pairs.
+///
+/// # Safety
+///
+/// `ps` and `qs` are `n * 3` `uint64_t`. `out` is `n` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_pairs_fixed(
+    simbox: *const mi_cell,
+    ps: *const u64,
+    qs: *const u64,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let ps = match packed_fixed(ps, n, "null ps") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let qs = match packed_fixed(qs, n, "null qs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && out.is_null() {
+        return fail_msg("null out");
+    }
+    let out: &mut [f64] = if n == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(out, n) }
+    };
+    match with_cell(simbox, |cell| {
+        crate::fixed::dist2_pairs(cell.fixed_lattice(), ps, qs, out)
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
 /// Orthorhombic wrap of precomputed differences (Highway kernel).
 ///
 /// # Safety

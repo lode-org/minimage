@@ -49,6 +49,35 @@ pub fn dist2_pairs(
     Ok(())
 }
 
+/// Squared engine-wrap distances from fixed-point `p` to each fixed-point
+/// `qs` ([`Cell::fixed`]). Integer wrap, one product with `H`.
+pub fn dist2_many_fixed(
+    cell: &Cell,
+    p: [u64; 3],
+    qs: &[[u64; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if out.len() != qs.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed::dist2_many(cell.fixed_lattice(), p, qs, out);
+    Ok(())
+}
+
+/// Squared engine-wrap distances for fixed-point pair lists.
+pub fn dist2_pairs_fixed(
+    cell: &Cell,
+    ps: &[[u64; 3]],
+    qs: &[[u64; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if ps.len() != qs.len() || out.len() != ps.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed::dist2_pairs(cell.fixed_lattice(), ps, qs, out);
+    Ok(())
+}
+
 /// Orthorhombic wrap of precomputed differences, one reciprocal per axis.
 ///
 /// `dx`, `dy`, `dz`, and `out` have length `n`. This is the Highway
