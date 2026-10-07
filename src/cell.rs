@@ -423,19 +423,30 @@ impl Cell {
         s
     }
 
-    /// Fixed-point fractional coordinates: [`Self::fractional`] on 64
-    /// bits per axis, `s * 2^64`.
+    /// Fixed-point fractional coordinates: the fraction of `r` along each
+    /// lattice vector as `round(s * 2^52) * 2^12` on 64 bits.
     ///
     /// Convert positions once; [`Self::dist2_fixed`] and the fixed-point
     /// batches then wrap with integer subtraction, for any cell shape.
     #[inline]
     pub fn fixed(&self, r: [f64; 3]) -> [u64; 3] {
-        let s = self.fractional(r);
-        [
-            crate::fixed::to_fixed(s[0]),
-            crate::fixed::to_fixed(s[1]),
-            crate::fixed::to_fixed(s[2]),
-        ]
+        self.fold().fixed(r)
+    }
+
+    /// Cartesian to fractional for [`Self::fixed`]: the stored inverse,
+    /// or for an orthorhombic cell the reciprocal widths.
+    #[inline(always)]
+    pub(crate) fn fold(&self) -> crate::fixed::Fold {
+        let inverse = if self.ortho {
+            let m = self.hinv;
+            crate::fixed::Lattice::Diagonal([m[0][0].abs(), m[1][1].abs(), m[2][2].abs()])
+        } else {
+            crate::fixed::Lattice::Full(self.hinv)
+        };
+        crate::fixed::Fold {
+            inverse,
+            origin: self.origin,
+        }
     }
 
     /// `H` in the units of a wrapped fixed-point difference.

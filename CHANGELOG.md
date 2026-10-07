@@ -22,7 +22,7 @@ wrapped vector equals it up to the sign of a zero. A C call
 looks up its cell once and borrows it in place.
 `Cell::fixed` stores positions as 64-bit fixed-point fractions of
 the cell. `dist2_fixed`, `displacement_fixed`, `dist2_many_fixed`,
-and `dist2_pairs_fixed`, with C entries `mi_fixed_many`,
+`dist2_pairs_fixed`, and `fixed_many`, with C entries `mi_fixed_many`,
 `mi_dist2_fixed`, `mi_dist2_many_fixed`, and `mi_dist2_pairs_fixed`,
 wrap with integer subtraction modulo `2^64`, exact, then one product
 with H for any cell shape (the Ozaki integer split).

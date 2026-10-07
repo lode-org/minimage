@@ -91,7 +91,10 @@ production walk keeps the subtract.
 * Fixed-point fractions
 
 =Cell::fixed= stores a position folded into the cell as three
-fractions on 64 bits, =s * 2^64=. The engine wrap of a difference is
+fractions on 64 bits, =round(s * 2^52) * 2^12=: the low 52 bits of
+=s + 1= are that integer, so a position converts with an add and a
+mask, no conversion instruction and no branch, and =fixed_many= does
+four at once. The engine wrap of a difference is
 then integer arithmetic: =b - a= modulo =2^64=, read as signed, is the
 wrapped fraction in =[-1/2, 1/2)=, exactly. The top 52 bits of that
 difference convert to a double exactly, and one product with =H= gives

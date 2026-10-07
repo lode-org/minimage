@@ -1,7 +1,10 @@
 //! Fixed-point fractional coordinates.
 //!
 //! A position folded into the cell is three fractions in `[0, 1)`, each
-//! stored on 64 bits as `s * 2^64`. The engine wrap of a difference is
+//! stored on 64 bits as `round(s * 2^52) * 2^12`. The low 52 bits of
+//! `s + 1` are that integer, exactly, so the conversion needs no
+//! conversion instruction and no branch: a fraction that rounds up to
+//! one lands on zero by itself. The engine wrap of a difference is
 //! then exact integer arithmetic: `b - a` modulo `2^64`, read as signed,
 //! is the wrapped fraction times `2^64` in `[-2^63, 2^63)`. Nothing is
 //! rounded until the top 52 bits of that difference become a double,
@@ -20,23 +23,68 @@
 //! squared distance agrees with [`Cell::dist2`](crate::Cell::dist2) to a
 //! few units in the last place.
 
-use crate::kernel::n2;
-
-/// `2^64`, the scale of one fixed-point fraction.
-const TWO_64: f64 = 18_446_744_073_709_551_616.0;
+use crate::kernel::{floor_fast, n2};
 
 /// `2^-52`, one unit of the shifted difference.
 pub(crate) const UNIT: f64 = 2.220_446_049_250_313e-16;
 
-/// A fraction in `[0, 1)` on 64 fixed-point bits.
+/// The 52 fraction bits of a double in `[1, 2)`.
+const MANTISSA: u64 = (1 << 52) - 1;
+
+/// A fraction `t` in `[0, 1]` on 64 fixed-point bits: the mantissa of
+/// `t + 1`, which is `round(t * 2^52)`, shifted to the top. `t = 1`
+/// gives `2.0`, whose mantissa is zero.
 #[inline(always)]
-pub(crate) fn to_fixed(s: f64) -> u64 {
-    let t = s * TWO_64;
-    if t < TWO_64 {
-        // `as` saturates, so a NaN becomes 0.
-        t as u64
-    } else {
-        0
+pub(crate) fn to_fixed(t: f64) -> u64 {
+    ((t + 1.0).to_bits() & MANTISSA) << 12
+}
+
+/// Cartesian to fractional for one cell: the inverse and the origin.
+/// An orthorhombic cell keeps the reciprocals of its widths.
+#[derive(Clone, Copy)]
+pub(crate) struct Fold {
+    pub(crate) inverse: Lattice,
+    pub(crate) origin: [f64; 3],
+}
+
+impl Fold {
+    /// `round(frac(s) * 2^52) * 2^12` per axis, `s` the fractional
+    /// coordinates of `r`.
+    #[inline(always)]
+    pub(crate) fn fixed(&self, r: [f64; 3]) -> [u64; 3] {
+        let d = [
+            r[0] - self.origin[0],
+            r[1] - self.origin[1],
+            r[2] - self.origin[2],
+        ];
+        let s = match self.inverse {
+            Lattice::Diagonal(inv) => [d[0] * inv[0], d[1] * inv[1], d[2] * inv[2]],
+            Lattice::Full(m) => [
+                m[0][0] * d[0] + m[1][0] * d[1] + m[2][0] * d[2],
+                m[0][1] * d[0] + m[1][1] * d[1] + m[2][1] * d[2],
+                m[0][2] * d[0] + m[1][2] * d[1] + m[2][2] * d[2],
+            ],
+        };
+        [
+            to_fixed(s[0] - floor_fast(s[0])),
+            to_fixed(s[1] - floor_fast(s[1])),
+            to_fixed(s[2] - floor_fast(s[2])),
+        ]
+    }
+}
+
+/// `out[k] = fold.fixed(rs[k])`.
+pub(crate) fn fixed_many(fold: &Fold, rs: &[[f64; 3]], out: &mut [[u64; 3]]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if rs.len() >= 4 && std::is_x86_feature_detected!("avx2") {
+            // SAFETY: `avx2` was detected. `rs` and `out` share one length.
+            unsafe { avx2::fixed_many(fold, rs, out) };
+            return;
+        }
+    }
+    for (r, o) in rs.iter().zip(out.iter_mut()) {
+        *o = fold.fixed(*r);
     }
 }
 
@@ -130,7 +178,7 @@ pub(crate) fn dist2_pairs(lat: Lattice, ps: &[[u64; 3]], qs: &[[u64; 3]], out: &
 mod avx2 {
     use std::arch::x86_64::*;
 
-    use super::Lattice;
+    use super::{Fold, Lattice};
 
     type V = __m256d;
 
@@ -192,6 +240,74 @@ mod avx2 {
             _mm256_add_pd(_mm256_mul_pd(x, x), _mm256_mul_pd(y, y)),
             _mm256_mul_pd(z, z),
         )
+    }
+
+    /// `Fold::fixed` for four rows: transpose in, fold, floor, take the
+    /// mantissa of `t + 1`, transpose the integers back out.
+    #[target_feature(enable = "avx2")]
+    pub(super) unsafe fn fixed_many(fold: &Fold, rs: &[[f64; 3]], out: &mut [[u64; 3]]) {
+        let o = [
+            _mm256_set1_pd(fold.origin[0]),
+            _mm256_set1_pd(fold.origin[1]),
+            _mm256_set1_pd(fold.origin[2]),
+        ];
+        let one = _mm256_set1_pd(1.0);
+        let mask = _mm256_set1_epi64x(super::MANTISSA as i64);
+        let n = rs.len();
+        let mut i = 0;
+        while i + 4 <= n {
+            let src: *const f64 = rs.as_ptr().add(i).cast();
+            let a = _mm256_loadu_pd(src);
+            let b = _mm256_loadu_pd(src.add(4));
+            let c = _mm256_loadu_pd(src.add(8));
+            let u = _mm256_blend_pd(a, b, 0b1100);
+            let v = _mm256_permute2f128_pd(a, c, 0x21);
+            let w = _mm256_blend_pd(b, c, 0b1100);
+            let d = [
+                _mm256_sub_pd(_mm256_shuffle_pd(u, v, 0b1010), o[0]),
+                _mm256_sub_pd(_mm256_shuffle_pd(u, w, 0b0101), o[1]),
+                _mm256_sub_pd(_mm256_shuffle_pd(v, w, 0b1010), o[2]),
+            ];
+            let s = match fold.inverse {
+                Lattice::Diagonal(inv) => [
+                    _mm256_mul_pd(d[0], _mm256_set1_pd(inv[0])),
+                    _mm256_mul_pd(d[1], _mm256_set1_pd(inv[1])),
+                    _mm256_mul_pd(d[2], _mm256_set1_pd(inv[2])),
+                ],
+                Lattice::Full(m) => {
+                    let mut r = [_mm256_setzero_pd(); 3];
+                    for (k, slot) in r.iter_mut().enumerate() {
+                        *slot = _mm256_add_pd(
+                            _mm256_add_pd(
+                                _mm256_mul_pd(_mm256_set1_pd(m[0][k]), d[0]),
+                                _mm256_mul_pd(_mm256_set1_pd(m[1][k]), d[1]),
+                            ),
+                            _mm256_mul_pd(_mm256_set1_pd(m[2][k]), d[2]),
+                        );
+                    }
+                    r
+                }
+            };
+            let fx = |x: V| {
+                let t = _mm256_add_pd(_mm256_sub_pd(x, _mm256_floor_pd(x)), one);
+                _mm256_castsi256_pd(_mm256_slli_epi64(
+                    _mm256_and_si256(_mm256_castpd_si256(t), mask),
+                    12,
+                ))
+            };
+            let (x, y, z) = (fx(s[0]), fx(s[1]), fx(s[2]));
+            let u = _mm256_unpacklo_pd(x, y);
+            let w = _mm256_unpackhi_pd(y, z);
+            let v = _mm256_shuffle_pd(z, x, 0b1010);
+            let dst: *mut f64 = out.as_mut_ptr().add(i).cast();
+            _mm256_storeu_pd(dst, _mm256_permute2f128_pd(u, v, 0x20));
+            _mm256_storeu_pd(dst.add(4), _mm256_blend_pd(w, u, 0b1100));
+            _mm256_storeu_pd(dst.add(8), _mm256_permute2f128_pd(v, w, 0x31));
+            i += 4;
+        }
+        for j in i..n {
+            out[j] = fold.fixed(rs[j]);
+        }
     }
 
     #[target_feature(enable = "avx2")]
@@ -300,6 +416,28 @@ mod tests {
                 assert!(dd <= 1e-24 * (1.0 + want), "{d:?} {e:?}");
             }
         }
+    }
+
+    #[test]
+    fn fixed_many_equals_the_per_position_call() {
+        for cell in cells() {
+            for n in [0usize, 1, 3, 4, 5, 64, 131] {
+                let rs = points(n, 0x9b05_688c_2b3e_6c1f);
+                let mut out = vec![[0u64; 3]; n];
+                crate::fixed_many(&cell, &rs, &mut out).unwrap();
+                for (r, got) in rs.iter().zip(&out) {
+                    assert_eq!(*got, cell.fixed(*r));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_fraction_that_rounds_to_one_folds_to_zero() {
+        let cell = Cell::ortho(10.0, 10.0, 10.0).unwrap();
+        let below = f64::from_bits(10.0f64.to_bits() - 1);
+        assert_eq!(cell.fixed([-1e-300, 0.0, below]), [0, 0, 0]);
+        assert_eq!(cell.fixed([5.0, 2.5, 10.0]), [1 << 63, 1 << 62, 0]);
     }
 
     #[test]

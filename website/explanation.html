@@ -77,9 +77,9 @@ the Highway <code>BatchPeriodicDistSq</code> shape: precomputed differences, one
 reciprocal per axis, <code>abs</code>, then <code>round</code>.
 </p>
 
-<section id="outline-container-org99f2679" class="outline-2">
-<h2 id="org99f2679">Nearest image</h2>
-<div class="outline-text-2" id="text-org99f2679">
+<section id="outline-container-org2ac711a" class="outline-2">
+<h2 id="org2ac711a">Nearest image</h2>
+<div class="outline-text-2" id="text-org2ac711a">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -119,12 +119,15 @@ production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-orga428655" class="outline-2">
-<h2 id="orga428655">Fixed-point fractions</h2>
-<div class="outline-text-2" id="text-orga428655">
+<section id="outline-container-org4a6a355" class="outline-2">
+<h2 id="org4a6a355">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-org4a6a355">
 <p>
 <code>Cell::fixed</code> stores a position folded into the cell as three
-fractions on 64 bits, <code>s * 2^64</code>. The engine wrap of a difference is
+fractions on 64 bits, <code>round(s * 2^52) * 2^12</code>: the low 52 bits of
+<code>s + 1</code> are that integer, so a position converts with an add and a
+mask, no conversion instruction and no branch, and <code>fixed_many</code> does
+four at once. The engine wrap of a difference is
 then integer arithmetic: <code>b - a</code> modulo <code>2^64</code>, read as signed, is the
 wrapped fraction in <code>[-1/2, 1/2)</code>, exactly. The top 52 bits of that
 difference convert to a double exactly, and one product with <code>H</code> gives
@@ -146,9 +149,9 @@ last place.
 </div>
 </section>
 
-<section id="outline-container-orgbf56970" class="outline-2">
-<h2 id="orgbf56970">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-orgbf56970">
+<section id="outline-container-orga5ea079" class="outline-2">
+<h2 id="orga5ea079">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-orga5ea079">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -168,9 +171,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-orge561359" class="outline-2">
-<h2 id="orge561359">vesin images</h2>
-<div class="outline-text-2" id="text-orge561359">
+<section id="outline-container-org4577e4e" class="outline-2">
+<h2 id="org4577e4e">vesin images</h2>
+<div class="outline-text-2" id="text-org4577e4e">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -180,9 +183,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-orga059bb0" class="outline-2">
-<h2 id="orga059bb0">Consumers</h2>
-<div class="outline-text-2" id="text-orga059bb0">
+<section id="outline-container-org7adec31" class="outline-2">
+<h2 id="org7adec31">Consumers</h2>
+<div class="outline-text-2" id="text-org7adec31">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
