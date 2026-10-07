@@ -316,7 +316,7 @@ pub(crate) fn closest_for(h: [[f64; 3]; 3], y: [f64; 3], wrapped: [f64; 3]) -> [
         #[allow(clippy::manual_flatten)]
         for slot in &cache.slots {
             if let Some(slot) = slot {
-                if slot.h == h {
+                if same_h(&slot.h, &h) {
                     return slot.closest(y, wrapped);
                 }
             }
@@ -343,6 +343,19 @@ impl CachedBasis {
             closest_displacement(&self.s, y)
         }
     }
+}
+
+/// Nine components equal, compared without an early exit so the test
+/// is a few packed compares.
+#[inline(always)]
+fn same_h(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]) -> bool {
+    let mut same = true;
+    for (ca, cb) in a.iter().zip(b) {
+        for (x, y) in ca.iter().zip(cb) {
+            same &= x == y;
+        }
+    }
+    same
 }
 
 /// Babai's point in the reduced basis, then slicer steps until no
