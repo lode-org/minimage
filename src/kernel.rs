@@ -143,12 +143,14 @@ pub(crate) fn ortho_dist2(l: [f64; 3], dp: [f64; 3]) -> f64 {
     let ax = dp[0].abs();
     let ay = dp[1].abs();
     let az = dp[2].abs();
-    if (ax >= l[0]) | (ay >= l[1]) | (az >= l[2]) {
-        return n2(ortho_wrap_far(l[0], l[1], l[2], dp[0], dp[1], dp[2]));
-    }
     let bx = l[0] - ax;
     let by = l[1] - ay;
     let bz = l[2] - az;
+    // Past one image exactly when `L - |d|` is negative. At `|d| = L`
+    // both forms give zero.
+    if (bx < 0.0) | (by < 0.0) | (bz < 0.0) {
+        return n2(ortho_wrap_far(l[0], l[1], l[2], dp[0], dp[1], dp[2]));
+    }
     let wx = if bx < ax { bx } else { ax };
     let wy = if by < ay { by } else { ay };
     let wz = if bz < az { bz } else { az };
