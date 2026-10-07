@@ -51,7 +51,37 @@ import minimage
 
 cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
 print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
+
+d2 = cell.dist2_pairs(ps, qs)        # (n, 3) arrays in, numpy out
+f = cell.fixed_many(positions)       # uint64 (n, 3)
+d2 = cell.dist2_pairs_fixed(f[i], f[j])
 #+end_src
+
+Array arguments go through DLPack: numpy, PyTorch, JAX, and CuPy host
+arrays are read in place, and the result is a numpy array that owns
+its buffer. A list in gives a list out. A device array raises; move it
+to the host, or run the wrap on the device with =minimage-burn=.
+
+* Run on a GPU with Burn
+
+=burn/= is the =minimage-burn= crate, outside the workspace because
+Burn needs Rust 1.95. Enable the backend features you need (=wgpu=,
+=vulkan=, =metal=, =cuda=, =rocm=, =cpu=, =flex=, =fusion=).
+
+#+begin_src rust
+use burn_tensor::{DType, Device, DeviceKind};
+use minimage_burn::{to_vec, Lattice};
+
+let device = Device::wgpu(DeviceKind::DefaultDevice);
+let lat = Lattice::new(&cell, &device, DType::F32);
+let sp = lat.fractions(&cell, &ps);
+let sq = lat.fractions(&cell, &qs);
+let d2 = to_vec(lat.dist2_pairs_fractional(sp, sq));
+#+end_src
+
+=fractions= folds on the CPU in double precision and uploads; the wrap
+on the device is then exact in single or half precision.
+=dist2_pairs=, =dist2_many=, and =wrap= take Cartesian rows instead.
 
 * pkg-config
 

@@ -53,6 +53,14 @@ vector equals it up to the sign of a zero. =dist2_ortho_diffs= keeps
 the Highway =BatchPeriodicDistSq= shape: precomputed differences, one
 reciprocal per axis, =abs=, then =round=.
 
+Where the processor has AVX-512F and DQ, eight rows go per pass:
+two-source permutes transpose them, and the last rows load and store
+under a lane mask, so no batch ends in a scalar tail. The intrinsics
+are stable from Rust 1.89, which =build.rs= checks; an older compiler
+keeps the AVX path. The orthorhombic wrap stays at four rows. It
+stores as much as it loads, and a 64-byte store splits a cache line
+on all but one alignment in eight.
+
 * Nearest image
 
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
@@ -94,7 +102,7 @@ production walk keeps the subtract.
 fractions on 64 bits, =round(s * 2^52) * 2^12=: the low 52 bits of
 =s + 1= are that integer, so a position converts with an add and a
 mask, no conversion instruction and no branch, and =fixed_many= does
-four at once. The engine wrap of a difference is
+four or eight at once. The engine wrap of a difference is
 then integer arithmetic: =b - a= modulo =2^64=, read as signed, is the
 wrapped fraction in =[-1/2, 1/2)=, exactly. The top 52 bits of that
 difference convert to a double exactly, and one product with =H= gives
@@ -107,11 +115,39 @@ al., Commun. ACM 51, 91, 2008). The wrap is the symmetric residue
 Imamura, arXiv:2504.08009, 2025) with the one modulus =m = 2^64=;
 two's complement computes it, so no Chinese remainder step is needed.
 The orthorhombic wrap above is the same residue with =m = L=.
+Scheme II splits a product over several small moduli so that INT8
+units compute each part exactly, then rebuilds it by the Chinese
+remainder theorem; that pays when many products share one rebuild,
+as along the inner dimension of a matrix product. A wrap has one
+subtraction per axis and the product with =H= has three terms, so on
+a CPU the double-precision units are already the fast path.
 Convert positions once per frame; a
 pair list over them then costs a subtraction, a conversion, and a
 matrix product per pair. A fraction exactly one half apart wraps to
 =-1/2=, and the distance agrees with =dist2= to a few units in the
 last place.
+
+* Arrays and devices
+
+The Python methods take any DLPack producer, numpy, PyTorch, JAX, or
+CuPy host memory, and read contiguous rows where they lie; the result
+is a numpy array that owns its buffer through a DLPack 1.0 capsule,
+so =torch.from_dlpack= shares it too. A batch of 100 000 rows from
+numpy is 150 to 250 times faster than through lists.
+
+=minimage-burn= puts the wrap on Burn tensors. Burn 0.22 picks the
+backend from the device at run time, so one code path serves the CPU,
+wgpu, Vulkan, Metal, CUDA, and ROCm, and every step is a matrix
+product or an element-wise map that Burn's fusion joins per batch.
+Positions folded into =[0, 1)= on the CPU in double precision wrap
+exactly on the device in any float width: for =|ds| < 1=, =ds -
+round(ds)= subtracts zero or a neighbour of =ds=, which is exact by
+Sterbenz's lemma. A single- or half-precision device then rounds only
+=ds= and the product with =H=. That is the reduced precision of
+kernel_float (Heldens, Netherlands eScience Center), chosen per call,
+around an exact wrap. Folding on a single-precision device would lose
+the digits of a position far from the origin, so the fold stays on
+the CPU.
 
 * Dump bounds are not H
 
