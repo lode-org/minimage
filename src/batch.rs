@@ -50,6 +50,16 @@ pub fn dist2_pairs(
     Ok(())
 }
 
+/// [`Cell::fixed`] for packed positions: one AVX2 pass folds, floors, and
+/// takes the mantissa of `t + 1` for four rows at once.
+pub fn fixed_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u64; 3]]) -> Result<(), Error> {
+    if out.len() != rs.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed::fixed_many(&cell.fold(), rs, out);
+    Ok(())
+}
+
 /// Squared engine-wrap distances from fixed-point `p` to each fixed-point
 /// `qs` ([`Cell::fixed`]). Integer wrap, one product with `H`.
 pub fn dist2_many_fixed(

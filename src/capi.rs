@@ -603,7 +603,7 @@ fn packed_fixed<'a>(ptr: *const u64, n: usize, what: &str) -> Result<&'a [[u64; 
 }
 
 /// Fixed-point fractional coordinates of `n` packed positions: three
-/// `uint64_t` per position, each fraction times `2^64`.
+/// `uint64_t` per position, each fraction as `round(s * 2^52) * 2^12`.
 ///
 /// # Safety
 ///
@@ -628,9 +628,7 @@ pub unsafe extern "C" fn mi_fixed_many(
         unsafe { slice::from_raw_parts_mut(out as *mut [u64; 3], n) }
     };
     match with_cell(simbox, |cell| {
-        for (r, o) in rs.iter().zip(out.iter_mut()) {
-            *o = cell.fixed(*r);
-        }
+        crate::fixed::fixed_many(&cell.fold(), rs, out)
     }) {
         Ok(()) => 0,
         Err(e) => e,

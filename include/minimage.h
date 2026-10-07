@@ -316,7 +316,7 @@ int mi_dist2_shifted_many(const double *p,
 
 /**
  * Fixed-point fractional coordinates of `n` packed positions: three
- * `uint64_t` per position, each fraction times `2^64`.
+ * `uint64_t` per position, each fraction as `round(s * 2^52) * 2^12`.
  *
  * # Safety
  *
