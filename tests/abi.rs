@@ -59,28 +59,54 @@ fn error_slot_clears_on_the_next_success_and_cells_alternate() {
     let hex = hex_raw();
     let mut ortho = hex_raw();
     ortho.bx = 0.0;
-    let bad = mi_cell { cz: 0.0, ..hex_raw() };
+    let bad = mi_cell {
+        cz: 0.0,
+        ..hex_raw()
+    };
     let p = [0.5, 0.25, 9.75];
     let q = [9.5, 8.0, 0.5];
     let mut got = 0.0;
-    assert_eq!(unsafe { mi_dist2(&bad, p.as_ptr(), q.as_ptr(), &mut got) }, 1);
+    assert_eq!(
+        unsafe { mi_dist2(&bad, p.as_ptr(), q.as_ptr(), &mut got) },
+        1
+    );
     assert!(!unsafe { mi_last_error() }.is_null());
-    assert_eq!(unsafe { mi_dist2(&hex, std::ptr::null(), q.as_ptr(), &mut got) }, 1);
+    assert_eq!(
+        unsafe { mi_dist2(&hex, std::ptr::null(), q.as_ptr(), &mut got) },
+        1
+    );
     assert!(!unsafe { mi_last_error() }.is_null());
     for _ in 0..3 {
         for (raw, cell) in [
-            (hex, Cell::from_vectors([10.0, 0.0, 0.0], [5.0, 8.660254037844386, 0.0], [0.0, 0.0, 10.0], [0.0; 3])),
+            (
+                hex,
+                Cell::from_vectors(
+                    [10.0, 0.0, 0.0],
+                    [5.0, 8.660254037844386, 0.0],
+                    [0.0, 0.0, 10.0],
+                    [0.0; 3],
+                ),
+            ),
             (ortho, Cell::ortho(10.0, 8.660254037844386, 10.0)),
         ] {
             let cell = cell.unwrap();
-            assert_eq!(unsafe { mi_dist2(&raw, p.as_ptr(), q.as_ptr(), &mut got) }, 0);
+            assert_eq!(
+                unsafe { mi_dist2(&raw, p.as_ptr(), q.as_ptr(), &mut got) },
+                0
+            );
             assert!(unsafe { mi_last_error() }.is_null());
             assert_eq!(got.to_bits(), cell.dist2(p, q).to_bits());
             let ps = [p, q, p, q, p];
             let qs = [q, p, p, q, [20.0, -20.0, 35.0]];
             let mut out = [0.0; 5];
             let status = unsafe {
-                mi_dist2_pairs(&raw, ps.as_ptr().cast(), qs.as_ptr().cast(), 5, out.as_mut_ptr())
+                mi_dist2_pairs(
+                    &raw,
+                    ps.as_ptr().cast(),
+                    qs.as_ptr().cast(),
+                    5,
+                    out.as_mut_ptr(),
+                )
             };
             assert_eq!(status, 0);
             for k in 0..5 {

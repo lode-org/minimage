@@ -48,6 +48,7 @@ impl Tri {
 }
 
 /// Below this magnitude a double may have a fractional part.
+#[cfg(target_arch = "x86_64")]
 const INTEGRAL: f64 = 4503599627370496.0;
 
 /// `f64::round`, half away from zero, without the libm call.
