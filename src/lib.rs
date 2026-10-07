@@ -43,6 +43,7 @@
 mod batch;
 mod cell;
 mod error;
+mod fused;
 mod kernel;
 mod minkowski;
 mod pairs;
