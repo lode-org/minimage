@@ -26,6 +26,12 @@ the cell. `dist2_fixed`, `displacement_fixed`, `dist2_many_fixed`,
 `mi_dist2_fixed`, `mi_dist2_many_fixed`, and `mi_dist2_pairs_fixed`,
 wrap with integer subtraction modulo `2^64`, exact, then one product
 with H for any cell shape (the Ozaki integer split).
+`Cell::from_vectors` reads each element of the caller's rows on its
+own. A 16-byte load of two neighbours straddled a row the caller had
+just stored, could not forward from the store buffer, and made
+skewed-cell construction 29 ns on recent compilers; it is 10 ns, and
+general cells 14 ns from 32. The lamda coefficients come from H and
+three stored reciprocals, and the frame tests take one maximum.
 Batch kernels run eight lanes wide where the processor has AVX-512F
 and DQ and the compiler has the intrinsics (Rust 1.89; `build.rs`
 checks, older compilers keep AVX2): 1.5 to 1.7 times faster for
