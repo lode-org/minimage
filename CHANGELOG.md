@@ -38,6 +38,10 @@ checks, older compilers keep AVX2): 1.5 to 1.7 times faster for
 triclinic and fixed-point batches, 1.2 to 1.5 for orthorhombic
 distances, bit for bit the same results. A short group loads and
 stores under a lane mask, so no batch ends in a scalar tail.
+The orthorhombic kernels call their far-image fallback out of line, so
+their loops stop spilling the loaded rows to the stack: orthorhombic
+batches are a quarter faster and no longer depend on where the stack
+lands.
 Python batch methods read any DLPack producer (numpy, PyTorch, JAX,
 or CuPy host arrays) in place, with no `tolist`, and return numpy
 arrays that own their buffers through a DLPack 1.0 capsule; a list in
