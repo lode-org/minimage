@@ -54,6 +54,62 @@ extern "C" {
     ) -> c_int;
 }
 
+extern "C" {
+    fn mi_dist2_euclidean_pairs_warm(
+        simbox: *const mi_cell,
+        ps: *const f64,
+        qs: *const f64,
+        n: usize,
+        images: *mut i32,
+        out: *mut f64,
+    ) -> c_int;
+}
+
+#[test]
+fn warm_abi_matches_rust() {
+    let raw = hex_raw();
+    let cell = Cell::from_vectors(
+        [10.0, 0.0, 0.0],
+        [5.0, 8.660254037844386, 0.0],
+        [0.0, 0.0, 10.0],
+        [0.0; 3],
+    )
+    .unwrap();
+    let ps: Vec<[f64; 3]> = (0..29)
+        .map(|k| [(k % 7) as f64, (k % 5) as f64 * 2.0, 1.5])
+        .collect();
+    let qs: Vec<[f64; 3]> = (0..29)
+        .map(|k| {
+            [
+                (k * 11 % 23) as f64 - 6.0,
+                (k * 3 % 13) as f64 * 1.75,
+                (k % 4) as f64 * -7.0,
+            ]
+        })
+        .collect();
+    let mut images = vec![[0i32; 3]; ps.len()];
+    let mut rust_images = images.clone();
+    let mut out = vec![0.0; ps.len()];
+    let mut want = vec![0.0; ps.len()];
+    let rc = unsafe {
+        mi_dist2_euclidean_pairs_warm(
+            &raw,
+            ps.as_ptr().cast(),
+            qs.as_ptr().cast(),
+            ps.len(),
+            images.as_mut_ptr().cast(),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0);
+    minimage::dist2_euclidean_pairs_warm(&cell, &ps, &qs, &mut rust_images, &mut want).unwrap();
+    assert_eq!(images, rust_images);
+    for k in 0..ps.len() {
+        assert_eq!(out[k].to_bits(), want[k].to_bits());
+        assert!((out[k] - cell.dist2_euclidean(ps[k], qs[k])).abs() <= 1e-12 * (1.0 + out[k]));
+    }
+}
+
 #[test]
 fn euclidean_batches_abi_match_rust() {
     let raw = hex_raw();

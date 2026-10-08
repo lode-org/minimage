@@ -122,3 +122,16 @@ def test_fixed32_through_arrays():
         np.testing.assert_array_equal(got, [cell.dist2_fixed32(a, b) for a, b in zip(fp.tolist(), fq.tolist())])
         np.testing.assert_array_equal(cell.dist2_many_fixed32(fp[0], fq), [cell.dist2_fixed32(fp[0].tolist(), b) for b in fq.tolist()])
 
+
+def test_warm_start_across_frames():
+    cell = minimage.Cell.from_vectors([1.0, 0.0, 0.0], [0.99, 0.01, 0.0], [0.0, 0.0, 1.0])
+    rng = np.random.default_rng(12)
+    ps = rng.random((300, 3)) * 5.0
+    qs = ps + (rng.random((300, 3)) - 0.5) * 6.0
+    d2, images = cell.dist2_euclidean_pairs_warm(ps, qs)
+    assert images.dtype == np.int32 and images.shape == (300, 3)
+    want = cell.dist2_euclidean_pairs(ps, qs)
+    np.testing.assert_allclose(d2, want, rtol=1e-11, atol=1e-13)
+    qs = qs + (rng.random((300, 3)) - 0.5) * 0.002
+    d2, images = cell.dist2_euclidean_pairs_warm(ps, qs, images)
+    np.testing.assert_allclose(d2, cell.dist2_euclidean_pairs(ps, qs), rtol=1e-11, atol=1e-13)

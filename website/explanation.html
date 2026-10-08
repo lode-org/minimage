@@ -87,9 +87,9 @@ stores as much as it loads, and a 64-byte store splits a cache line
 on all but one alignment in eight.
 </p>
 
-<section id="outline-container-orgfce381c" class="outline-2">
-<h2 id="orgfce381c">Nearest image</h2>
-<div class="outline-text-2" id="text-orgfce381c">
+<section id="outline-container-org75cc666" class="outline-2">
+<h2 id="org75cc666">Nearest image</h2>
+<div class="outline-text-2" id="text-org75cc666">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -126,6 +126,20 @@ skips the slicer. Each lane keeps the scalar order, its step choice,
 and its step count, so a batch equals the per-pair call bit for bit, 6
 to 11 times faster. Without AVX-512 the batch runs the per-pair code
 with the one lookup.
+</p>
+
+<p>
+Across frames a pair seldom leaves its image.
+<code>dist2_euclidean_pairs_warm</code> keeps each pair's cell-basis shift <code>n</code>
+from the previous call: subtracting <code>H n</code> and testing the seven
+relevant vectors replaces the search for a pair still in its Voronoi
+cell, and the others take the full search and store their new shift.
+Integer shifts stay right when the cell deforms. While the pairs fit
+in cache this is 2.2 to 2.8 times faster than the batch; from main
+memory, where the shifts are one more stream, 1.15 times. The image is
+the one the search finds, and the distance equals it to rounding,
+since <code>H n</code> is subtracted directly rather than through the engine
+wrap.
 Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
 Minkowski-reduces a basis; that reduction is not the closest-vector
 certificate. The linked-cell pair itself is Rapaport's shift,
@@ -139,9 +153,9 @@ production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-orge3ed44a" class="outline-2">
-<h2 id="orge3ed44a">Fixed-point fractions</h2>
-<div class="outline-text-2" id="text-orge3ed44a">
+<section id="outline-container-orgb7699af" class="outline-2">
+<h2 id="orgb7699af">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-orgb7699af">
 <p>
 <code>Cell::fixed</code> stores a position folded into the cell as three
 fractions on 64 bits, <code>round(s * 2^52) * 2^12</code>: the low 52 bits of
@@ -201,9 +215,9 @@ wrap, with relative errors of <code>1.5e-11</code>.
 </div>
 </section>
 
-<section id="outline-container-org074d7bc" class="outline-2">
-<h2 id="org074d7bc">Arrays and devices</h2>
-<div class="outline-text-2" id="text-org074d7bc">
+<section id="outline-container-orgba527ae" class="outline-2">
+<h2 id="orgba527ae">Arrays and devices</h2>
+<div class="outline-text-2" id="text-orgba527ae">
 <p>
 The Python methods take any DLPack producer, numpy, PyTorch, JAX, or
 CuPy host memory, and read contiguous rows where they lie; the result
@@ -230,9 +244,9 @@ the CPU.
 </div>
 </section>
 
-<section id="outline-container-org83a17ac" class="outline-2">
-<h2 id="org83a17ac">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-org83a17ac">
+<section id="outline-container-org0fb3e08" class="outline-2">
+<h2 id="org0fb3e08">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-org0fb3e08">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -252,9 +266,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-org7e1919a" class="outline-2">
-<h2 id="org7e1919a">vesin images</h2>
-<div class="outline-text-2" id="text-org7e1919a">
+<section id="outline-container-org9a4247e" class="outline-2">
+<h2 id="org9a4247e">vesin images</h2>
+<div class="outline-text-2" id="text-org9a4247e">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -264,9 +278,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-orgce69963" class="outline-2">
-<h2 id="orgce69963">Consumers</h2>
-<div class="outline-text-2" id="text-orgce69963">
+<section id="outline-container-orgaedc8f7" class="outline-2">
+<h2 id="orgaedc8f7">Consumers</h2>
+<div class="outline-text-2" id="text-orgaedc8f7">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
