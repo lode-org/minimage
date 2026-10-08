@@ -43,6 +43,71 @@ fn sub(q: [f64; 3], p: [f64; 3]) -> [f64; 3] {
     [q[0] - p[0], q[1] - p[1], q[2] - p[2]]
 }
 
+/// The per-pair code for rows `from..to`, out of line. Inlined into a
+/// kernel, it keeps the rows that kernel loaded alive across the
+/// far-image test, and they spill to the stack every iteration.
+#[cfg(target_arch = "x86_64")]
+#[inline(never)]
+fn pairs_from(
+    frame: Frame,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    out: &mut [f64],
+    from: usize,
+    to: usize,
+) {
+    for j in from..to {
+        out[j] = frame.dist2(sub(qs[j], ps[j]));
+    }
+}
+
+/// [`pairs_from`] for one source.
+#[cfg(target_arch = "x86_64")]
+#[inline(never)]
+fn many_from(frame: Frame, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64], from: usize, to: usize) {
+    for j in from..to {
+        out[j] = frame.dist2(sub(qs[j], p));
+    }
+}
+
+/// [`pairs_from`] for the wrap.
+#[cfg(target_arch = "x86_64")]
+#[inline(never)]
+fn wrap_from(frame: Frame, diffs: &[[f64; 3]], out: &mut [[f64; 3]], from: usize, to: usize) {
+    for j in from..to {
+        out[j] = frame.wrap(diffs[j]);
+    }
+}
+
+/// A group with a row a full box away: rare, so cold.
+#[cfg(target_arch = "x86_64")]
+#[cold]
+#[inline(never)]
+fn pairs_far(
+    frame: Frame,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    out: &mut [f64],
+    from: usize,
+    to: usize,
+) {
+    pairs_from(frame, ps, qs, out, from, to);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[cold]
+#[inline(never)]
+fn many_far(frame: Frame, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64], from: usize, to: usize) {
+    many_from(frame, p, qs, out, from, to);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[cold]
+#[inline(never)]
+fn wrap_far(frame: Frame, diffs: &[[f64; 3]], out: &mut [[f64; 3]], from: usize, to: usize) {
+    wrap_from(frame, diffs, out, from, to);
+}
+
 /// `out[k] = |wrap(qs[k] - ps[k])|^2`.
 pub(crate) fn dist2_pairs(frame: Frame, ps: &[[f64; 3]], qs: &[[f64; 3]], out: &mut [f64]) {
     #[cfg(all(target_arch = "x86_64", minimage_avx512))]
@@ -161,7 +226,7 @@ pub(crate) fn wrap_many(frame: Frame, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) 
 mod avx512 {
     use std::arch::x86_64::*;
 
-    use super::{sub, Frame};
+    use super::{many_far, pairs_far, Frame};
     use crate::kernel::Tri;
 
     type V = __m512d;
@@ -397,11 +462,7 @@ mod avx512 {
             let d = diff(qs.as_ptr().add(i).cast(), ps.as_ptr().add(i).cast(), m);
             match ortho_dist2(&lv, d) {
                 Some(r2) => _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, r2),
-                None => {
-                    for j in i..i + r {
-                        out[j] = frame.dist2(sub(qs[j], ps[j]));
-                    }
-                }
+                None => pairs_far(frame, ps, qs, out, i, i + r),
             }
         });
     }
@@ -419,11 +480,7 @@ mod avx512 {
             let d = diff_from(qs.as_ptr().add(i).cast(), &pv, m);
             match ortho_dist2(&lv, d) {
                 Some(r2) => _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, r2),
-                None => {
-                    for j in i..i + r {
-                        out[j] = frame.dist2(sub(qs[j], p));
-                    }
-                }
+                None => many_far(frame, p, qs, out, i, i + r),
             }
         });
     }
@@ -510,7 +567,7 @@ mod avx512 {
 mod avx {
     use std::arch::x86_64::*;
 
-    use super::{sub, Frame};
+    use super::{many_far, many_from, pairs_far, pairs_from, sub, wrap_far, wrap_from, Frame};
     use crate::kernel::Tri;
 
     type V = __m256d;
@@ -797,17 +854,11 @@ mod avx {
             let d = diff4(qs.as_ptr().add(i).cast(), ps.as_ptr().add(i).cast());
             match ortho_dist2(&k, d) {
                 Some(r2) => _mm256_storeu_pd(out.as_mut_ptr().add(i), r2),
-                None => {
-                    for j in i..i + 4 {
-                        out[j] = frame.dist2(sub(qs[j], ps[j]));
-                    }
-                }
+                None => pairs_far(frame, ps, qs, out, i, i + 4),
             }
             i += 4;
         }
-        for j in i..n {
-            out[j] = frame.dist2(sub(qs[j], ps[j]));
-        }
+        pairs_from(frame, ps, qs, out, i, n);
     }
 
     #[target_feature(enable = "avx")]
@@ -821,17 +872,11 @@ mod avx {
             let d = diff4_from(qs.as_ptr().add(i).cast(), &pv);
             match ortho_dist2(&k, d) {
                 Some(r2) => _mm256_storeu_pd(out.as_mut_ptr().add(i), r2),
-                None => {
-                    for j in i..i + 4 {
-                        out[j] = frame.dist2(sub(qs[j], p));
-                    }
-                }
+                None => many_far(frame, p, qs, out, i, i + 4),
             }
             i += 4;
         }
-        for j in i..n {
-            out[j] = frame.dist2(sub(qs[j], p));
-        }
+        many_from(frame, p, qs, out, i, n);
     }
 
     #[target_feature(enable = "avx")]
@@ -855,17 +900,11 @@ mod avx {
                     _mm256_storeu_pd(dst.add(4), w[1]);
                     _mm256_storeu_pd(dst.add(8), w[2]);
                 }
-                None => {
-                    for j in i..i + 4 {
-                        out[j] = frame.wrap(diffs[j]);
-                    }
-                }
+                None => wrap_far(frame, diffs, out, i, i + 4),
             }
             i += 4;
         }
-        for j in i..n {
-            out[j] = frame.wrap(diffs[j]);
-        }
+        wrap_from(frame, diffs, out, i, n);
     }
 
     #[target_feature(enable = "avx")]
