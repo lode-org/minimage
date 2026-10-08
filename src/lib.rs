@@ -55,8 +55,8 @@ mod selling;
 mod simd;
 
 pub use batch::{
-    dist2_many, dist2_many_fixed, dist2_ortho_diffs, dist2_pairs, dist2_pairs_fixed, fixed_many,
-    wrap_many,
+    dist2_euclidean_many, dist2_euclidean_pairs, dist2_many, dist2_many_fixed, dist2_ortho_diffs,
+    dist2_pairs, dist2_pairs_fixed, fixed_many, wrap_many,
 };
 pub use cell::{dump_bounds_to_h, Cell};
 pub use error::Error;

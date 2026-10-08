@@ -120,6 +120,16 @@ failure; read <code>mi_last_error()</code> on the same thread.
 </tr>
 
 <tr>
+<td class="org-left"><code>mi_dist2_euclidean_many</code></td>
+<td class="org-left">Euclidean nearest image, one source, packed candidates</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_euclidean_pairs</code></td>
+<td class="org-left">Euclidean nearest image, packed pair lists</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>mi_dist2_ortho_diffs</code></td>
 <td class="org-left">Highway-shaped ortho wrap, AVX when present</td>
 </tr>
@@ -171,9 +181,9 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <code>docs.rs/minimage</code> is the Rust reference.
 </p>
 
-<section id="outline-container-orgf2b7bc4" class="outline-2">
-<h2 id="orgf2b7bc4">Python</h2>
-<div class="outline-text-2" id="text-orgf2b7bc4">
+<section id="outline-container-orgd73de36" class="outline-2">
+<h2 id="orgd73de36">Python</h2>
+<div class="outline-text-2" id="text-orgd73de36">
 <table>
 
 
@@ -197,6 +207,11 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <tr>
 <td class="org-left"><code>dist2_pairs(ps, qs)</code></td>
 <td class="org-left">Paired rows</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_euclidean_many(p, qs)</code>, <code>dist2_euclidean_pairs(ps, qs)</code></td>
+<td class="org-left">Euclidean nearest image</td>
 </tr>
 
 <tr>
@@ -233,9 +248,9 @@ an array result is a numpy array. A list in gives a list out.
 </div>
 </section>
 
-<section id="outline-container-org76c69f9" class="outline-2">
-<h2 id="org76c69f9">Burn</h2>
-<div class="outline-text-2" id="text-org76c69f9">
+<section id="outline-container-org9f75005" class="outline-2">
+<h2 id="org9f75005">Burn</h2>
+<div class="outline-text-2" id="text-org9f75005">
 <table>
 
 

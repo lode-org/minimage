@@ -219,6 +219,34 @@ int mi_dist2(const struct mi_cell *simbox,
              double *out);
 
 /**
+ * Euclidean nearest-image squared distances from `p` to `n` packed
+ * candidates: [`mi_displacement_euclidean`] per pair, bit for bit, with
+ * one superbasis lookup per call and eight pairs per slicer pass.
+ *
+ * # Safety
+ *
+ * `qs` is `n * 3` doubles. `out` is `n` doubles.
+ */
+int mi_dist2_euclidean_many(const struct mi_cell *simbox,
+                            const double *p,
+                            const double *qs,
+                            size_t n,
+                            double *out);
+
+/**
+ * [`mi_dist2_euclidean_many`] for paired rows.
+ *
+ * # Safety
+ *
+ * `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles.
+ */
+int mi_dist2_euclidean_pairs(const struct mi_cell *simbox,
+                             const double *ps,
+                             const double *qs,
+                             size_t n,
+                             double *out);
+
+/**
  * Squared engine-wrap distance between two fixed-point positions.
  *
  * # Safety

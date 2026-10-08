@@ -688,15 +688,22 @@ impl Cell {
             return frac;
         }
         let f2 = kernel::n2(frac);
-        let w = self.widths;
-        let mut min_w = if w[1] < w[0] { w[1] } else { w[0] };
-        min_w = if w[2] < min_w { w[2] } else { min_w };
         // sqrt(f2) + 1e-12 < half_min, without the square root.
-        let room = 0.5 * min_w - 1e-12;
+        let room = self.smith_room();
         if room > 0.0 && f2 < room * room {
             return frac;
         }
         self.euclidean_far(dp, frac, f2)
+    }
+
+    /// Half the smallest face width less `1e-12`: an engine wrap shorter
+    /// than this is the Euclidean nearest image (Smith, 1989).
+    #[inline(always)]
+    pub(crate) fn smith_room(&self) -> f64 {
+        let w = self.widths;
+        let mut min_w = if w[1] < w[0] { w[1] } else { w[0] };
+        min_w = if w[2] < min_w { w[2] } else { min_w };
+        0.5 * min_w - 1e-12
     }
 
     /// Smith missed: the closest point on the cached superbasis. Babai's

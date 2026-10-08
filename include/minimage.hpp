@@ -165,6 +165,22 @@ struct Cell {
     check(mi_dist2_many(&box, p.data(), qs, n, out),
           "minimage: dist2_many failed");
   }
+
+  /// Euclidean nearest-image squared distances, one superbasis lookup per
+  /// call.
+  void dist2_euclidean_many(std::array<double, 3> p, const double *qs,
+                            std::size_t n, double *out) const {
+    const mi_cell box = raw();
+    check(mi_dist2_euclidean_many(&box, p.data(), qs, n, out),
+          "minimage: dist2_euclidean_many failed");
+  }
+
+  void dist2_euclidean_pairs(const double *ps, const double *qs,
+                             std::size_t n, double *out) const {
+    const mi_cell box = raw();
+    check(mi_dist2_euclidean_pairs(&box, ps, qs, n, out),
+          "minimage: dist2_euclidean_pairs failed");
+  }
 };
 
 inline void dist2_ortho_diffs(const double *dx, const double *dy,

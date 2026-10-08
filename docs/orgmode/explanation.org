@@ -86,6 +86,16 @@ half an edge starts from the engine wrap instead of Babai's point.
 McKilliam, Grant, and Clarkson, SIAM J. Discrete Math. 28, 1405
 (2014), search the same subset sums in three rounds of fifteen.
 A tie keeps the engine vector.
+=dist2_euclidean_many= and =dist2_euclidean_pairs= look the superbasis
+up once per call and run the slicer on eight rows per AVX-512 pass: a
+row's seven dot products are one lane of eight vectors, the select
+tree runs lane by lane, and a lane's Gram row is one =vpermpd= of the
+stored rows. The Smith test becomes a lane mask, so the branch that a
+single query mispredicts is gone, and a group whose lanes all pass it
+skips the slicer. Each lane keeps the scalar order, its step choice,
+and its step count, so a batch equals the per-pair call bit for bit, 6
+to 11 times faster. Without AVX-512 the batch runs the per-pair code
+with the one lookup.
 Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
 Minkowski-reduces a basis; that reduction is not the closest-vector
 certificate. The linked-cell pair itself is Rapaport's shift,

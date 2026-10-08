@@ -26,6 +26,13 @@ the cell. `dist2_fixed`, `displacement_fixed`, `dist2_many_fixed`,
 `mi_dist2_fixed`, `mi_dist2_many_fixed`, and `mi_dist2_pairs_fixed`,
 wrap with integer subtraction modulo `2^64`, exact, then one product
 with H for any cell shape (the Ozaki integer split).
+`dist2_euclidean_many` and `dist2_euclidean_pairs` (C:
+`mi_dist2_euclidean_many`, `mi_dist2_euclidean_pairs`; Python and C++
+methods of the same names) equal `dist2_euclidean` per pair bit for
+bit. They look the superbasis up once per call and slice eight rows
+per AVX-512 pass, the Smith test a lane mask and each lane's Gram row
+a `vpermpd`: 6 to 11 times faster than the per-pair call, 53 times
+faster than a Python loop over it.
 `Cell::from_vectors` reads each element of the caller's rows on its
 own. A 16-byte load of two neighbours straddled a row the caller had
 just stored, could not forward from the store buffer, and made

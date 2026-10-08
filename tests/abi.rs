@@ -38,6 +38,98 @@ extern "C" {
 }
 
 extern "C" {
+    fn mi_dist2_euclidean_many(
+        simbox: *const mi_cell,
+        p: *const f64,
+        qs: *const f64,
+        n: usize,
+        out: *mut f64,
+    ) -> c_int;
+    fn mi_dist2_euclidean_pairs(
+        simbox: *const mi_cell,
+        ps: *const f64,
+        qs: *const f64,
+        n: usize,
+        out: *mut f64,
+    ) -> c_int;
+}
+
+#[test]
+fn euclidean_batches_abi_match_rust() {
+    let raw = hex_raw();
+    let cell = Cell::from_vectors(
+        [10.0, 0.0, 0.0],
+        [5.0, 8.660254037844386, 0.0],
+        [0.0, 0.0, 10.0],
+        [0.0; 3],
+    )
+    .unwrap();
+    let ps: Vec<[f64; 3]> = (0..37)
+        .map(|k| {
+            [
+                (k * 7 % 10) as f64,
+                (k * 3 % 9) as f64,
+                (k % 5) as f64 * 2.0,
+            ]
+        })
+        .collect();
+    let qs: Vec<[f64; 3]> = (0..37)
+        .map(|k| {
+            [
+                (k * 13 % 17) as f64 - 4.0,
+                (k * 5 % 11) as f64 * 1.5,
+                (k % 7) as f64 - 9.0,
+            ]
+        })
+        .collect();
+    let mut out = vec![0.0; ps.len()];
+    let rc = unsafe {
+        mi_dist2_euclidean_pairs(
+            &raw,
+            ps.as_ptr().cast(),
+            qs.as_ptr().cast(),
+            ps.len(),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0);
+    for k in 0..ps.len() {
+        assert_eq!(
+            out[k].to_bits(),
+            cell.dist2_euclidean(ps[k], qs[k]).to_bits()
+        );
+    }
+    let rc = unsafe {
+        mi_dist2_euclidean_many(
+            &raw,
+            ps[3].as_ptr(),
+            qs.as_ptr().cast(),
+            qs.len(),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0);
+    for k in 0..qs.len() {
+        assert_eq!(
+            out[k].to_bits(),
+            cell.dist2_euclidean(ps[3], qs[k]).to_bits()
+        );
+    }
+    assert_ne!(
+        unsafe {
+            mi_dist2_euclidean_pairs(
+                &raw,
+                std::ptr::null(),
+                qs.as_ptr().cast(),
+                1,
+                out.as_mut_ptr(),
+            )
+        },
+        0
+    );
+}
+
+extern "C" {
     fn mi_fixed_many(simbox: *const mi_cell, rs: *const f64, n: usize, out: *mut u64) -> c_int;
     fn mi_dist2_fixed(simbox: *const mi_cell, a: *const u64, b: *const u64, out: *mut f64)
         -> c_int;
