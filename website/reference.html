@@ -160,6 +160,16 @@ failure; read <code>mi_last_error()</code> on the same thread.
 </tr>
 
 <tr>
+<td class="org-left"><code>mi_fixed32_many</code>, <code>mi_dist2_fixed32</code></td>
+<td class="org-left">32-bit fixed-point fractions and distance</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_many_fixed32</code>, <code>mi_dist2_pairs_fixed32</code></td>
+<td class="org-left">32-bit fixed-point batches</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>mi_reduce_pairs</code></td>
 <td class="org-left">Drop self images, unique pairs</td>
 </tr>
@@ -181,9 +191,9 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <code>docs.rs/minimage</code> is the Rust reference.
 </p>
 
-<section id="outline-container-orgd73de36" class="outline-2">
-<h2 id="orgd73de36">Python</h2>
-<div class="outline-text-2" id="text-orgd73de36">
+<section id="outline-container-org250cf91" class="outline-2">
+<h2 id="org250cf91">Python</h2>
+<div class="outline-text-2" id="text-org250cf91">
 <table>
 
 
@@ -238,6 +248,16 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <td class="org-left"><code>dist2_pairs_fixed(ps, qs)</code></td>
 <td class="org-left">Paired fixed-point rows</td>
 </tr>
+
+<tr>
+<td class="org-left"><code>fixed32(r)</code>, <code>fixed32_many(rs)</code>, <code>dist2_fixed32(a, b)</code></td>
+<td class="org-left">32-bit fixed point, uint32</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_many_fixed32(p, qs)</code>, <code>dist2_pairs_fixed32(ps, qs)</code></td>
+<td class="org-left">32-bit fixed-point batches</td>
+</tr>
 </tbody>
 </table>
 
@@ -248,9 +268,9 @@ an array result is a numpy array. A list in gives a list out.
 </div>
 </section>
 
-<section id="outline-container-org9f75005" class="outline-2">
-<h2 id="org9f75005">Burn</h2>
-<div class="outline-text-2" id="text-org9f75005">
+<section id="outline-container-org1b0b580" class="outline-2">
+<h2 id="org1b0b580">Burn</h2>
+<div class="outline-text-2" id="text-org1b0b580">
 <table>
 
 

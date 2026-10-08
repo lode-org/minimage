@@ -384,3 +384,87 @@ fn hex_body_diagonal_euclidean_abi_beats_fractional() {
     let f2 = frac[0] * frac[0] + frac[1] * frac[1] + frac[2] * frac[2];
     assert!(e2 + 1e-8 < f2);
 }
+
+extern "C" {
+    fn mi_fixed32_many(simbox: *const mi_cell, rs: *const f64, n: usize, out: *mut u32) -> c_int;
+    fn mi_dist2_fixed32(
+        simbox: *const mi_cell,
+        a: *const u32,
+        b: *const u32,
+        out: *mut f64,
+    ) -> c_int;
+    fn mi_dist2_many_fixed32(
+        simbox: *const mi_cell,
+        p: *const u32,
+        qs: *const u32,
+        n: usize,
+        out: *mut f64,
+    ) -> c_int;
+    fn mi_dist2_pairs_fixed32(
+        simbox: *const mi_cell,
+        ps: *const u32,
+        qs: *const u32,
+        n: usize,
+        out: *mut f64,
+    ) -> c_int;
+}
+
+#[test]
+fn fixed32_abi_matches_rust() {
+    let raw = hex_raw();
+    let cell = Cell::from_vectors(
+        [10.0, 0.0, 0.0],
+        [5.0, 8.660254037844386, 0.0],
+        [0.0, 0.0, 10.0],
+        [0.0; 3],
+    )
+    .unwrap();
+    let rs: Vec<[f64; 3]> = (0..21)
+        .map(|k| {
+            [
+                (k * 7 % 13) as f64 - 2.5,
+                (k * 5 % 11) as f64 * 1.25,
+                (k % 6) as f64 * 3.5,
+            ]
+        })
+        .collect();
+    let mut fx = vec![[0u32; 3]; rs.len()];
+    let status =
+        unsafe { mi_fixed32_many(&raw, rs.as_ptr().cast(), rs.len(), fx.as_mut_ptr().cast()) };
+    assert_eq!(status, 0);
+    for (r, f) in rs.iter().zip(&fx) {
+        assert_eq!(*f, cell.fixed32(*r));
+    }
+    let mut d2 = 0.0;
+    let status = unsafe { mi_dist2_fixed32(&raw, fx[0].as_ptr(), fx[1].as_ptr(), &mut d2) };
+    assert_eq!(status, 0);
+    assert_eq!(d2.to_bits(), cell.dist2_fixed32(fx[0], fx[1]).to_bits());
+    let qs: Vec<[u32; 3]> = fx.iter().rev().copied().collect();
+    let mut out = vec![0.0; fx.len()];
+    let status = unsafe {
+        mi_dist2_pairs_fixed32(
+            &raw,
+            fx.as_ptr().cast(),
+            qs.as_ptr().cast(),
+            fx.len(),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(status, 0);
+    for k in 0..fx.len() {
+        assert_eq!(out[k].to_bits(), cell.dist2_fixed32(fx[k], qs[k]).to_bits());
+    }
+    let status = unsafe {
+        mi_dist2_many_fixed32(
+            &raw,
+            fx[2].as_ptr(),
+            qs.as_ptr().cast(),
+            qs.len(),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(status, 0);
+    for k in 0..qs.len() {
+        assert_eq!(out[k].to_bits(), cell.dist2_fixed32(fx[2], qs[k]).to_bits());
+    }
+}

@@ -26,6 +26,12 @@ the cell. `dist2_fixed`, `displacement_fixed`, `dist2_many_fixed`,
 `mi_dist2_fixed`, `mi_dist2_many_fixed`, and `mi_dist2_pairs_fixed`,
 wrap with integer subtraction modulo `2^64`, exact, then one product
 with H for any cell shape (the Ozaki integer split).
+`Cell::fixed32` and `fixed32_many`, `dist2_many_fixed32`, and
+`dist2_pairs_fixed32` (C and Python too) store each fraction on 32
+bits, 12 bytes a position: the wrap stays exact modulo `2^32` and a
+displacement is within `2^-32 (|a| + |b| + |c|)` of the engine wrap.
+Batches past the cache are bandwidth bound, and these run 1.8 to 3.5
+times faster than the double batches, 2 times in cache.
 `dist2_euclidean_many` and `dist2_euclidean_pairs` (C:
 `mi_dist2_euclidean_many`, `mi_dist2_euclidean_pairs`; Python and C++
 methods of the same names) equal `dist2_euclidean` per pair bit for

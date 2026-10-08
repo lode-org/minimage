@@ -3,8 +3,9 @@
 mod dlpack;
 
 use minimage::{
-    dist2_euclidean_many, dist2_euclidean_pairs, dist2_many, dist2_many_fixed, dist2_pairs,
-    dist2_pairs_fixed, fixed_many, reduce_pairs, wrap_many, Cell as RustCell,
+    dist2_euclidean_many, dist2_euclidean_pairs, dist2_many, dist2_many_fixed, dist2_many_fixed32,
+    dist2_pairs, dist2_pairs_fixed, dist2_pairs_fixed32, fixed32_many, fixed_many, reduce_pairs,
+    wrap_many, Cell as RustCell,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -97,6 +98,49 @@ fn fixed_triples(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<Vec<[u64; 3]>> 
             }
         })
         .collect()
+}
+
+fn fixed32_triple(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<[u32; 3]> {
+    if let Some(b) = dlpack::borrow(obj)? {
+        let rows = b.rows_u32(what)?;
+        if rows.len() == 1 {
+            return Ok(rows[0]);
+        }
+        return Err(PyValueError::new_err(format!("{what} must have length 3")));
+    }
+    let v: Vec<u32> = as_nested(obj)?
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must be three uint32")))?;
+    if v.len() != 3 {
+        return Err(PyValueError::new_err(format!("{what} must have length 3")));
+    }
+    Ok([v[0], v[1], v[2]])
+}
+
+fn fixed32_triples(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<Vec<[u32; 3]>> {
+    let v: Vec<Vec<u32>> = as_nested(obj)?
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must be (N, 3) uint32")))?;
+    v.iter()
+        .enumerate()
+        .map(|(i, row)| {
+            if row.len() == 3 {
+                Ok([row[0], row[1], row[2]])
+            } else {
+                Err(PyValueError::new_err(format!(
+                    "{what}[{i}] must have length 3"
+                )))
+            }
+        })
+        .collect()
+}
+
+fn out_rows_u32(py: Python<'_>, rows: Vec<[u32; 3]>) -> PyResult<PyObject> {
+    if dlpack::have_numpy(py) {
+        dlpack::array_rows_u32(py, rows)
+    } else {
+        rows.into_py_any(py)
+    }
 }
 
 /// A numpy array when numpy is present, else a list.
@@ -303,6 +347,80 @@ impl PyCell {
         };
         let mut out = vec![0.0; rp.len()];
         dist2_euclidean_pairs(&self.inner, &rp, &rq, &mut out).map_err(map_err)?;
+        if array {
+            out_f64(py, out)
+        } else {
+            out.into_py_any(py)
+        }
+    }
+
+    /// 32-bit fixed-point fractions of one position: half the bytes of
+    /// `fixed`, within `2^-33` of the cell's fractions.
+    fn fixed32(&self, r: &Bound<'_, PyAny>) -> PyResult<[u32; 3]> {
+        Ok(self.inner.fixed32(triple(r, "r")?))
+    }
+
+    /// 32-bit fixed-point fractions of each row, as uint32.
+    fn fixed32_many(&self, py: Python<'_>, rs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let Some(b) = dlpack::borrow(rs)? {
+            let rows = b.rows_f64("rs")?;
+            let mut out = vec![[0u32; 3]; rows.len()];
+            fixed32_many(&self.inner, &rows, &mut out).map_err(map_err)?;
+            return out_rows_u32(py, out);
+        }
+        let packed = triples(rs, "rs")?;
+        let mut out = vec![[0u32; 3]; packed.len()];
+        fixed32_many(&self.inner, &packed, &mut out).map_err(map_err)?;
+        out.into_py_any(py)
+    }
+
+    /// Squared distance between two 32-bit fixed-point positions.
+    fn dist2_fixed32(&self, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<f64> {
+        Ok(self
+            .inner
+            .dist2_fixed32(fixed32_triple(a, "a")?, fixed32_triple(b, "b")?))
+    }
+
+    /// Squared distances from 32-bit fixed-point `p` to each row.
+    fn dist2_many_fixed32(
+        &self,
+        py: Python<'_>,
+        p: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let p = fixed32_triple(p, "p")?;
+        if let Some(b) = dlpack::borrow(qs)? {
+            let rows = b.rows_u32("qs")?;
+            let mut out = vec![0.0; rows.len()];
+            dist2_many_fixed32(&self.inner, p, &rows, &mut out).map_err(map_err)?;
+            return out_f64(py, out);
+        }
+        let packed = fixed32_triples(qs, "qs")?;
+        let mut out = vec![0.0; packed.len()];
+        dist2_many_fixed32(&self.inner, p, &packed, &mut out).map_err(map_err)?;
+        out.into_py_any(py)
+    }
+
+    /// Squared distances for paired 32-bit fixed-point rows.
+    fn dist2_pairs_fixed32(
+        &self,
+        py: Python<'_>,
+        ps: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let bp = dlpack::borrow(ps)?;
+        let bq = dlpack::borrow(qs)?;
+        let array = bp.is_some() || bq.is_some();
+        let rp = match &bp {
+            Some(b) => b.rows_u32("ps")?,
+            None => dlpack::Rows::Owned(fixed32_triples(ps, "ps")?),
+        };
+        let rq = match &bq {
+            Some(b) => b.rows_u32("qs")?,
+            None => dlpack::Rows::Owned(fixed32_triples(qs, "qs")?),
+        };
+        let mut out = vec![0.0; rp.len()];
+        dist2_pairs_fixed32(&self.inner, &rp, &rq, &mut out).map_err(map_err)?;
         if array {
             out_f64(py, out)
         } else {

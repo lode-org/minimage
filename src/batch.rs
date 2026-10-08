@@ -112,6 +112,44 @@ pub fn fixed_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u64; 3]]) -> Result<
     Ok(())
 }
 
+/// [`Cell::fixed32`] for packed positions.
+pub fn fixed32_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u32; 3]]) -> Result<(), Error> {
+    if out.len() != rs.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed32::fixed32_many(&cell.fold(), rs, out);
+    Ok(())
+}
+
+/// [`Cell::dist2_fixed32`] from `p` to each row of `qs`, bit for bit:
+/// sixteen rows per AVX-512 pass, eight per AVX2 pass.
+pub fn dist2_many_fixed32(
+    cell: &Cell,
+    p: [u32; 3],
+    qs: &[[u32; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if out.len() != qs.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed32::dist2_many(cell.fixed32_lattice(), p, qs, out);
+    Ok(())
+}
+
+/// [`Cell::dist2_fixed32`] for paired rows, bit for bit.
+pub fn dist2_pairs_fixed32(
+    cell: &Cell,
+    ps: &[[u32; 3]],
+    qs: &[[u32; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if ps.len() != qs.len() || out.len() != ps.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed32::dist2_pairs(cell.fixed32_lattice(), ps, qs, out);
+    Ok(())
+}
+
 /// Squared engine-wrap distances from fixed-point `p` to each fixed-point
 /// `qs` ([`Cell::fixed`]). Integer wrap, one product with `H`.
 pub fn dist2_many_fixed(

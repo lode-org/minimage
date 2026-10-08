@@ -263,6 +263,27 @@ impl Borrowed {
         }
     }
 
+    /// 32-bit integer rows, as from `fixed32_many`, read in place when
+    /// contiguous and aligned.
+    pub fn rows_u32(&self, what: &str) -> PyResult<Rows<'_, u32>> {
+        let (n, [s0, s1]) = self.layout(what)?;
+        let dt = self.tensor().dtype;
+        if !((dt.code == KDL_UINT || dt.code == KDL_INT) && dt.bits == 32) {
+            return Err(PyTypeError::new_err(format!("{what} must be uint32")));
+        }
+        let base = self.base();
+        if s0 == 3 && s1 == 1 && (base as usize) % std::mem::align_of::<u32>() == 0 {
+            // SAFETY: `n` contiguous, aligned rows of three integers.
+            let rows = unsafe { std::slice::from_raw_parts(base.cast::<[u32; 3]>(), n) };
+            return Ok(Rows::View(rows));
+        }
+        let p = base.cast::<u32>();
+        Ok(Rows::Owned(gather(n, s0, s1, |off| {
+            // SAFETY: each offset is inside the strided array.
+            unsafe { p.offset(off).read_unaligned() }
+        })))
+    }
+
     /// 64-bit integer rows, as from `fixed_many`, read in place when
     /// contiguous and aligned.
     pub fn rows_u64(&self, what: &str) -> PyResult<Rows<'_, u64>> {
@@ -299,6 +320,7 @@ fn gather<T: Copy + Default>(
 enum Data {
     F64(Vec<f64>),
     U64(Vec<u64>),
+    U32(Vec<u32>),
 }
 
 /// The buffer a capsule owns until the consumer's array lets go.
@@ -378,13 +400,14 @@ impl Exported {
         // SAFETY: `ctx` is a live box until a deleter frees it.
         let (data, dtype, ndim, shape) = unsafe {
             let h = &mut *ctx;
-            let (data, code) = match &mut h.data {
-                Data::F64(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_FLOAT),
-                Data::U64(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_UINT),
+            let (data, code, bits) = match &mut h.data {
+                Data::F64(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_FLOAT, 64),
+                Data::U64(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_UINT, 64),
+                Data::U32(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_UINT, 32),
             };
             let dtype = DLDataType {
                 code,
-                bits: 64,
+                bits,
                 lanes: 1,
             };
             (data, dtype, h.ndim, h.shape.as_mut_ptr())
@@ -498,6 +521,19 @@ pub fn array_rows_f64(py: Python<'_>, rows: Vec<[f64; 3]>) -> PyResult<PyObject>
         py,
         Holder {
             data: Data::F64(flatten(rows)),
+            shape: [n, 3],
+            ndim: 2,
+        },
+    )
+}
+
+/// `rows` as an `(n, 3)` uint32 numpy array that owns them.
+pub fn array_rows_u32(py: Python<'_>, rows: Vec<[u32; 3]>) -> PyResult<PyObject> {
+    let n = rows.len() as i64;
+    export(
+        py,
+        Holder {
+            data: Data::U32(flatten(rows)),
             shape: [n, 3],
             ndim: 2,
         },
