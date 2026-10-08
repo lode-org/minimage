@@ -47,8 +47,9 @@ pub struct Cell {
     ortho: bool,
     /// `a` along x and `b` in the xy plane (LAMMPS / HOOMD / GROMACS).
     restricted: bool,
-    /// Lamda coefficients. Read only when [`Self::is_restricted`] is set.
-    tri: kernel::Tri,
+    /// Reciprocal diagonal for the lamda wrap. Read only when
+    /// [`Self::is_restricted`] is set; the rest of the wrap is in `h`.
+    tri_inv: [f64; 3],
 }
 
 impl Cell {
@@ -57,7 +58,7 @@ impl Cell {
     /// Sets [`Self::is_ortho`] so [`Self::dist2`] and
     /// [`Self::lattice_shift`] skip the two 3x3 matvecs.
     pub fn ortho(lx: f64, ly: f64, lz: f64) -> Result<Self, Error> {
-        Self::from_vectors(
+        Self::from_rows(
             [lx, 0.0, 0.0],
             [0.0, ly, 0.0],
             [0.0, 0.0, lz],
@@ -67,7 +68,7 @@ impl Cell {
 
     /// Diagonal box with an explicit dump-cell origin.
     pub fn ortho_origin(lx: f64, ly: f64, lz: f64, origin: [f64; 3]) -> Result<Self, Error> {
-        Self::from_vectors([lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz], origin)
+        Self::from_rows([lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz], origin)
     }
 
     /// Parallelepiped from lattice vectors `a`, `b`, `c` and an origin.
@@ -84,6 +85,19 @@ impl Cell {
         c: [f64; 3],
         origin: [f64; 3],
     ) -> Result<Self, Error> {
+        // Read each element on its own. A 16-byte load of two neighbours
+        // straddles a row the caller has just stored as 8 + 16 or 16 + 8
+        // bytes, cannot forward from the store buffer, and stalls the
+        // construction. For the origin, which is only copied, the middle
+        // element is enough: it keeps the outer two apart.
+        let [ox, oy, oz] = origin;
+        Self::from_rows(opaque3(a), opaque3(b), opaque3(c), [ox, opaque(oy), oz])
+    }
+
+    /// [`Self::from_vectors`] for rows the caller assembled from scalars:
+    /// no barrier, so literal zeros fold the dispatch away.
+    #[inline(always)]
+    fn from_rows(a: [f64; 3], b: [f64; 3], c: [f64; 3], origin: [f64; 3]) -> Result<Self, Error> {
         let [ax, ay, az] = a;
         let [bx, by, bz] = b;
         let [cx, cy, cz] = c;
@@ -121,43 +135,19 @@ impl Cell {
         // Each face width is at most that edge length, so this scale is
         // at most the length sum. The frame tests stay the stricter ones
         // and do not take another three square roots.
-        let scale = (wa + wb + wc).max(1.0);
-        let tol = 1e-12 * scale;
-        let ortho = ay.abs() <= tol
-            && az.abs() <= tol
-            && bx.abs() <= tol
-            && bz.abs() <= tol
-            && cx.abs() <= tol
-            && cy.abs() <= tol;
-        let rtol = 1e-10 * scale;
-        let restricted = !(ay.abs() > rtol || az.abs() > rtol || bz.abs() > rtol)
-            && ax.abs() >= 1e-18
-            && by.abs() >= 1e-18
-            && cz.abs() >= 1e-18;
-        let tri = if restricted {
-            kernel::Tri {
-                lx: ax,
-                ly: by,
-                lz: cz,
-                xy: bx,
-                xz: cx,
-                yz: cy,
-                inv_lx: 1.0 / ax,
-                inv_ly: 1.0 / by,
-                inv_lz: 1.0 / cz,
-            }
+        // A NaN or infinite entry failed the determinant or a width above,
+        // so a maximum of magnitudes is the same test as one compare each,
+        // and it is ready before the square roots are.
+        let lower = larger(larger(ay.abs(), az.abs()), bz.abs());
+        let off = larger(larger(larger(lower, bx.abs()), cx.abs()), cy.abs());
+        let scale = larger(wa + wb + wc, 1.0);
+        let ortho = off <= 1e-12 * scale;
+        let restricted =
+            lower <= 1e-10 * scale && ax.abs() >= 1e-18 && by.abs() >= 1e-18 && cz.abs() >= 1e-18;
+        let tri_inv = if restricted {
+            recip3(ax, by, cz)
         } else {
-            kernel::Tri {
-                lx: 0.0,
-                ly: 0.0,
-                lz: 0.0,
-                xy: 0.0,
-                xz: 0.0,
-                yz: 0.0,
-                inv_lx: 0.0,
-                inv_ly: 0.0,
-                inv_lz: 0.0,
-            }
+            [0.0; 3]
         };
         Ok(Self {
             h: [[ax, ay, az], [bx, by, bz], [cx, cy, cz]],
@@ -170,7 +160,7 @@ impl Cell {
             widths: [wa, wb, wc],
             ortho,
             restricted,
-            tri,
+            tri_inv,
         })
     }
 
@@ -192,17 +182,7 @@ impl Cell {
             widths: [lx.abs(), ly.abs(), lz.abs()],
             ortho: true,
             restricted: true,
-            tri: kernel::Tri {
-                lx,
-                ly,
-                lz,
-                xy: 0.0,
-                xz: 0.0,
-                yz: 0.0,
-                inv_lx,
-                inv_ly,
-                inv_lz,
-            },
+            tri_inv: [inv_lx, inv_ly, inv_lz],
         })
     }
 
@@ -237,10 +217,10 @@ impl Cell {
         let inv_lz = 1.0 / lz;
         let inv_xy = inv_lx * inv_ly;
         let inv_yz = inv_ly * inv_lz;
-        let scale = (wa + wb + wc).max(1.0);
+        let scale = larger(wa + wb + wc, 1.0);
         let tol = 1e-12 * scale;
         Ok(Self {
-            h: [a, b, c],
+            h: [[lx, 0.0, 0.0], [xy, ly, 0.0], [xz, yz, lz]],
             hinv: [
                 [inv_lx, 0.0, 0.0],
                 [-(xy * inv_xy), inv_ly, 0.0],
@@ -248,19 +228,9 @@ impl Cell {
             ],
             origin,
             widths: [wa, wb, wc],
-            ortho: xy.abs() <= tol && xz.abs() <= tol && yz.abs() <= tol,
+            ortho: larger(larger(xy.abs(), xz.abs()), yz.abs()) <= tol,
             restricted: true,
-            tri: kernel::Tri {
-                lx,
-                ly,
-                lz,
-                xy,
-                xz,
-                yz,
-                inv_lx,
-                inv_ly,
-                inv_lz,
-            },
+            tri_inv: [inv_lx, inv_ly, inv_lz],
         })
     }
 
@@ -307,7 +277,7 @@ impl Cell {
         if cz2 <= 0.0 {
             return Err(Error::BadBox);
         }
-        Self::from_vectors(a, b, [cx, cy, cz2.sqrt()], [0.0, 0.0, 0.0])
+        Self::from_rows(a, b, [cx, cy, cz2.sqrt()], [0.0, 0.0, 0.0])
     }
 
     /// vesin box: rows are lattice vectors a, b, c, origin zero.
@@ -354,7 +324,7 @@ impl Cell {
         zlo_b: f64,
     ) -> Result<Self, Error> {
         let (h, origin) = dump_bounds_to_h(xspan, yspan, zspan, xy, xz, yz, xlo_b, ylo_b, zlo_b);
-        Self::from_vectors(h[0], h[1], h[2], origin)
+        Self::from_rows(h[0], h[1], h[2], origin)
     }
 
     /// True when H is diagonal. Distances and lattice shifts then skip
@@ -431,6 +401,24 @@ impl Cell {
     #[inline]
     pub fn fixed(&self, r: [f64; 3]) -> [u64; 3] {
         self.fold().fixed(r)
+    }
+
+    /// Lamda coefficients: the edges and tilts from `h`, the reciprocals
+    /// stored.
+    #[inline(always)]
+    fn tri(&self) -> kernel::Tri {
+        let h = &self.h;
+        kernel::Tri {
+            lx: h[0][0],
+            ly: h[1][1],
+            lz: h[2][2],
+            xy: h[1][0],
+            xz: h[2][0],
+            yz: h[2][1],
+            inv_lx: self.tri_inv[0],
+            inv_ly: self.tri_inv[1],
+            inv_lz: self.tri_inv[2],
+        }
     }
 
     /// Cartesian to fractional for [`Self::fixed`]: the stored inverse,
@@ -556,7 +544,7 @@ impl Cell {
         if self.ortho {
             crate::fused::Frame::Ortho(self.widths)
         } else if self.restricted {
-            crate::fused::Frame::Tri(self.tri)
+            crate::fused::Frame::Tri(self.tri())
         } else {
             crate::fused::Frame::General(self.h, self.hinv)
         }
@@ -569,9 +557,13 @@ impl Cell {
             return kernel::ortho_wrap(self.widths, dp);
         }
         if self.restricted {
-            return self.tri.wrap(dp);
+            return self.tri().wrap(dp);
         }
-        kernel::general_wrap(self.h, self.hinv, dp)
+        // Through a pointer the compiler cannot follow, so the lamda
+        // branch's scalar reads of `h` do not merge with these paired
+        // reads and cost the general wrap its packed products.
+        let c = opaque_ref(self);
+        kernel::general_wrap(c.h, c.hinv, dp)
     }
 
     /// Squared minimum-image distance.
@@ -1061,6 +1053,89 @@ pub fn dump_bounds_to_h(
     ([a, b, c], origin)
 }
 
+/// `x`, through an empty asm block that keeps it in a register.
+#[inline(always)]
+fn opaque(x: f64) -> f64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let mut y = x;
+        // SAFETY: the block is empty; it only names the register.
+        unsafe {
+            core::arch::asm!("/* {0} */", inout(xmm_reg) y, options(pure, nomem, nostack, preserves_flags))
+        };
+        y
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        x
+    }
+}
+
+/// `r`, through an empty asm block: the same address, which the
+/// compiler cannot prove.
+#[inline(always)]
+fn opaque_ref<T>(r: &T) -> &T {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let mut p: *const T = r;
+        // SAFETY: the block is empty, so `p` still points at `r`.
+        #[allow(clippy::pointers_in_nomem_asm_block)]
+        unsafe {
+            core::arch::asm!("/* {0} */", inout(reg) p, options(pure, nomem, nostack, preserves_flags));
+            &*p
+        }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        r
+    }
+}
+
+/// The three values, through one empty asm block that keeps each in its
+/// own register.
+#[inline(always)]
+fn opaque3(v: [f64; 3]) -> [f64; 3] {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let [mut x, mut y, mut z] = v;
+        // SAFETY: the block is empty; it only names the registers.
+        unsafe {
+            core::arch::asm!(
+                "/* {0} {1} {2} */",
+                inout(xmm_reg) x,
+                inout(xmm_reg) y,
+                inout(xmm_reg) z,
+                options(pure, nomem, nostack, preserves_flags)
+            )
+        };
+        [x, y, z]
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        v
+    }
+}
+
+/// The larger of two numbers that are not NaN: one `maxsd`, where
+/// `f64::max` adds a NaN fix-up.
+#[inline(always)]
+fn larger(a: f64, b: f64) -> f64 {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+/// The three reciprocals of a nearly restricted general cell. Out of
+/// line and cold, so the divisions are not speculated on every general
+/// construction.
+#[cold]
+#[inline(never)]
+fn recip3(x: f64, y: f64, z: f64) -> [f64; 3] {
+    [1.0 / x, 1.0 / y, 1.0 / z]
+}
+
 #[inline]
 fn wrap01(mut s: f64) -> f64 {
     s -= kernel::floor_fast(s);
@@ -1237,6 +1312,29 @@ mod tests {
                 assert!((got - want).abs() <= 1e-13 * want, "{h:?}");
             }
             assert_eq!(cell.is_ortho(), k % 4 == 0);
+        }
+    }
+
+    /// A cell restricted only within tolerance takes the general path;
+    /// its lamda wrap reads the edges from `h` and divides by the edges.
+    #[test]
+    fn nearly_restricted_general_cell_wraps_with_its_edges() {
+        let h = [[9.0, 2e-12, -1e-12], [2.5, 8.0, 3e-12], [-1.5, 2.0, 7.5]];
+        let cell = Cell::from_vectors(h[0], h[1], h[2], [0.0; 3]).unwrap();
+        assert!(cell.is_restricted() && !cell.is_ortho());
+        let tri = kernel::Tri {
+            lx: 9.0,
+            ly: 8.0,
+            lz: 7.5,
+            xy: 2.5,
+            xz: -1.5,
+            yz: 2.0,
+            inv_lx: 1.0 / 9.0,
+            inv_ly: 1.0 / 8.0,
+            inv_lz: 1.0 / 7.5,
+        };
+        for d in [[13.0, -4.1, 9.0], [-30.2, 17.5, -0.3], [4.4, 4.4, 4.4]] {
+            assert_eq!(cell.displacement([0.0; 3], d), tri.wrap(d));
         }
     }
 
