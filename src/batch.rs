@@ -102,6 +102,55 @@ pub(crate) fn euclidean_pairs(cell: &Cell, ps: &[[f64; 3]], qs: &[[f64; 3]], out
     });
 }
 
+/// Euclidean nearest-image squared distances for pairs that persist
+/// across frames.
+///
+/// `images[k]` is the cell-basis lattice shift `n` of pair `k`'s image,
+/// `x = (q - p) - H n`, from the previous call; start with zeros. A pair
+/// whose stored image still lies in the Voronoi cell costs a subtraction
+/// and seven dot products. The others run the full search, bit for bit
+/// [`Cell::dist2_euclidean`], and get their new shift. The image is the
+/// one `dist2_euclidean` finds; for a stored image the distance equals
+/// it to rounding, since `H n` is subtracted directly rather than
+/// through the engine wrap. An orthorhombic cell takes the plain batch
+/// and leaves `images` alone.
+pub fn dist2_euclidean_pairs_warm(
+    cell: &Cell,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    images: &mut [[i32; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if ps.len() != qs.len() || out.len() != ps.len() || images.len() != ps.len() {
+        return Err(Error::BufferSize);
+    }
+    euclidean_pairs_warm(cell, ps, qs, images, out);
+    Ok(())
+}
+
+/// [`dist2_euclidean_pairs_warm`] once the lengths are known to agree.
+pub(crate) fn euclidean_pairs_warm(
+    cell: &Cell,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    images: &mut [[i32; 3]],
+    out: &mut [f64],
+) {
+    if cell.is_ortho() {
+        return crate::fused::dist2_pairs(cell.frame(), ps, qs, out);
+    }
+    crate::selling::with_basis(cell.h(), |basis| {
+        let w = crate::fused::Warm {
+            h: cell.h(),
+            hinv: cell.hinv(),
+            frame: cell.frame(),
+            room: cell.smith_room(),
+            basis,
+        };
+        crate::fused::dist2_euclidean_pairs_warm(&w, ps, qs, images, out)
+    });
+}
+
 /// [`Cell::fixed`] for packed positions: one AVX2 pass folds, floors, and
 /// takes the mantissa of `t + 1` for four rows at once.
 pub fn fixed_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u64; 3]]) -> Result<(), Error> {

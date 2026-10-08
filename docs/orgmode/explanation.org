@@ -96,6 +96,18 @@ skips the slicer. Each lane keeps the scalar order, its step choice,
 and its step count, so a batch equals the per-pair call bit for bit, 6
 to 11 times faster. Without AVX-512 the batch runs the per-pair code
 with the one lookup.
+
+Across frames a pair seldom leaves its image.
+=dist2_euclidean_pairs_warm= keeps each pair's cell-basis shift =n=
+from the previous call: subtracting =H n= and testing the seven
+relevant vectors replaces the search for a pair still in its Voronoi
+cell, and the others take the full search and store their new shift.
+Integer shifts stay right when the cell deforms. While the pairs fit
+in cache this is 2.2 to 2.8 times faster than the batch; from main
+memory, where the shifts are one more stream, 1.15 times. The image is
+the one the search finds, and the distance equals it to rounding,
+since =H n= is subtracted directly rather than through the engine
+wrap.
 Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
 Minkowski-reduces a basis; that reduction is not the closest-vector
 certificate. The linked-cell pair itself is Rapaport's shift,

@@ -32,6 +32,9 @@ bits, 12 bytes a position: the wrap stays exact modulo `2^32` and a
 displacement is within `2^-32 (|a| + |b| + |c|)` of the engine wrap.
 Batches past the cache are bandwidth bound, and these run 1.8 to 3.5
 times faster than the double batches, 2 times in cache.
+`dist2_euclidean_pairs_warm` (C, C++, Python) keeps each pair's
+lattice shift across frames; a pair still in its Voronoi cell skips
+the search, 2.2 to 2.8 times faster than the batch in cache.
 `dist2_euclidean_many` and `dist2_euclidean_pairs` (C:
 `mi_dist2_euclidean_many`, `mi_dist2_euclidean_pairs`; Python and C++
 methods of the same names) equal `dist2_euclidean` per pair bit for

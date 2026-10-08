@@ -11,6 +11,7 @@ extern "C" {
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -180,6 +181,16 @@ struct Cell {
     const mi_cell box = raw();
     check(mi_dist2_euclidean_pairs(&box, ps, qs, n, out),
           "minimage: dist2_euclidean_pairs failed");
+  }
+
+  /// Pairs that persist across frames: `images` holds each pair's lattice
+  /// shift from the previous call (zeros to start) and is updated.
+  void dist2_euclidean_pairs_warm(const double *ps, const double *qs,
+                                  std::size_t n, std::int32_t *images,
+                                  double *out) const {
+    const mi_cell box = raw();
+    check(mi_dist2_euclidean_pairs_warm(&box, ps, qs, n, images, out),
+          "minimage: dist2_euclidean_pairs_warm failed");
   }
 };
 

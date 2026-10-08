@@ -660,6 +660,58 @@ pub unsafe extern "C" fn mi_dist2_euclidean_pairs(
     }
 }
 
+/// [`mi_dist2_euclidean_pairs`] for pairs that persist across frames.
+/// `images` is `n` rows of three `int32_t`: the cell-basis lattice shift
+/// of each pair's image from the previous call, zeros to start, updated
+/// in place. A pair whose stored image still lies in the Voronoi cell
+/// skips the search; its distance equals the full search to rounding.
+///
+/// # Safety
+///
+/// `ps` and `qs` are `n * 3` doubles, `images` is `n * 3` writable
+/// `int32_t`, and `out` is `n` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_euclidean_pairs_warm(
+    simbox: *const mi_cell,
+    ps: *const f64,
+    qs: *const f64,
+    n: usize,
+    images: *mut i32,
+    out: *mut f64,
+) -> c_int {
+    let ps = match packed_triples(ps, n, "null ps") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let qs = match packed_triples(qs, n, "null qs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && (out.is_null() || images.is_null()) {
+        return fail_msg(if out.is_null() {
+            "null out"
+        } else {
+            "null images"
+        });
+    }
+    let (images, out): (&mut [[i32; 3]], &mut [f64]) = if n == 0 {
+        (&mut [], &mut [])
+    } else {
+        unsafe {
+            (
+                slice::from_raw_parts_mut(images as *mut [i32; 3], n),
+                slice::from_raw_parts_mut(out, n),
+            )
+        }
+    };
+    match with_cell(simbox, |cell| {
+        crate::batch::euclidean_pairs_warm(cell, ps, qs, images, out)
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
 fn read3_fixed(p: *const u64, what: &str) -> Result<[u64; 3], c_int> {
     if p.is_null() {
         return Err(fail_msg(what));

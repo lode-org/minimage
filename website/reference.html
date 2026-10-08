@@ -130,6 +130,11 @@ failure; read <code>mi_last_error()</code> on the same thread.
 </tr>
 
 <tr>
+<td class="org-left"><code>mi_dist2_euclidean_pairs_warm</code></td>
+<td class="org-left">Euclidean pairs from the previous frame's shifts</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>mi_dist2_ortho_diffs</code></td>
 <td class="org-left">Highway-shaped ortho wrap, AVX when present</td>
 </tr>
@@ -191,9 +196,9 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <code>docs.rs/minimage</code> is the Rust reference.
 </p>
 
-<section id="outline-container-org250cf91" class="outline-2">
-<h2 id="org250cf91">Python</h2>
-<div class="outline-text-2" id="text-org250cf91">
+<section id="outline-container-orgf19b40e" class="outline-2">
+<h2 id="orgf19b40e">Python</h2>
+<div class="outline-text-2" id="text-orgf19b40e">
 <table>
 
 
@@ -222,6 +227,11 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <tr>
 <td class="org-left"><code>dist2_euclidean_many(p, qs)</code>, <code>dist2_euclidean_pairs(ps, qs)</code></td>
 <td class="org-left">Euclidean nearest image</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_euclidean_pairs_warm(ps, qs, images)</code></td>
+<td class="org-left">Distances and updated shifts across frames</td>
 </tr>
 
 <tr>
@@ -268,9 +278,9 @@ an array result is a numpy array. A list in gives a list out.
 </div>
 </section>
 
-<section id="outline-container-org1b0b580" class="outline-2">
-<h2 id="org1b0b580">Burn</h2>
-<div class="outline-text-2" id="text-org1b0b580">
+<section id="outline-container-orga1170e4" class="outline-2">
+<h2 id="orga1170e4">Burn</h2>
+<div class="outline-text-2" id="text-orga1170e4">
 <table>
 
 

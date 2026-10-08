@@ -3,9 +3,9 @@
 mod dlpack;
 
 use minimage::{
-    dist2_euclidean_many, dist2_euclidean_pairs, dist2_many, dist2_many_fixed, dist2_many_fixed32,
-    dist2_pairs, dist2_pairs_fixed, dist2_pairs_fixed32, fixed32_many, fixed_many, reduce_pairs,
-    wrap_many, Cell as RustCell,
+    dist2_euclidean_many, dist2_euclidean_pairs, dist2_euclidean_pairs_warm, dist2_many,
+    dist2_many_fixed, dist2_many_fixed32, dist2_pairs, dist2_pairs_fixed, dist2_pairs_fixed32,
+    fixed32_many, fixed_many, reduce_pairs, wrap_many, Cell as RustCell,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -351,6 +351,65 @@ impl PyCell {
             out_f64(py, out)
         } else {
             out.into_py_any(py)
+        }
+    }
+
+    /// Euclidean nearest-image squared distances for pairs that persist
+    /// across frames. `images` holds each pair's lattice shift from the
+    /// previous call (zeros, or `None`, to start); returns the distances
+    /// and the updated shifts.
+    #[pyo3(signature = (ps, qs, images=None))]
+    fn dist2_euclidean_pairs_warm(
+        &self,
+        py: Python<'_>,
+        ps: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+        images: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<(PyObject, PyObject)> {
+        let bp = dlpack::borrow(ps)?;
+        let bq = dlpack::borrow(qs)?;
+        let rp = match &bp {
+            Some(b) => b.rows_f64("ps")?,
+            None => dlpack::Rows::Owned(triples(ps, "ps")?),
+        };
+        let rq = match &bq {
+            Some(b) => b.rows_f64("qs")?,
+            None => dlpack::Rows::Owned(triples(qs, "qs")?),
+        };
+        let mut shifts: Vec<[i32; 3]> = match images {
+            None => vec![[0; 3]; rp.len()],
+            Some(obj) => match dlpack::borrow(obj)? {
+                Some(b) => b
+                    .rows_u32("images")?
+                    .iter()
+                    .map(|r| r.map(|v| v as i32))
+                    .collect(),
+                None => {
+                    let v: Vec<Vec<i32>> = as_nested(obj)?
+                        .extract()
+                        .map_err(|_| PyValueError::new_err("images must be (N, 3) int32"))?;
+                    v.iter()
+                        .map(|r| {
+                            if r.len() == 3 {
+                                Ok([r[0], r[1], r[2]])
+                            } else {
+                                Err(PyValueError::new_err("images rows must have length 3"))
+                            }
+                        })
+                        .collect::<PyResult<_>>()?
+                }
+            },
+        };
+        let mut out = vec![0.0; rp.len()];
+        dist2_euclidean_pairs_warm(&self.inner, &rp, &rq, &mut shifts, &mut out)
+            .map_err(map_err)?;
+        if dlpack::have_numpy(py) {
+            Ok((
+                dlpack::array_f64(py, out)?,
+                dlpack::array_rows_i32(py, shifts)?,
+            ))
+        } else {
+            Ok((out.into_py_any(py)?, shifts.into_py_any(py)?))
         }
     }
 

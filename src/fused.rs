@@ -10,7 +10,7 @@
 //! pair a full box apart, and the tail, run the per-pair code itself.
 
 use crate::kernel::{self, n2, Tri};
-use crate::selling::CachedBasis;
+use crate::selling::{CachedBasis, Slicer};
 
 /// The wrap a cell needs, with the data that wrap reads.
 #[derive(Clone, Copy)]
@@ -123,6 +123,99 @@ fn euclid_row(frame: Frame, room: f64, basis: &CachedBasis, dp: [f64; 3]) -> f64
         e2
     } else {
         f2
+    }
+}
+
+/// [`crate::Cell::displacement_euclidean`] of one difference.
+#[inline(always)]
+fn euclid_vec(frame: Frame, room: f64, basis: &CachedBasis, dp: [f64; 3]) -> [f64; 3] {
+    let frac = frame.wrap(dp);
+    let f2 = n2(frac);
+    if room > 0.0 && f2 < room * room {
+        return frac;
+    }
+    let euc = basis.closest(dp, frac);
+    if n2(euc) + 1e-12 * (1.0 + f2) < f2 {
+        euc
+    } else {
+        frac
+    }
+}
+
+/// What a warm-started batch reads: the lattice and its inverse, and
+/// the full search a pair falls back to.
+pub(crate) struct Warm<'a> {
+    pub(crate) h: [[f64; 3]; 3],
+    pub(crate) hinv: [[f64; 3]; 3],
+    pub(crate) frame: Frame,
+    pub(crate) room: f64,
+    pub(crate) basis: &'a CachedBasis,
+}
+
+/// The full search for one difference: its squared distance, bit for bit
+/// [`crate::Cell::dist2_euclidean`], and the cell-basis shift of its image.
+#[inline(never)]
+fn warm_miss(w: &Warm, dp: [f64; 3]) -> (f64, [i32; 3]) {
+    let e = euclid_vec(w.frame, w.room, w.basis, dp);
+    let n = kernel::mul(w.hinv, sub(dp, e));
+    let k = [
+        kernel::round_away(n[0]) as i32,
+        kernel::round_away(n[1]) as i32,
+        kernel::round_away(n[2]) as i32,
+    ];
+    (n2(e), k)
+}
+
+/// Whether `x` is inside the Voronoi cell of the superbasis: no
+/// relevant vector shortens it.
+#[inline(always)]
+fn voronoi_inside(sl: &Slicer, x: [f64; 3]) -> bool {
+    let mut inside = true;
+    for k in 0..7 {
+        let t = x[0] * sl.rel[0][k] + x[1] * sl.rel[1][k] + x[2] * sl.rel[2][k];
+        inside &= t.abs() <= sl.half_n2[k];
+    }
+    inside
+}
+
+/// One pair from its stored shift: subtract `H n` and check the Voronoi
+/// cell; on a miss, run the full search and store the new shift.
+#[inline(always)]
+fn warm_row(w: &Warm, sl: Option<&Slicer>, dp: [f64; 3], img: &mut [i32; 3]) -> f64 {
+    if let Some(sl) = sl {
+        let n = [f64::from(img[0]), f64::from(img[1]), f64::from(img[2])];
+        let x = sub(dp, kernel::mul(w.h, n));
+        if voronoi_inside(sl, x) {
+            return n2(x);
+        }
+    }
+    let (r2, k) = warm_miss(w, dp);
+    *img = k;
+    r2
+}
+
+/// Warm-started `dist2_euclidean` for paired rows; `images` updated.
+pub(crate) fn dist2_euclidean_pairs_warm(
+    w: &Warm,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    images: &mut [[i32; 3]],
+    out: &mut [f64],
+) {
+    let sl = w.basis.slicer();
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if let Some(sl) = &sl {
+            if avx512::detected() {
+                // SAFETY: AVX-512F and DQ were detected. The slices share
+                // one length.
+                unsafe { avx512::warm_pairs(w, sl, ps, qs, images, out) };
+                return;
+            }
+        }
+    }
+    for (((p, q), img), o) in ps.iter().zip(qs).zip(images.iter_mut()).zip(out.iter_mut()) {
+        *o = warm_row(w, sl.as_ref(), sub(*q, *p), img);
     }
 }
 
@@ -296,7 +389,7 @@ pub(crate) fn wrap_many(frame: Frame, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) 
 mod avx512 {
     use std::arch::x86_64::*;
 
-    use super::{many_far, pairs_far, Frame};
+    use super::{many_far, pairs_far, sub, warm_miss, Frame, Warm};
     use crate::kernel::Tri;
     use crate::selling::Slicer;
 
@@ -660,6 +753,89 @@ mod avx512 {
             let r2 = euclid8(sl, room, d, wrap8(&frame, d), mo);
             _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, r2);
         });
+    }
+
+    /// Warm start for eight rows: transpose the stored shifts, subtract
+    /// `H n`, test the seven relevant vectors. Rows inside the Voronoi
+    /// cell store `|x|^2` in the scalar order. The rest are flagged and
+    /// take the full search after each chunk of 512 rows, so the rare call
+    /// stays out of the vector loop and the chunk is still in cache. A NaN
+    /// input fails the test and is flagged too, as in the scalar path.
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn warm_pairs(
+        w: &Warm,
+        sl: &Slicer,
+        ps: &[[f64; 3]],
+        qs: &[[f64; 3]],
+        images: &mut [[i32; 3]],
+        out: &mut [f64],
+    ) {
+        const CHUNK: usize = 512;
+        let s1 = _mm512_set1_pd;
+        let pick = |i: [i32; 16]| _mm512_loadu_si512(i.as_ptr().cast());
+        let ix = pick([0, 3, 6, 9, 12, 15, 18, 21, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let iy = pick([1, 4, 7, 10, 13, 16, 19, 22, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let iz = pick([2, 5, 8, 11, 14, 17, 20, 23, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let h = w.h;
+        let mut flags = [0u8; CHUNK / 8];
+        let mut start = 0;
+        while start < ps.len() {
+            let end = (start + CHUNK).min(ps.len());
+            let (pc, qc) = (&ps[start..end], &qs[start..end]);
+            let (ic, oc) = (&mut images[start..end], &mut out[start..end]);
+            groups(pc.len(), |i, r, m, live| {
+                let d = diff(qc.as_ptr().add(i).cast(), pc.as_ptr().add(i).cast(), m);
+                let nimg: *const i32 = ic.as_ptr().add(i).cast();
+                let k = 3 * r;
+                let lo = _mm512_maskz_loadu_epi32(((1u32 << k.min(16)) - 1) as __mmask16, nimg);
+                let hi = _mm512_maskz_loadu_epi32(
+                    ((1u32 << k.saturating_sub(16)) - 1) as __mmask16,
+                    nimg.add(16),
+                );
+                let axis = |ix: __m512i| {
+                    _mm512_cvtepi32_pd(_mm512_castsi512_si256(_mm512_permutex2var_epi32(
+                        lo, ix, hi,
+                    )))
+                };
+                let n = [axis(ix), axis(iy), axis(iz)];
+                let mut x = [_mm512_setzero_pd(); 3];
+                for (c, slot) in x.iter_mut().enumerate() {
+                    let l = _mm512_add_pd(
+                        _mm512_add_pd(
+                            _mm512_mul_pd(s1(h[0][c]), n[0]),
+                            _mm512_mul_pd(s1(h[1][c]), n[1]),
+                        ),
+                        _mm512_mul_pd(s1(h[2][c]), n[2]),
+                    );
+                    *slot = _mm512_sub_pd(d[c], l);
+                }
+                let mut outside: M = 0;
+                for kk in 0..7 {
+                    let t = _mm512_add_pd(
+                        _mm512_add_pd(
+                            _mm512_mul_pd(x[0], s1(sl.rel[0][kk])),
+                            _mm512_mul_pd(x[1], s1(sl.rel[1][kk])),
+                        ),
+                        _mm512_mul_pd(x[2], s1(sl.rel[2][kk])),
+                    );
+                    outside |=
+                        _mm512_cmp_pd_mask::<_CMP_NLE_UQ>(_mm512_abs_pd(t), s1(sl.half_n2[kk]));
+                }
+                outside &= live;
+                _mm512_mask_storeu_pd(oc.as_mut_ptr().add(i), live & !outside, norm(x));
+                flags[i / 8] = outside;
+            });
+            for (g, f) in flags.iter_mut().take((pc.len() + 7) / 8).enumerate() {
+                while *f != 0 {
+                    let j = 8 * g + f.trailing_zeros() as usize;
+                    let (r2, shift) = warm_miss(w, sub(qc[j], pc[j]));
+                    oc[j] = r2;
+                    ic[j] = shift;
+                    *f &= *f - 1;
+                }
+            }
+            start = end;
+        }
     }
 
     /// Groups of eight rows, then one masked group of `r < 8`.
@@ -1287,6 +1463,116 @@ mod tests {
             )
             .unwrap(),
         ]
+    }
+
+    /// The warm start against the full search: from zero shifts, then
+    /// after a small step with the shifts it stored. Every stored shift
+    /// reproduces the reported distance, and the vector kernel equals the
+    /// scalar warm path bit for bit.
+    #[test]
+    fn warm_start_matches_the_full_search() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut unit = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let euclid_cells = [
+            Cell::from_vectors(
+                [10.0, 0.0, 0.0],
+                [5.0, 8.660254037844386, 0.0],
+                [0.0, 0.0, 10.0],
+                [0.0; 3],
+            )
+            .unwrap(),
+            Cell::from_vectors(
+                [1.0, 0.0, 0.0],
+                [0.99, 0.01, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0; 3],
+            )
+            .unwrap(),
+            Cell::from_vectors(
+                [9.0, 3.0, 2.0],
+                [1.0, 9.0, -2.0],
+                [-1.5, 2.0, 9.5],
+                [0.0; 3],
+            )
+            .unwrap(),
+            Cell::from_vectors(
+                [6.0, 0.0, 0.0],
+                [5.0, 4.0, 0.0],
+                [-4.0, 3.5, 5.0],
+                [1.0, 2.0, 3.0],
+            )
+            .unwrap(),
+        ];
+        for cell in euclid_cells {
+            for span in [0.3, 4.0, 25.0] {
+                let n = 203;
+                let ps: Vec<[f64; 3]> = (0..n)
+                    .map(|_| [unit() * 10.0, unit() * 10.0, unit() * 10.0])
+                    .collect();
+                let mut qs: Vec<[f64; 3]> = ps
+                    .iter()
+                    .map(|p| {
+                        [
+                            p[0] + (unit() - 0.5) * span,
+                            p[1] + (unit() - 0.5) * span,
+                            p[2] + (unit() - 0.5) * span,
+                        ]
+                    })
+                    .collect();
+                let mut images = vec![[0i32; 3]; n];
+                let mut out = vec![0.0; n];
+                for frame in 0..3 {
+                    let mut scalar_images = images.clone();
+                    crate::dist2_euclidean_pairs_warm(&cell, &ps, &qs, &mut images, &mut out)
+                        .unwrap();
+                    let h = cell.h();
+                    for k in 0..n {
+                        let want = cell.dist2_euclidean(ps[k], qs[k]);
+                        let d = [
+                            qs[k][0] - ps[k][0],
+                            qs[k][1] - ps[k][1],
+                            qs[k][2] - ps[k][2],
+                        ];
+                        let tol = 1e-12 * (1.0 + crate::kernel::n2(d));
+                        assert!((out[k] - want).abs() <= tol, "{cell:?} {span} {frame} {k}");
+                        let m = images[k].map(f64::from);
+                        let x = [0, 1, 2]
+                            .map(|c| d[c] - (h[0][c] * m[0] + h[1][c] * m[1] + h[2][c] * m[2]));
+                        assert!((crate::kernel::n2(x) - want).abs() <= tol);
+                    }
+                    crate::selling::with_basis(h, |basis| {
+                        let w = super::Warm {
+                            h,
+                            hinv: cell.hinv(),
+                            frame: cell.frame(),
+                            room: cell.smith_room(),
+                            basis,
+                        };
+                        let sl = basis.slicer();
+                        for k in 0..n {
+                            let r2 = super::warm_row(
+                                &w,
+                                sl.as_ref(),
+                                super::sub(qs[k], ps[k]),
+                                &mut scalar_images[k],
+                            );
+                            assert_eq!(r2.to_bits(), out[k].to_bits());
+                            assert_eq!(scalar_images[k], images[k]);
+                        }
+                    });
+                    for q in &mut qs {
+                        for e in q.iter_mut() {
+                            *e += (unit() - 0.5) * 0.02;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Batched Euclidean distances equal the per-pair calls bit for bit,

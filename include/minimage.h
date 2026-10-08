@@ -247,6 +247,25 @@ int mi_dist2_euclidean_pairs(const struct mi_cell *simbox,
                              double *out);
 
 /**
+ * [`mi_dist2_euclidean_pairs`] for pairs that persist across frames.
+ * `images` is `n` rows of three `int32_t`: the cell-basis lattice shift
+ * of each pair's image from the previous call, zeros to start, updated
+ * in place. A pair whose stored image still lies in the Voronoi cell
+ * skips the search; its distance equals the full search to rounding.
+ *
+ * # Safety
+ *
+ * `ps` and `qs` are `n * 3` doubles, `images` is `n * 3` writable
+ * `int32_t`, and `out` is `n` doubles.
+ */
+int mi_dist2_euclidean_pairs_warm(const struct mi_cell *simbox,
+                                  const double *ps,
+                                  const double *qs,
+                                  size_t n,
+                                  int32_t *images,
+                                  double *out);
+
+/**
  * Squared engine-wrap distance between two fixed-point positions.
  *
  * # Safety

@@ -321,6 +321,7 @@ enum Data {
     F64(Vec<f64>),
     U64(Vec<u64>),
     U32(Vec<u32>),
+    I32(Vec<i32>),
 }
 
 /// The buffer a capsule owns until the consumer's array lets go.
@@ -404,6 +405,7 @@ impl Exported {
                 Data::F64(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_FLOAT, 64),
                 Data::U64(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_UINT, 64),
                 Data::U32(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_UINT, 32),
+                Data::I32(v) => (v.as_mut_ptr().cast::<c_void>(), KDL_INT, 32),
             };
             let dtype = DLDataType {
                 code,
@@ -534,6 +536,19 @@ pub fn array_rows_u32(py: Python<'_>, rows: Vec<[u32; 3]>) -> PyResult<PyObject>
         py,
         Holder {
             data: Data::U32(flatten(rows)),
+            shape: [n, 3],
+            ndim: 2,
+        },
+    )
+}
+
+/// `rows` as an `(n, 3)` int32 numpy array that owns them.
+pub fn array_rows_i32(py: Python<'_>, rows: Vec<[i32; 3]>) -> PyResult<PyObject> {
+    let n = rows.len() as i64;
+    export(
+        py,
+        Holder {
+            data: Data::I32(flatten(rows)),
             shape: [n, 3],
             ndim: 2,
         },

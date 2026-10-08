@@ -36,6 +36,7 @@ failure; read =mi_last_error()= on the same thread.
 | =mi_dist2_pairs= | Packed pair lists |
 | =mi_dist2_euclidean_many= | Euclidean nearest image, one source, packed candidates |
 | =mi_dist2_euclidean_pairs= | Euclidean nearest image, packed pair lists |
+| =mi_dist2_euclidean_pairs_warm= | Euclidean pairs from the previous frame's shifts |
 | =mi_dist2_ortho_diffs= | Highway-shaped ortho wrap, AVX when present |
 | =mi_dist2_shifted_many= | One lattice shift, many candidates |
 | =mi_fixed_many= | Positions to 64-bit fixed-point fractions |
@@ -58,6 +59,7 @@ The C++ header =minimage.hpp= is a RAII wrap of this ABI.
 | =dist2_many(p, qs)= | One source, rows of candidates |
 | =dist2_pairs(ps, qs)= | Paired rows |
 | =dist2_euclidean_many(p, qs)=, =dist2_euclidean_pairs(ps, qs)= | Euclidean nearest image |
+| =dist2_euclidean_pairs_warm(ps, qs, images)= | Distances and updated shifts across frames |
 | =wrap_many(diffs)= | Engine wrap of each row |
 | =fixed(r)=, =fixed_many(rs)= | Fixed-point fractions, uint64 |
 | =dist2_fixed(a, b)= | Two fixed-point positions |
