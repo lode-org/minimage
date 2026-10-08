@@ -821,6 +821,168 @@ pub unsafe extern "C" fn mi_dist2_pairs_fixed(
     }
 }
 
+fn read3_fixed32(p: *const u32, what: &str) -> Result<[u32; 3], c_int> {
+    if p.is_null() {
+        return Err(fail_msg(what));
+    }
+    Ok(unsafe { [*p, *p.add(1), *p.add(2)] })
+}
+
+fn packed_fixed32<'a>(ptr: *const u32, n: usize, what: &str) -> Result<&'a [[u32; 3]], c_int> {
+    if n == 0 {
+        return Ok(&[]);
+    }
+    if ptr.is_null() {
+        return Err(fail_msg(what));
+    }
+    // SAFETY: `n * 3` readable integers, viewed as `n` triples.
+    Ok(unsafe { slice::from_raw_parts(ptr as *const [u32; 3], n) })
+}
+
+/// 32-bit fixed-point fractional coordinates of `n` packed positions:
+/// three `uint32_t` per position, each the 64-bit fraction of
+/// [`mi_fixed_many`] rounded to its top 32 bits.
+///
+/// # Safety
+///
+/// `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint32_t`.
+#[no_mangle]
+pub unsafe extern "C" fn mi_fixed32_many(
+    simbox: *const mi_cell,
+    rs: *const f64,
+    n: usize,
+    out: *mut u32,
+) -> c_int {
+    let rs = match packed_triples(rs, n, "null rs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && out.is_null() {
+        return fail_msg("null out");
+    }
+    let out: &mut [[u32; 3]] = if n == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(out as *mut [u32; 3], n) }
+    };
+    match with_cell(simbox, |cell| {
+        crate::fixed32::fixed32_many(&cell.fold(), rs, out)
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
+/// Squared engine-wrap distance between two 32-bit fixed-point positions.
+///
+/// # Safety
+///
+/// `a` and `b` are three `uint32_t`. `out` is one writable double.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_fixed32(
+    simbox: *const mi_cell,
+    a: *const u32,
+    b: *const u32,
+    out: *mut f64,
+) -> c_int {
+    let a = match read3_fixed32(a, "null a") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let b = match read3_fixed32(b, "null b") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if out.is_null() {
+        return fail_msg("null out");
+    }
+    match with_cell(simbox, |cell| cell.dist2_fixed32(a, b)) {
+        Ok(d2) => {
+            unsafe {
+                *out = d2;
+            }
+            0
+        }
+        Err(e) => e,
+    }
+}
+
+/// Squared engine-wrap distances from 32-bit fixed-point `p` to `n` packed
+/// fixed-point candidates.
+///
+/// # Safety
+///
+/// `p` is three `uint32_t`. `qs` is `n * 3` `uint32_t`. `out` is `n`
+/// doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_many_fixed32(
+    simbox: *const mi_cell,
+    p: *const u32,
+    qs: *const u32,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let p = match read3_fixed32(p, "null p") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let qs = match packed_fixed32(qs, n, "null qs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && out.is_null() {
+        return fail_msg("null out");
+    }
+    let out: &mut [f64] = if n == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(out, n) }
+    };
+    match with_cell(simbox, |cell| {
+        crate::fixed32::dist2_many(cell.fixed32_lattice(), p, qs, out)
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
+/// Squared engine-wrap distances for `n` packed 32-bit fixed-point pairs.
+///
+/// # Safety
+///
+/// `ps` and `qs` are `n * 3` `uint32_t`. `out` is `n` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_pairs_fixed32(
+    simbox: *const mi_cell,
+    ps: *const u32,
+    qs: *const u32,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let ps = match packed_fixed32(ps, n, "null ps") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let qs = match packed_fixed32(qs, n, "null qs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && out.is_null() {
+        return fail_msg("null out");
+    }
+    let out: &mut [f64] = if n == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(out, n) }
+    };
+    match with_cell(simbox, |cell| {
+        crate::fixed32::dist2_pairs(cell.fixed32_lattice(), ps, qs, out)
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
 /// Orthorhombic wrap of precomputed differences (Highway kernel).
 ///
 /// # Safety

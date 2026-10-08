@@ -109,3 +109,16 @@ def test_euclidean_batches_match_the_per_pair_call():
         many = cell.dist2_euclidean_many(ps[0], qs)
         np.testing.assert_array_equal(many, [cell.dist2_euclidean(ps[0].tolist(), q) for q in qs.tolist()])
         assert cell.dist2_euclidean_pairs(ps.tolist(), qs.tolist()) == want
+
+
+def test_fixed32_through_arrays():
+    for cell in (minimage.Cell.ortho(10.0, 11.0, 12.0), minimage.Cell.from_vectors(*HEX)):
+        ps, qs = points(77, 10), points(77, 11)
+        fp, fq = cell.fixed32_many(ps), cell.fixed32_many(qs)
+        assert fp.dtype == np.uint32 and fp.shape == (77, 3)
+        assert list(fp[5]) == cell.fixed32(ps[5].tolist())
+        got = cell.dist2_pairs_fixed32(fp, fq)
+        np.testing.assert_allclose(got, cell.dist2_pairs(ps, qs), rtol=1e-7, atol=1e-7)
+        np.testing.assert_array_equal(got, [cell.dist2_fixed32(a, b) for a, b in zip(fp.tolist(), fq.tolist())])
+        np.testing.assert_array_equal(cell.dist2_many_fixed32(fp[0], fq), [cell.dist2_fixed32(fp[0].tolist(), b) for b in fq.tolist()])
+

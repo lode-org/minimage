@@ -137,6 +137,28 @@ matrix product per pair. A fraction exactly one half apart wraps to
 =-1/2=, and the distance agrees with =dist2= to a few units in the
 last place.
 
+=Cell::fixed32= and the =_fixed32= batches round each fraction to its
+top 32 bits: 12 bytes a position instead of 24. Past the second-level
+cache a batch moves more bytes than it computes on, about 56 a pair,
+so the bytes set the time. On this host the 32-bit batches are 2.7 to
+3.5 times faster than the double batches at 64K pairs, 1.8 to 2.0
+times at 16M, and 2 times in cache. The wrap is still exact, modulo
+=2^32=, and a displacement is within =2^-32 (|a| + |b| + |c|)= of the
+engine wrap, about =7e-9= in a cell 10 long: a tier for neighbour
+searches and histograms, beside the double contract. Two other ways
+to stream less did not pay: non-temporal stores gained 5 to 9 percent
+only once the output left the cache, and evict output a caller is
+about to read; structure-of-arrays input gained at most 11 percent.
+
+A low-rank formulation does not help either. Before the wrap, the
+squared distances to one image are a rank-five product, =|p|^2 + |q +
+nH|^2 - 2 p . (q + nH)=, the Gram trick behind matrix-product
+nearest-neighbour search, and the displacement tensor has multilinear
+rank =(2, 2, 3)=. The wrap is a nonlinear choice of image per pair, so
+the product has to be paid for every candidate image, 27 for a general
+cell, and the expansion cancels: 11.7 ns a pair against 1.0 for the
+wrap, with relative errors of =1.5e-11=.
+
 * Arrays and devices
 
 The Python methods take any DLPack producer, numpy, PyTorch, JAX, or

@@ -259,6 +259,18 @@ int mi_dist2_fixed(const struct mi_cell *simbox,
                    double *out);
 
 /**
+ * Squared engine-wrap distance between two 32-bit fixed-point positions.
+ *
+ * # Safety
+ *
+ * `a` and `b` are three `uint32_t`. `out` is one writable double.
+ */
+int mi_dist2_fixed32(const struct mi_cell *simbox,
+                     const uint32_t *a,
+                     const uint32_t *b,
+                     double *out);
+
+/**
  * Squared MIC distances from `p` to `n` packed candidates in `qs`.
  *
  * # Safety
@@ -285,6 +297,21 @@ int mi_dist2_many_fixed(const struct mi_cell *simbox,
                         const uint64_t *qs,
                         size_t n,
                         double *out);
+
+/**
+ * Squared engine-wrap distances from 32-bit fixed-point `p` to `n` packed
+ * fixed-point candidates.
+ *
+ * # Safety
+ *
+ * `p` is three `uint32_t`. `qs` is `n * 3` `uint32_t`. `out` is `n`
+ * doubles.
+ */
+int mi_dist2_many_fixed32(const struct mi_cell *simbox,
+                          const uint32_t *p,
+                          const uint32_t *qs,
+                          size_t n,
+                          double *out);
 
 /**
  * Orthorhombic wrap of precomputed differences (Highway kernel).
@@ -329,6 +356,19 @@ int mi_dist2_pairs_fixed(const struct mi_cell *simbox,
                          double *out);
 
 /**
+ * Squared engine-wrap distances for `n` packed 32-bit fixed-point pairs.
+ *
+ * # Safety
+ *
+ * `ps` and `qs` are `n * 3` `uint32_t`. `out` is `n` doubles.
+ */
+int mi_dist2_pairs_fixed32(const struct mi_cell *simbox,
+                           const uint32_t *ps,
+                           const uint32_t *qs,
+                           size_t n,
+                           double *out);
+
+/**
  * Squared distances from `p` to `n` points in `qs`, plus one lattice
  * shift `(sx, sy, sz)` on every candidate. Rapaport's bin pair.
  *
@@ -341,6 +381,20 @@ int mi_dist2_shifted_many(const double *p,
                           const double *shift,
                           size_t n,
                           double *out);
+
+/**
+ * 32-bit fixed-point fractional coordinates of `n` packed positions:
+ * three `uint32_t` per position, each the 64-bit fraction of
+ * [`mi_fixed_many`] rounded to its top 32 bits.
+ *
+ * # Safety
+ *
+ * `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint32_t`.
+ */
+int mi_fixed32_many(const struct mi_cell *simbox,
+                    const double *rs,
+                    size_t n,
+                    uint32_t *out);
 
 /**
  * Fixed-point fractional coordinates of `n` packed positions: three

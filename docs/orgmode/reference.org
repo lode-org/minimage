@@ -42,6 +42,8 @@ failure; read =mi_last_error()= on the same thread.
 | =mi_dist2_fixed= | Squared distance between two fixed-point positions |
 | =mi_dist2_many_fixed= | One fixed-point source, packed candidates |
 | =mi_dist2_pairs_fixed= | Packed fixed-point pair lists |
+| =mi_fixed32_many=, =mi_dist2_fixed32= | 32-bit fixed-point fractions and distance |
+| =mi_dist2_many_fixed32=, =mi_dist2_pairs_fixed32= | 32-bit fixed-point batches |
 | =mi_reduce_pairs= | Drop self images, unique pairs |
 | =mi_last_error= | Thread-local error string |
 | =mi_version= | Process-static version |
@@ -61,6 +63,8 @@ The C++ header =minimage.hpp= is a RAII wrap of this ABI.
 | =dist2_fixed(a, b)= | Two fixed-point positions |
 | =dist2_many_fixed(p, qs)= | One fixed-point source, rows |
 | =dist2_pairs_fixed(ps, qs)= | Paired fixed-point rows |
+| =fixed32(r)=, =fixed32_many(rs)=, =dist2_fixed32(a, b)= | 32-bit fixed point, uint32 |
+| =dist2_many_fixed32(p, qs)=, =dist2_pairs_fixed32(ps, qs)= | 32-bit fixed-point batches |
 
 An array argument is any DLPack producer on the host, read in place;
 an array result is a numpy array. A list in gives a list out.

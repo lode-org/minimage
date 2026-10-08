@@ -28,6 +28,24 @@ use crate::kernel::{floor_fast, n2};
 /// `2^-52`, one unit of the shifted difference.
 pub(crate) const UNIT: f64 = 2.220_446_049_250_313e-16;
 
+/// `2^-32`, one unit of a 32-bit fraction difference.
+pub(crate) const UNIT32: f64 = 2.328_306_436_538_696_3e-10;
+
+/// A 64-bit fraction rounded to its top 32 bits, half up; one rounds to
+/// zero modulo `2^32`.
+#[inline(always)]
+pub(crate) fn to_fixed32(f: u64) -> u32 {
+    (f.wrapping_add(1 << 31) >> 32) as u32
+}
+
+/// The wrapped 32-bit fraction `b - a` as a double, in units of `2^-32`.
+/// The difference modulo `2^32`, read as signed, is the engine wrap and
+/// converts exactly.
+#[inline(always)]
+pub(crate) fn wrapped32(a: u32, b: u32) -> f64 {
+    f64::from(b.wrapping_sub(a) as i32)
+}
+
 /// The 52 fraction bits of a double in `[1, 2)`.
 const MANTISSA: u64 = (1 << 52) - 1;
 
@@ -116,27 +134,32 @@ pub(crate) enum Lattice {
 
 impl Lattice {
     pub(crate) fn diagonal(widths: [f64; 3]) -> Self {
-        Lattice::Diagonal([widths[0] * UNIT, widths[1] * UNIT, widths[2] * UNIT])
+        Self::diagonal_in(widths, UNIT)
     }
 
     pub(crate) fn full(h: [[f64; 3]; 3]) -> Self {
+        Self::full_in(h, UNIT)
+    }
+
+    /// The widths in units of `unit`, a power of two.
+    pub(crate) fn diagonal_in(widths: [f64; 3], unit: f64) -> Self {
+        Lattice::Diagonal([widths[0] * unit, widths[1] * unit, widths[2] * unit])
+    }
+
+    /// `H` in units of `unit`, a power of two.
+    pub(crate) fn full_in(h: [[f64; 3]; 3], unit: f64) -> Self {
         let mut m = h;
         for col in &mut m {
             for e in col.iter_mut() {
-                *e *= UNIT;
+                *e *= unit;
             }
         }
         Lattice::Full(m)
     }
 
-    /// Cartesian displacement from `a` to `b`.
+    /// Cartesian vector of a wrapped difference in this lattice's units.
     #[inline(always)]
-    pub(crate) fn displacement(&self, a: [u64; 3], b: [u64; 3]) -> [f64; 3] {
-        let d = [
-            wrapped(a[0], b[0]),
-            wrapped(a[1], b[1]),
-            wrapped(a[2], b[2]),
-        ];
+    pub(crate) fn map(&self, d: [f64; 3]) -> [f64; 3] {
         match self {
             Lattice::Diagonal(w) => [w[0] * d[0], w[1] * d[1], w[2] * d[2]],
             Lattice::Full(m) => [
@@ -145,6 +168,16 @@ impl Lattice {
                 m[0][2] * d[0] + m[1][2] * d[1] + m[2][2] * d[2],
             ],
         }
+    }
+
+    /// Cartesian displacement from `a` to `b`.
+    #[inline(always)]
+    pub(crate) fn displacement(&self, a: [u64; 3], b: [u64; 3]) -> [f64; 3] {
+        self.map([
+            wrapped(a[0], b[0]),
+            wrapped(a[1], b[1]),
+            wrapped(a[2], b[2]),
+        ])
     }
 
     #[inline(always)]

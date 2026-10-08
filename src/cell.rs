@@ -481,6 +481,46 @@ impl Cell {
         kernel::n2(self.displacement_fixed(a, b))
     }
 
+    /// [`Self::fixed`] rounded to 32 bits per fraction: half the bytes,
+    /// fractions within `2^-33` of the cell's.
+    #[inline]
+    pub fn fixed32(&self, r: [f64; 3]) -> [u32; 3] {
+        use crate::fixed::to_fixed32;
+        let f = self.fixed(r);
+        [to_fixed32(f[0]), to_fixed32(f[1]), to_fixed32(f[2])]
+    }
+
+    /// `H`, or the widths of an orthorhombic cell, in units of `2^-32`.
+    #[inline(always)]
+    pub(crate) fn fixed32_lattice(&self) -> crate::fixed::Lattice {
+        use crate::fixed::{Lattice, UNIT32};
+        if self.ortho {
+            Lattice::diagonal_in(self.widths, UNIT32)
+        } else {
+            Lattice::full_in(self.h, UNIT32)
+        }
+    }
+
+    /// Engine-wrap displacement between two [`Self::fixed32`] positions:
+    /// the difference modulo `2^32`, exact, then one product with `H`. A
+    /// fraction one half apart wraps to `-1/2`. Within
+    /// `2^-32 (|a| + |b| + |c|)` of [`Self::displacement`].
+    #[inline(always)]
+    pub fn displacement_fixed32(&self, a: [u32; 3], b: [u32; 3]) -> [f64; 3] {
+        use crate::fixed::wrapped32;
+        self.fixed32_lattice().map([
+            wrapped32(a[0], b[0]),
+            wrapped32(a[1], b[1]),
+            wrapped32(a[2], b[2]),
+        ])
+    }
+
+    /// Squared distance between two [`Self::fixed32`] positions.
+    #[inline(always)]
+    pub fn dist2_fixed32(&self, a: [u32; 3], b: [u32; 3]) -> f64 {
+        kernel::n2(self.displacement_fixed32(a, b))
+    }
+
     /// Cartesian from fractional: `r = H s + origin`.
     #[inline]
     pub fn cartesian(&self, s: [f64; 3]) -> [f64; 3] {
