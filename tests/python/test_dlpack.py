@@ -96,3 +96,16 @@ def test_results_outlive_inputs_and_cell():
     np.testing.assert_array_equal(out, want)
     out[0] = -1.0
     assert out[0] == -1.0
+
+
+def test_euclidean_batches_match_the_per_pair_call():
+    for cell in (minimage.Cell.from_vectors(*HEX),
+                 minimage.Cell.from_vectors([1.0, 0.0, 0.0], [0.99, 0.01, 0.0], [0.0, 0.0, 1.0])):
+        ps, qs = points(203, 8), points(203, 9)
+        pairs = cell.dist2_euclidean_pairs(ps, qs)
+        assert isinstance(pairs, np.ndarray)
+        want = [cell.dist2_euclidean(p, q) for p, q in zip(ps.tolist(), qs.tolist())]
+        np.testing.assert_array_equal(pairs, want)
+        many = cell.dist2_euclidean_many(ps[0], qs)
+        np.testing.assert_array_equal(many, [cell.dist2_euclidean(ps[0].tolist(), q) for q in qs.tolist()])
+        assert cell.dist2_euclidean_pairs(ps.tolist(), qs.tolist()) == want

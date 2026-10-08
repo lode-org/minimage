@@ -584,6 +584,82 @@ pub unsafe extern "C" fn mi_dist2_pairs(
     }
 }
 
+/// Euclidean nearest-image squared distances from `p` to `n` packed
+/// candidates: [`mi_displacement_euclidean`] per pair, bit for bit, with
+/// one superbasis lookup per call and eight pairs per slicer pass.
+///
+/// # Safety
+///
+/// `qs` is `n * 3` doubles. `out` is `n` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_euclidean_many(
+    simbox: *const mi_cell,
+    p: *const f64,
+    qs: *const f64,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let p = match read3(p, "null p") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let qs = match packed_triples(qs, n, "null qs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && out.is_null() {
+        return fail_msg("null out");
+    }
+    let out: &mut [f64] = if n == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(out, n) }
+    };
+    match with_cell(simbox, |cell| {
+        crate::batch::euclidean_many(cell, p, qs, out)
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
+/// [`mi_dist2_euclidean_many`] for paired rows.
+///
+/// # Safety
+///
+/// `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_euclidean_pairs(
+    simbox: *const mi_cell,
+    ps: *const f64,
+    qs: *const f64,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let ps = match packed_triples(ps, n, "null ps") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let qs = match packed_triples(qs, n, "null qs") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if n > 0 && out.is_null() {
+        return fail_msg("null out");
+    }
+    let out: &mut [f64] = if n == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(out, n) }
+    };
+    match with_cell(simbox, |cell| {
+        crate::batch::euclidean_pairs(cell, ps, qs, out)
+    }) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
 fn read3_fixed(p: *const u64, what: &str) -> Result<[u64; 3], c_int> {
     if p.is_null() {
         return Err(fail_msg(what));

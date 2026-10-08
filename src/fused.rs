@@ -10,6 +10,7 @@
 //! pair a full box apart, and the tail, run the per-pair code itself.
 
 use crate::kernel::{self, n2, Tri};
+use crate::selling::CachedBasis;
 
 /// The wrap a cell needs, with the data that wrap reads.
 #[derive(Clone, Copy)]
@@ -106,6 +107,75 @@ fn many_far(frame: Frame, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64], from: u
 #[inline(never)]
 fn wrap_far(frame: Frame, diffs: &[[f64; 3]], out: &mut [[f64; 3]], from: usize, to: usize) {
     wrap_from(frame, diffs, out, from, to);
+}
+
+/// [`crate::Cell::dist2_euclidean`] of one difference, with the
+/// superbasis already looked up.
+#[inline(always)]
+fn euclid_row(frame: Frame, room: f64, basis: &CachedBasis, dp: [f64; 3]) -> f64 {
+    let frac = frame.wrap(dp);
+    let f2 = n2(frac);
+    if room > 0.0 && f2 < room * room {
+        return f2;
+    }
+    let e2 = n2(basis.closest(dp, frac));
+    if e2 + 1e-12 * (1.0 + f2) < f2 {
+        e2
+    } else {
+        f2
+    }
+}
+
+/// `out[k] = dist2_euclidean(ps[k], qs[k])` for a cell that is not
+/// orthorhombic.
+pub(crate) fn dist2_euclidean_pairs(
+    frame: Frame,
+    room: f64,
+    basis: &CachedBasis,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    out: &mut [f64],
+) {
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if let Some(sl) = basis.slicer() {
+            if avx512::detected() {
+                // SAFETY: AVX-512F and DQ were detected. The slices share
+                // one length.
+                unsafe { avx512::euclid_pairs(frame, room, &sl, ps, qs, out) };
+                return;
+            }
+        }
+    }
+    for ((p, q), o) in ps.iter().zip(qs).zip(out.iter_mut()) {
+        *o = euclid_row(frame, room, basis, sub(*q, *p));
+    }
+}
+
+/// `out[k] = dist2_euclidean(p, qs[k])` for a cell that is not
+/// orthorhombic.
+pub(crate) fn dist2_euclidean_many(
+    frame: Frame,
+    room: f64,
+    basis: &CachedBasis,
+    p: [f64; 3],
+    qs: &[[f64; 3]],
+    out: &mut [f64],
+) {
+    #[cfg(all(target_arch = "x86_64", minimage_avx512))]
+    {
+        if let Some(sl) = basis.slicer() {
+            if avx512::detected() {
+                // SAFETY: AVX-512F and DQ were detected. `qs` and `out`
+                // share one length.
+                unsafe { avx512::euclid_many(frame, room, &sl, p, qs, out) };
+                return;
+            }
+        }
+    }
+    for (q, o) in qs.iter().zip(out.iter_mut()) {
+        *o = euclid_row(frame, room, basis, sub(*q, p));
+    }
 }
 
 /// `out[k] = |wrap(qs[k] - ps[k])|^2`.
@@ -228,6 +298,7 @@ mod avx512 {
 
     use super::{many_far, pairs_far, Frame};
     use crate::kernel::Tri;
+    use crate::selling::Slicer;
 
     type V = __m512d;
     type M = __mmask8;
@@ -428,6 +499,167 @@ mod avx512 {
                 _mm512_sub_pd(s[2], round_away(s[2])),
             ],
         )
+    }
+
+    /// The engine wrap of eight differences on a lattice that is not
+    /// orthorhombic.
+    #[inline(always)]
+    unsafe fn wrap8(frame: &Frame, d: [V; 3]) -> [V; 3] {
+        match frame {
+            Frame::Tri(t) => tri_wrap8(t, d),
+            Frame::General(h, hinv) => general_wrap8(h, hinv, d),
+            Frame::Ortho(_) => unreachable!("an orthorhombic wrap is already Euclidean"),
+        }
+    }
+
+    /// `selling::babai` per lane.
+    #[inline(always)]
+    unsafe fn babai8(sl: &Slicer, y: [V; 3]) -> [V; 3] {
+        let s1 = _mm512_set1_pd;
+        let m = sl.inv;
+        let mut z = [_mm512_setzero_pd(); 3];
+        for (i, slot) in z.iter_mut().enumerate() {
+            let c = _mm512_add_pd(
+                _mm512_add_pd(
+                    _mm512_mul_pd(s1(m[0][i]), y[0]),
+                    _mm512_mul_pd(s1(m[1][i]), y[1]),
+                ),
+                _mm512_mul_pd(s1(m[2][i]), y[2]),
+            );
+            *slot = round_away(c);
+        }
+        let b = sl.basis;
+        let mut x = [_mm512_setzero_pd(); 3];
+        for (k, slot) in x.iter_mut().enumerate() {
+            let back = _mm512_add_pd(
+                _mm512_add_pd(
+                    _mm512_mul_pd(z[0], s1(b[0][k])),
+                    _mm512_mul_pd(z[1], s1(b[1][k])),
+                ),
+                _mm512_mul_pd(z[2], s1(b[2][k])),
+            );
+            *slot = _mm512_sub_pd(y[k], back);
+        }
+        x
+    }
+
+    /// One node of `selling::most_violated`'s tree, per lane: the second
+    /// candidate wins only when its gain is larger.
+    #[inline(always)]
+    unsafe fn larger8(a: (__m512i, V, V), b: (__m512i, V, V)) -> (__m512i, V, V) {
+        let take = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(b.1, a.1);
+        (
+            _mm512_mask_blend_epi64(take, a.0, b.0),
+            _mm512_mask_blend_pd(take, a.1, b.1),
+            _mm512_mask_blend_pd(take, a.2, b.2),
+        )
+    }
+
+    /// [`super::euclid_row`] for eight lanes: the Smith test is a mask,
+    /// and the slicer runs on all lanes at once. Each lane keeps the
+    /// scalar operation order, its step choice, and its step count (a
+    /// lane that has stopped steps by zero), so every lane equals the
+    /// per-pair call bit for bit.
+    #[inline(always)]
+    unsafe fn euclid8(sl: &Slicer, room: f64, dp: [V; 3], frac: [V; 3], live: M) -> V {
+        let s1 = _mm512_set1_pd;
+        let f2 = norm(frac);
+        let smith: M = if room > 0.0 {
+            _mm512_cmp_pd_mask::<_CMP_LT_OQ>(f2, s1(room * room))
+        } else {
+            0
+        };
+        if smith & live == live {
+            return f2;
+        }
+        let mut x = if sl.engine_start {
+            frac
+        } else {
+            babai8(sl, dp)
+        };
+        let mut t = [_mm512_setzero_pd(); 8];
+        for (k, slot) in t.iter_mut().enumerate() {
+            *slot = _mm512_add_pd(
+                _mm512_add_pd(
+                    _mm512_mul_pd(x[0], s1(sl.rel[0][k])),
+                    _mm512_mul_pd(x[1], s1(sl.rel[1][k])),
+                ),
+                _mm512_mul_pd(x[2], s1(sl.rel[2][k])),
+            );
+        }
+        let rel = [
+            _mm512_loadu_pd(sl.rel[0].as_ptr()),
+            _mm512_loadu_pd(sl.rel[1].as_ptr()),
+            _mm512_loadu_pd(sl.rel[2].as_ptr()),
+        ];
+        let idx = |k: i64| _mm512_set1_epi64(k);
+        for _ in 0..64 {
+            let node = |k: usize| {
+                let g = _mm512_sub_pd(_mm512_abs_pd(t[k]), s1(sl.half_n2[k]));
+                (idx(k as i64), g, t[k])
+            };
+            let n01 = larger8(node(0), node(1));
+            let n23 = larger8(node(2), node(3));
+            let n45 = larger8(node(4), node(5));
+            let n03 = larger8(n01, n23);
+            let n46 = larger8(n45, node(6));
+            let (best, gain, tb) = larger8(n03, n46);
+            let zero = _mm512_setzero_pd();
+            let step = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(gain, zero);
+            let up = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(tb, zero);
+            let f = _mm512_mask_blend_pd(step, zero, _mm512_mask_blend_pd(up, s1(-1.0), s1(1.0)));
+            for (xc, rc) in x.iter_mut().zip(rel) {
+                *xc = _mm512_sub_pd(*xc, _mm512_mul_pd(f, _mm512_permutexvar_pd(best, rc)));
+            }
+            let mut any: M = 0;
+            for (k, slot) in t.iter_mut().enumerate() {
+                let g = _mm512_permutexvar_pd(best, _mm512_loadu_pd(sl.gram[k].as_ptr()));
+                *slot = _mm512_sub_pd(*slot, _mm512_mul_pd(f, g));
+                any |= _mm512_cmp_pd_mask::<_CMP_GT_OQ>(_mm512_abs_pd(*slot), s1(sl.half_n2[k]));
+            }
+            if any == 0 {
+                break;
+            }
+        }
+        let e2 = norm(x);
+        let shorter = _mm512_cmp_pd_mask::<_CMP_LT_OQ>(
+            _mm512_add_pd(e2, _mm512_mul_pd(s1(1e-12), _mm512_add_pd(s1(1.0), f2))),
+            f2,
+        );
+        _mm512_mask_blend_pd(smith, _mm512_mask_blend_pd(shorter, f2, e2), f2)
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn euclid_pairs(
+        frame: Frame,
+        room: f64,
+        sl: &Slicer,
+        ps: &[[f64; 3]],
+        qs: &[[f64; 3]],
+        out: &mut [f64],
+    ) {
+        groups(ps.len(), |i, _, m, mo| {
+            let d = diff(qs.as_ptr().add(i).cast(), ps.as_ptr().add(i).cast(), m);
+            let r2 = euclid8(sl, room, d, wrap8(&frame, d), mo);
+            _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, r2);
+        });
+    }
+
+    #[target_feature(enable = "avx512f,avx512dq")]
+    pub(super) unsafe fn euclid_many(
+        frame: Frame,
+        room: f64,
+        sl: &Slicer,
+        p: [f64; 3],
+        qs: &[[f64; 3]],
+        out: &mut [f64],
+    ) {
+        let pv = splat(p);
+        groups(qs.len(), |i, _, m, mo| {
+            let d = diff_from(qs.as_ptr().add(i).cast(), &pv, m);
+            let r2 = euclid8(sl, room, d, wrap8(&frame, d), mo);
+            _mm512_mask_storeu_pd(out.as_mut_ptr().add(i), mo, r2);
+        });
     }
 
     /// Groups of eight rows, then one masked group of `r < 8`.
@@ -1055,6 +1287,76 @@ mod tests {
             )
             .unwrap(),
         ]
+    }
+
+    /// Batched Euclidean distances equal the per-pair calls bit for bit,
+    /// from inside the Smith radius to many cells apart, on cells that
+    /// start from the engine wrap and cells that start from Babai.
+    #[test]
+    fn euclidean_batches_equal_the_per_pair_calls() {
+        let mut state = 0x3c6e_f372_fe94_f82bu64;
+        let mut unit = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let mut euclid_cells = cells();
+        euclid_cells.extend([
+            Cell::from_vectors(
+                [1.0, 0.0, 0.0],
+                [0.99, 0.01, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0; 3],
+            )
+            .unwrap(),
+            Cell::from_vectors(
+                [10.0, 0.0, 0.0],
+                [1.0, 10.0, 0.0],
+                [0.5, 0.2, 10.0],
+                [0.0; 3],
+            )
+            .unwrap(),
+            Cell::from_vectors(
+                [6.0, 0.0, 0.0],
+                [5.0, 4.0, 0.0],
+                [-4.0, 3.5, 5.0],
+                [1.0, 2.0, 3.0],
+            )
+            .unwrap(),
+        ]);
+        for cell in euclid_cells {
+            for n in [0usize, 1, 2, 3, 7, 8, 9, 15, 16, 17, 101] {
+                for span in [0.2, 3.0, 25.0] {
+                    let ps: Vec<[f64; 3]> = (0..n)
+                        .map(|_| [unit() * 10.0, unit() * 10.0, unit() * 10.0])
+                        .collect();
+                    let qs: Vec<[f64; 3]> = ps
+                        .iter()
+                        .map(|p| {
+                            [
+                                p[0] + (unit() - 0.5) * span,
+                                p[1] + (unit() - 0.5) * span,
+                                p[2] + (unit() - 0.5) * span,
+                            ]
+                        })
+                        .collect();
+                    let mut out = vec![0.0; n];
+                    crate::dist2_euclidean_pairs(&cell, &ps, &qs, &mut out).unwrap();
+                    for k in 0..n {
+                        let want = cell.dist2_euclidean(ps[k], qs[k]);
+                        assert_eq!(out[k].to_bits(), want.to_bits(), "{cell:?} {span} {k}");
+                    }
+                    if n > 0 {
+                        crate::dist2_euclidean_many(&cell, ps[0], &qs, &mut out).unwrap();
+                        for k in 0..n {
+                            let want = cell.dist2_euclidean(ps[0], qs[k]);
+                            assert_eq!(out[k].to_bits(), want.to_bits(), "{cell:?} {span} {k}");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Batch entries equal the per-pair calls bit for bit, including

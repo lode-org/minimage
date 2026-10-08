@@ -266,11 +266,25 @@ pub(crate) fn closest_displacement(s: &Obtuse, y: [f64; 3]) -> [f64; 3] {
     }
 }
 
-struct CachedBasis {
+pub(crate) struct CachedBasis {
     h: [[f64; 3]; 3],
     s: Obtuse,
     /// The engine wrap of this `H` is a short start for the slicer.
     engine_start: bool,
+}
+
+/// The tables the batch slicer reads, borrowed from a finished
+/// superbasis.
+#[cfg_attr(not(all(target_arch = "x86_64", minimage_avx512)), allow(dead_code))]
+pub(crate) struct Slicer<'a> {
+    pub(crate) rel: &'a [[f64; 8]; 3],
+    pub(crate) half_n2: &'a [f64; 8],
+    pub(crate) gram: &'a [[f64; 8]; 8],
+    pub(crate) inv: &'a [[f64; 3]; 3],
+    /// The three superbasis vectors Babai's start rounds in.
+    pub(crate) basis: [[f64; 3]; 3],
+    /// Start from the engine wrap rather than Babai's point.
+    pub(crate) engine_start: bool,
 }
 
 /// Restricted with the tilts inside half an edge (GROMACS
@@ -311,37 +325,64 @@ thread_local! {
 /// `y` is the raw difference and `wrapped` its engine wrap; both are in
 /// the same coset.
 pub(crate) fn closest_for(h: [[f64; 3]; 3], y: [f64; 3], wrapped: [f64; 3]) -> [f64; 3] {
+    with_basis(h, |b| b.closest(y, wrapped))
+}
+
+/// `f` on the cached superbasis of `h`, built on a miss. `f` runs while
+/// the cache is borrowed and must not query it again.
+pub(crate) fn with_basis<R>(h: [[f64; 3]; 3], f: impl FnOnce(&CachedBasis) -> R) -> R {
     BASIS.with(|cache| {
         let mut cache = cache.borrow_mut();
-        #[allow(clippy::manual_flatten)]
-        for slot in &cache.slots {
-            if let Some(slot) = slot {
-                if same_h(&slot.h, &h) {
-                    return slot.closest(y, wrapped);
-                }
+        let hit = cache
+            .slots
+            .iter()
+            .position(|slot| slot.as_ref().is_some_and(|slot| same_h(&slot.h, &h)));
+        let i = match hit {
+            Some(i) => i,
+            None => {
+                let i = cache.hand;
+                cache.hand = (i + 1) % cache.slots.len();
+                cache.slots[i] = Some(CachedBasis {
+                    h,
+                    s: obtuse_superbasis(h[0], h[1], h[2]),
+                    engine_start: engine_is_short(h),
+                });
+                i
             }
-        }
-        let slot = CachedBasis {
-            h,
-            s: obtuse_superbasis(h[0], h[1], h[2]),
-            engine_start: engine_is_short(h),
         };
-        let d = slot.closest(y, wrapped);
-        let i = cache.hand;
-        cache.hand = (i + 1) % cache.slots.len();
-        cache.slots[i] = Some(slot);
-        d
+        match &cache.slots[i] {
+            Some(slot) => f(slot),
+            None => unreachable!("slot {i} was just filled"),
+        }
     })
 }
 
 impl CachedBasis {
     #[inline(always)]
-    fn closest(&self, y: [f64; 3], wrapped: [f64; 3]) -> [f64; 3] {
+    pub(crate) fn closest(&self, y: [f64; 3], wrapped: [f64; 3]) -> [f64; 3] {
         if self.engine_start && self.s.ok {
             descend(&self.s, wrapped)
         } else {
             closest_displacement(&self.s, y)
         }
+    }
+
+    /// The slicer's tables, when Selling finished.
+    #[cfg_attr(not(all(target_arch = "x86_64", minimage_avx512)), allow(dead_code))]
+    pub(crate) fn slicer(&self) -> Option<Slicer<'_>> {
+        let s = &self.s;
+        s.ok.then(|| Slicer {
+            rel: &s.rel,
+            half_n2: &s.half_n2,
+            gram: &s.gram,
+            inv: &s.inv,
+            basis: [
+                s.v[s.idx[0] as usize],
+                s.v[s.idx[1] as usize],
+                s.v[s.idx[2] as usize],
+            ],
+            engine_start: self.engine_start,
+        })
     }
 }
 

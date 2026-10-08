@@ -3,8 +3,8 @@
 mod dlpack;
 
 use minimage::{
-    dist2_many, dist2_many_fixed, dist2_pairs, dist2_pairs_fixed, fixed_many, reduce_pairs,
-    wrap_many, Cell as RustCell,
+    dist2_euclidean_many, dist2_euclidean_pairs, dist2_many, dist2_many_fixed, dist2_pairs,
+    dist2_pairs_fixed, fixed_many, reduce_pairs, wrap_many, Cell as RustCell,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -255,6 +255,54 @@ impl PyCell {
         };
         let mut out = vec![0.0; rp.len()];
         dist2_pairs(&self.inner, &rp, &rq, &mut out).map_err(map_err)?;
+        if array {
+            out_f64(py, out)
+        } else {
+            out.into_py_any(py)
+        }
+    }
+
+    /// Euclidean nearest-image squared distances from `p` to each row of
+    /// `qs`, one superbasis lookup per call.
+    fn dist2_euclidean_many(
+        &self,
+        py: Python<'_>,
+        p: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let p = triple(p, "p")?;
+        if let Some(b) = dlpack::borrow(qs)? {
+            let rows = b.rows_f64("qs")?;
+            let mut out = vec![0.0; rows.len()];
+            dist2_euclidean_many(&self.inner, p, &rows, &mut out).map_err(map_err)?;
+            return out_f64(py, out);
+        }
+        let packed = triples(qs, "qs")?;
+        let mut out = vec![0.0; packed.len()];
+        dist2_euclidean_many(&self.inner, p, &packed, &mut out).map_err(map_err)?;
+        out.into_py_any(py)
+    }
+
+    /// Euclidean nearest-image squared distances for paired rows.
+    fn dist2_euclidean_pairs(
+        &self,
+        py: Python<'_>,
+        ps: &Bound<'_, PyAny>,
+        qs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let bp = dlpack::borrow(ps)?;
+        let bq = dlpack::borrow(qs)?;
+        let array = bp.is_some() || bq.is_some();
+        let rp = match &bp {
+            Some(b) => b.rows_f64("ps")?,
+            None => dlpack::Rows::Owned(triples(ps, "ps")?),
+        };
+        let rq = match &bq {
+            Some(b) => b.rows_f64("qs")?,
+            None => dlpack::Rows::Owned(triples(qs, "qs")?),
+        };
+        let mut out = vec![0.0; rp.len()];
+        dist2_euclidean_pairs(&self.inner, &rp, &rq, &mut out).map_err(map_err)?;
         if array {
             out_f64(py, out)
         } else {

@@ -50,6 +50,58 @@ pub fn dist2_pairs(
     Ok(())
 }
 
+/// [`Cell::dist2_euclidean`] from `p` to each row of `qs`, bit for bit.
+/// The superbasis is looked up once per call rather than once per pair.
+pub fn dist2_euclidean_many(
+    cell: &Cell,
+    p: [f64; 3],
+    qs: &[[f64; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if out.len() != qs.len() {
+        return Err(Error::BufferSize);
+    }
+    euclidean_many(cell, p, qs, out);
+    Ok(())
+}
+
+/// [`dist2_euclidean_many`] once the lengths are known to agree.
+pub(crate) fn euclidean_many(cell: &Cell, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
+    if cell.is_ortho() {
+        return crate::fused::dist2_many(cell.frame(), p, qs, out);
+    }
+    let (frame, room) = (cell.frame(), cell.smith_room());
+    crate::selling::with_basis(cell.h(), |b| {
+        crate::fused::dist2_euclidean_many(frame, room, b, p, qs, out)
+    });
+}
+
+/// [`Cell::dist2_euclidean`] for paired rows, bit for bit, with one
+/// superbasis lookup per call.
+pub fn dist2_euclidean_pairs(
+    cell: &Cell,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if ps.len() != qs.len() || out.len() != ps.len() {
+        return Err(Error::BufferSize);
+    }
+    euclidean_pairs(cell, ps, qs, out);
+    Ok(())
+}
+
+/// [`dist2_euclidean_pairs`] once the lengths are known to agree.
+pub(crate) fn euclidean_pairs(cell: &Cell, ps: &[[f64; 3]], qs: &[[f64; 3]], out: &mut [f64]) {
+    if cell.is_ortho() {
+        return crate::fused::dist2_pairs(cell.frame(), ps, qs, out);
+    }
+    let (frame, room) = (cell.frame(), cell.smith_room());
+    crate::selling::with_basis(cell.h(), |b| {
+        crate::fused::dist2_euclidean_pairs(frame, room, b, ps, qs, out)
+    });
+}
+
 /// [`Cell::fixed`] for packed positions: one AVX2 pass folds, floors, and
 /// takes the mantissa of `t + 1` for four rows at once.
 pub fn fixed_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u64; 3]]) -> Result<(), Error> {
