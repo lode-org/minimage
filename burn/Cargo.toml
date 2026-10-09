@@ -1,0 +1,29 @@
+[package]
+name = "minimage-burn"
+version = "0.1.4"
+edition = "2021"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+description = "Minimum image on Burn tensors: one code path for CPU and GPU devices"
+repository = "https://github.com/lode-org/minimage"
+
+[dependencies]
+minimage = { path = "..", version = "0.1.4", default-features = false }
+burn-tensor = { version = "0.22", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+burn-tensor = { version = "0.22", default-features = false, features = ["std", "flex"] }
+
+[features]
+# Backends are Burn's; the application picks one or more.
+flex = ["burn-tensor/flex"]
+cpu = ["burn-tensor/cpu"]
+wgpu = ["burn-tensor/wgpu"]
+vulkan = ["burn-tensor/vulkan"]
+metal = ["burn-tensor/metal"]
+cuda = ["burn-tensor/cuda"]
+rocm = ["burn-tensor/rocm"]
+fusion = ["burn-tensor/fusion"]
+
+[workspace]

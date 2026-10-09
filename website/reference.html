@@ -101,7 +101,7 @@ failure; read <code>mi_last_error()</code> on the same thread.
 
 <tr>
 <td class="org-left"><code>mi_displacement_euclidean</code></td>
-<td class="org-left">Smith test, else Minkowski 27-image</td>
+<td class="org-left">Smith test, else the Selling slicer</td>
 </tr>
 
 <tr>
@@ -120,8 +120,58 @@ failure; read <code>mi_last_error()</code> on the same thread.
 </tr>
 
 <tr>
+<td class="org-left"><code>mi_dist2_euclidean_many</code></td>
+<td class="org-left">Euclidean nearest image, one source, packed candidates</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_euclidean_pairs</code></td>
+<td class="org-left">Euclidean nearest image, packed pair lists</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_euclidean_pairs_warm</code></td>
+<td class="org-left">Euclidean pairs from the previous frame's shifts</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>mi_dist2_ortho_diffs</code></td>
-<td class="org-left">Highway-shaped ortho wrap</td>
+<td class="org-left">Highway-shaped ortho wrap, AVX when present</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_shifted_many</code></td>
+<td class="org-left">One lattice shift, many candidates</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_fixed_many</code></td>
+<td class="org-left">Positions to 64-bit fixed-point fractions</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_fixed</code></td>
+<td class="org-left">Squared distance between two fixed-point positions</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_many_fixed</code></td>
+<td class="org-left">One fixed-point source, packed candidates</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_pairs_fixed</code></td>
+<td class="org-left">Packed fixed-point pair lists</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_fixed32_many</code>, <code>mi_dist2_fixed32</code></td>
+<td class="org-left">32-bit fixed-point fractions and distance</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_many_fixed32</code>, <code>mi_dist2_pairs_fixed32</code></td>
+<td class="org-left">32-bit fixed-point batches</td>
 </tr>
 
 <tr>
@@ -145,6 +195,145 @@ failure; read <code>mi_last_error()</code> on the same thread.
 The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <code>docs.rs/minimage</code> is the Rust reference.
 </p>
+
+<section id="outline-container-orgf19b40e" class="outline-2">
+<h2 id="orgf19b40e">Python</h2>
+<div class="outline-text-2" id="text-orgf19b40e">
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Method</th>
+<th scope="col" class="org-left">Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>dist2_many(p, qs)</code></td>
+<td class="org-left">One source, rows of candidates</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_pairs(ps, qs)</code></td>
+<td class="org-left">Paired rows</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_euclidean_many(p, qs)</code>, <code>dist2_euclidean_pairs(ps, qs)</code></td>
+<td class="org-left">Euclidean nearest image</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_euclidean_pairs_warm(ps, qs, images)</code></td>
+<td class="org-left">Distances and updated shifts across frames</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>wrap_many(diffs)</code></td>
+<td class="org-left">Engine wrap of each row</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>fixed(r)</code>, <code>fixed_many(rs)</code></td>
+<td class="org-left">Fixed-point fractions, uint64</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_fixed(a, b)</code></td>
+<td class="org-left">Two fixed-point positions</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_many_fixed(p, qs)</code></td>
+<td class="org-left">One fixed-point source, rows</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_pairs_fixed(ps, qs)</code></td>
+<td class="org-left">Paired fixed-point rows</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>fixed32(r)</code>, <code>fixed32_many(rs)</code>, <code>dist2_fixed32(a, b)</code></td>
+<td class="org-left">32-bit fixed point, uint32</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_many_fixed32(p, qs)</code>, <code>dist2_pairs_fixed32(ps, qs)</code></td>
+<td class="org-left">32-bit fixed-point batches</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+An array argument is any DLPack producer on the host, read in place;
+an array result is a numpy array. A list in gives a list out.
+</p>
+</div>
+</section>
+
+<section id="outline-container-orga1170e4" class="outline-2">
+<h2 id="orga1170e4">Burn</h2>
+<div class="outline-text-2" id="text-orga1170e4">
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Item</th>
+<th scope="col" class="org-left">Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>Lattice::new(cell, device, dtype)</code></td>
+<td class="org-left"><code>H</code> and <code>Hinv</code> on a device</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Lattice::rows</code></td>
+<td class="org-left">Packed rows to an <code>(n, 3)</code> tensor</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Lattice::fractions</code></td>
+<td class="org-left">Fold on the CPU in double precision, upload</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Lattice::fractional</code></td>
+<td class="org-left">Fold on the device</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Lattice::wrap</code>, <code>dist2_pairs</code>, <code>dist2_many</code></td>
+<td class="org-left">Cartesian rows</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Lattice::displacement_fractional</code>, <code>dist2_pairs_fractional</code>, <code>dist2_many_fractional</code></td>
+<td class="org-left">Fraction rows, exact wrap</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>to_vec</code></td>
+<td class="org-left">A rank-one tensor back as doubles</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
 </div>
 </body>
 </html>

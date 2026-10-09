@@ -46,11 +46,11 @@ dependencies = [
 
 [[package]]
 name = "minimage"
-version = "0.1.2"
+version = "0.1.4"
 
 [[package]]
 name = "minimage-python"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "minimage",
  "pyo3",

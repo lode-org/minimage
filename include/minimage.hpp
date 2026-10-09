@@ -11,6 +11,7 @@ extern "C" {
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -151,11 +152,45 @@ struct Cell {
     return out;
   }
 
+  /// Rapaport's bin pair: `|q + shift - p|^2` for `n` candidates.
+  void dist2_shifted_many(std::array<double, 3> p, const double *qs,
+                          std::array<double, 3> shift, std::size_t n,
+                          double *out) const {
+    check(mi_dist2_shifted_many(p.data(), qs, shift.data(), n, out),
+          "minimage: dist2_shifted_many failed");
+  }
+
   void dist2_many(std::array<double, 3> p, const double *qs, std::size_t n,
                   double *out) const {
     const mi_cell box = raw();
     check(mi_dist2_many(&box, p.data(), qs, n, out),
           "minimage: dist2_many failed");
+  }
+
+  /// Euclidean nearest-image squared distances, one superbasis lookup per
+  /// call.
+  void dist2_euclidean_many(std::array<double, 3> p, const double *qs,
+                            std::size_t n, double *out) const {
+    const mi_cell box = raw();
+    check(mi_dist2_euclidean_many(&box, p.data(), qs, n, out),
+          "minimage: dist2_euclidean_many failed");
+  }
+
+  void dist2_euclidean_pairs(const double *ps, const double *qs,
+                             std::size_t n, double *out) const {
+    const mi_cell box = raw();
+    check(mi_dist2_euclidean_pairs(&box, ps, qs, n, out),
+          "minimage: dist2_euclidean_pairs failed");
+  }
+
+  /// Pairs that persist across frames: `images` holds each pair's lattice
+  /// shift from the previous call (zeros to start) and is updated.
+  void dist2_euclidean_pairs_warm(const double *ps, const double *qs,
+                                  std::size_t n, std::int32_t *images,
+                                  double *out) const {
+    const mi_cell box = raw();
+    check(mi_dist2_euclidean_pairs_warm(&box, ps, qs, n, images, out),
+          "minimage: dist2_euclidean_pairs_warm failed");
   }
 };
 

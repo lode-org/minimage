@@ -37,15 +37,216 @@ origin)</code>, wrap each component into the central image, then map back
 </p>
 
 <p>
-Orthorhombic boxes are the diagonal case. Each axis wraps on its own
-length. The batched kernel hoists one reciprocal per axis and wraps
-precomputed differences, the same arithmetic as a Highway
-<code>BatchPeriodicDistSq</code> loop. The signed wrap keeps <code>-L/2</code> and maps
-<code>+L/2</code> onto <code>-L/2</code>, matching dump <code>relDist</code>.
+Orthorhombic boxes are the diagonal case (Allen and Tildesley;
+Frenkel and Smit). Each axis is <code>d - L floor(d/L + 1/2)</code>, every
+image, not one subtraction. The tie keeps <code>-L/2</code> and maps <code>+L/2</code>
+onto <code>-L/2</code>, matching dump <code>relDist</code>. Two positions folded into the
+box are less than one length apart on every axis, so the wrap is two
+selects and the floor runs only past that. A squared distance needs
+no sign: for <code>|d| &lt; L</code> the wrapped length is <code>min(|d|, L - |d|)</code>, the
+same square bit for bit with a third of the selects.
 </p>
-<section id="outline-container-orgc2d6f0e" class="outline-2">
-<h2 id="orgc2d6f0e">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-orgc2d6f0e">
+
+<p>
+Baseline x86-64 has no rounding instruction, so <code>f64::round</code> and
+<code>floor</code> are libm calls. Rounding half away from zero adds the largest
+double below one half, with the sign of the argument, and truncates
+with <code>cvttsd2si</code>. That is the same integer for every double, and the
+expansion LLVM itself uses when SSE4.1 is present.
+</p>
+
+<p>
+A restricted triclinic box (<code>a</code> along x, <code>b</code> in the xy plane) uses
+the triangular lamda step of LAMMPS <code>Domain::minimum_image</code>, HOOMD
+<code>BoxDim::minImage</code>, and GROMACS <code>pbc_dx</code> (Tuckerman; Wassenaar). A
+general orientation is two products with <code>Hinv</code>. <code>Cell::reduce_tilts</code>
+is GROMACS <code>correct_box</code>. <code>Cell::to_restricted</code> is the LAMMPS
+general-to-restricted rotation.
+</p>
+
+<p>
+<code>dist2_many</code>, <code>dist2_pairs</code>, and <code>wrap_many</code> are one AVX pass over
+the packed rows for every cell shape: four rows load as three vectors,
+subtract while still packed, and transpose once in registers, with no
+staging buffer (map fusion in the sense of DaCe and Futhark). An
+orthorhombic wrap is per element and does not transpose at all. Each
+lane runs the per-pair operations in the per-pair order, so a batch
+squared distance equals the per-pair call bit for bit and a wrapped
+vector equals it up to the sign of a zero. <code>dist2_ortho_diffs</code> keeps
+the Highway <code>BatchPeriodicDistSq</code> shape: precomputed differences, one
+reciprocal per axis, <code>abs</code>, then <code>round</code>.
+</p>
+
+<p>
+Where the processor has AVX-512F and DQ, eight rows go per pass:
+two-source permutes transpose them, and the last rows load and store
+under a lane mask, so no batch ends in a scalar tail. The intrinsics
+are stable from Rust 1.89, which <code>build.rs</code> checks; an older compiler
+keeps the AVX path. The orthorhombic wrap stays at four rows. It
+stores as much as it loads, and a 64-byte store splits a cache line
+on all but one alignment in eight.
+</p>
+
+<section id="outline-container-org75cc666" class="outline-2">
+<h2 id="org75cc666">Nearest image</h2>
+<div class="outline-text-2" id="text-org75cc666">
+<p>
+Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
+nearest image when its length is strictly below half the smallest
+face altitude. That is the cutoff regime. Linkcell k-NN has no
+cutoff. A hex-prism body diagonal is an engine wrap that is longer
+than another image.
+</p>
+
+<p>
+Past that test the closest point comes from the obtuse superbasis
+every three-dimensional lattice has (Selling, 1874; Conway and
+Sloane, Proc. R. Soc. Lond. A 436, 55, 1992). A near-parallel basis
+makes the one-vector Delone step linear in the reciprocal of the
+angle, so Lagrange's size reduction (1773; Gauss, 1801) shortens
+the edges first. The superbasis is cached on the calling thread and built on the first query that fails the Smith test.
+The query rounds in three of the four superbasis vectors (Babai,
+Combinatorica 6, 1, 1986), then runs the iterative slicer of Sommer,
+Feder, and Shalvi, SIAM J. Discrete Math. 23, 715 (2009): while some
+relevant vector <code>r</code> has <code>2 |x · r| &gt; |r|^2</code>, step by <code>r</code>. Every
+Voronoi-relevant vector of an obtuse superbasis is one of seven
+classes <code>±v_S</code> (Conway and Sloane), so where the walk stops <code>x</code> is the
+shortest vector of its coset. A restricted cell with its tilts inside
+half an edge starts from the engine wrap instead of Babai's point.
+McKilliam, Grant, and Clarkson, SIAM J. Discrete Math. 28, 1405
+(2014), search the same subset sums in three rounds of fifteen.
+A tie keeps the engine vector.
+<code>dist2_euclidean_many</code> and <code>dist2_euclidean_pairs</code> look the superbasis
+up once per call and run the slicer on eight rows per AVX-512 pass: a
+row's seven dot products are one lane of eight vectors, the select
+tree runs lane by lane, and a lane's Gram row is one <code>vpermpd</code> of the
+stored rows. The Smith test becomes a lane mask, so the branch that a
+single query mispredicts is gone, and a group whose lanes all pass it
+skips the slicer. Each lane keeps the scalar order, its step choice,
+and its step count, so a batch equals the per-pair call bit for bit, 6
+to 11 times faster. Without AVX-512 the batch runs the per-pair code
+with the one lookup.
+</p>
+
+<p>
+Across frames a pair seldom leaves its image.
+<code>dist2_euclidean_pairs_warm</code> keeps each pair's cell-basis shift <code>n</code>
+from the previous call: subtracting <code>H n</code> and testing the seven
+relevant vectors replaces the search for a pair still in its Voronoi
+cell, and the others take the full search and store their new shift.
+Integer shifts stay right when the cell deforms. While the pairs fit
+in cache this is 2.2 to 2.8 times faster than the batch; from main
+memory, where the shifts are one more stream, 1.15 times. The image is
+the one the search finds, and the distance equals it to rounding,
+since <code>H n</code> is subtracted directly rather than through the engine
+wrap.
+Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
+Minkowski-reduces a basis; that reduction is not the closest-vector
+certificate. The linked-cell pair itself is Rapaport's shift,
+<code>|q + shift - p|^2</code>, exposed as <code>dist2_shifted_many</code>. A bin that
+is an index list rather than a contiguous slice is
+<code>dist2_shifted_indexed</code>: it gathers a chunk of those positions into
+the same kernel. The gather copies every point first. On a long
+index list that copy was slower than the inlined subtract, so the
+production walk keeps the subtract.
+</p>
+</div>
+</section>
+
+<section id="outline-container-orgb7699af" class="outline-2">
+<h2 id="orgb7699af">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-orgb7699af">
+<p>
+<code>Cell::fixed</code> stores a position folded into the cell as three
+fractions on 64 bits, <code>round(s * 2^52) * 2^12</code>: the low 52 bits of
+<code>s + 1</code> are that integer, so a position converts with an add and a
+mask, no conversion instruction and no branch, and <code>fixed_many</code> does
+four or eight at once. The engine wrap of a difference is
+then integer arithmetic: <code>b - a</code> modulo <code>2^64</code>, read as signed, is the
+wrapped fraction in <code>[-1/2, 1/2)</code>, exactly. The top 52 bits of that
+difference convert to a double exactly, and one product with <code>H</code> gives
+the Cartesian vector, for any cell shape, with no <code>Hinv</code> and no
+rounding step. That is the exact integer split of the Ozaki scheme
+(Ozaki, Ogita, Oishi, and Rump, Numer. Algorithms 59, 95, 2012) applied
+to the periodic wrap, and the fixed-point positions of Anton (Shaw et
+al., Commun. ACM 51, 91, 2008). The wrap is the symmetric residue
+<code>a - m floor(a/m + 1/2)</code> of Ozaki Scheme II (Ozaki, Uchino, and
+Imamura, arXiv:2504.08009, 2025) with the one modulus <code>m = 2^64</code>;
+two's complement computes it, so no Chinese remainder step is needed.
+The orthorhombic wrap above is the same residue with <code>m = L</code>.
+Scheme II splits a product over several small moduli so that INT8
+units compute each part exactly, then rebuilds it by the Chinese
+remainder theorem; that pays when many products share one rebuild,
+as along the inner dimension of a matrix product. A wrap has one
+subtraction per axis and the product with <code>H</code> has three terms, so on
+a CPU the double-precision units are already the fast path.
+Convert positions once per frame; a
+pair list over them then costs a subtraction, a conversion, and a
+matrix product per pair. A fraction exactly one half apart wraps to
+<code>-1/2</code>, and the distance agrees with <code>dist2</code> to a few units in the
+last place.
+</p>
+
+<p>
+<code>Cell::fixed32</code> and the <code>_fixed32</code> batches round each fraction to its
+top 32 bits: 12 bytes a position instead of 24. Past the second-level
+cache a batch moves more bytes than it computes on, about 56 a pair,
+so the bytes set the time. On this host the 32-bit batches are 2.7 to
+3.5 times faster than the double batches at 64K pairs, 1.8 to 2.0
+times at 16M, and 2 times in cache. The wrap is still exact, modulo
+<code>2^32</code>, and a displacement is within <code>2^-32 (|a| + |b| + |c|)</code> of the
+engine wrap, about <code>7e-9</code> in a cell 10 long: a tier for neighbour
+searches and histograms, beside the double contract. Two other ways
+to stream less did not pay: non-temporal stores gained 5 to 9 percent
+only once the output left the cache, and evict output a caller is
+about to read; structure-of-arrays input gained at most 11 percent.
+</p>
+
+<p>
+A low-rank formulation does not help either. Before the wrap, the
+squared distances to one image are a rank-five product, <code>|p|^2 + |q +
+nH|^2 - 2 p . (q + nH)</code>, the Gram trick behind matrix-product
+nearest-neighbour search, and the displacement tensor has multilinear
+rank <code>(2, 2, 3)</code>. The wrap is a nonlinear choice of image per pair, so
+the product has to be paid for every candidate image, 27 for a general
+cell, and the expansion cancels: 11.7 ns a pair against 1.0 for the
+wrap, with relative errors of <code>1.5e-11</code>.
+</p>
+</div>
+</section>
+
+<section id="outline-container-orgba527ae" class="outline-2">
+<h2 id="orgba527ae">Arrays and devices</h2>
+<div class="outline-text-2" id="text-orgba527ae">
+<p>
+The Python methods take any DLPack producer, numpy, PyTorch, JAX, or
+CuPy host memory, and read contiguous rows where they lie; the result
+is a numpy array that owns its buffer through a DLPack 1.0 capsule,
+so <code>torch.from_dlpack</code> shares it too. A batch of 100 000 rows from
+numpy is 150 to 250 times faster than through lists.
+</p>
+
+<p>
+<code>minimage-burn</code> puts the wrap on Burn tensors. Burn 0.22 picks the
+backend from the device at run time, so one code path serves the CPU,
+wgpu, Vulkan, Metal, CUDA, and ROCm, and every step is a matrix
+product or an element-wise map that Burn's fusion joins per batch.
+Positions folded into <code>[0, 1)</code> on the CPU in double precision wrap
+exactly on the device in any float width: for <code>|ds| &lt; 1</code>, <code>ds -
+round(ds)</code> subtracts zero or a neighbour of <code>ds</code>, which is exact by
+Sterbenz's lemma. A single- or half-precision device then rounds only
+<code>ds</code> and the product with <code>H</code>. That is the reduced precision of
+kernel_float (Heldens, Netherlands eScience Center), chosen per call,
+around an exact wrap. Folding on a single-precision device would lose
+the digits of a position far from the origin, so the fold stays on
+the CPU.
+</p>
+</div>
+</section>
+
+<section id="outline-container-org0fb3e08" class="outline-2">
+<h2 id="org0fb3e08">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-org0fb3e08">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -64,9 +265,10 @@ c)</code>.
 </p>
 </div>
 </section>
-<section id="outline-container-org635c4e0" class="outline-2">
-<h2 id="org635c4e0">vesin images</h2>
-<div class="outline-text-2" id="text-org635c4e0">
+
+<section id="outline-container-org9a4247e" class="outline-2">
+<h2 id="org9a4247e">vesin images</h2>
+<div class="outline-text-2" id="text-org9a4247e">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -75,9 +277,10 @@ the self image.
 </p>
 </div>
 </section>
-<section id="outline-container-org1f6f2dd" class="outline-2">
-<h2 id="org1f6f2dd">Consumers</h2>
-<div class="outline-text-2" id="text-org1f6f2dd">
+
+<section id="outline-container-orgaedc8f7" class="outline-2">
+<h2 id="orgaedc8f7">Consumers</h2>
+<div class="outline-text-2" id="text-orgaedc8f7">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
