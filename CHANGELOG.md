@@ -1,73 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 - 2026-10-09
 
-Every skewed-cell wrap rounds half away from zero without the libm
-call: add the largest double below one half with the sign of the
-argument and truncate with `cvttsd2si`, the same integer for every
-double. `dist2`, `displacement`, and the Smith-hit Euclidean query
-inline into the caller. Orthorhombic `dist2` squares
-`min(|d|, L - |d|)`, the signed wrap's square bit for bit. A diagonal
-H builds with three reciprocals and no square roots; a restricted H
-takes its inverse from the lamda reciprocals, and its c-face width is
-`|c_z|`. The hand-placed lattice loads are gone.
-The Euclidean far query rounds in three Selling vectors (Babai) and
-runs the Sommer-Feder-Shalvi slicer over the seven Voronoi-relevant
-classes of the obtuse superbasis, in place of three McKilliam rounds.
-A restricted cell with reduced tilts starts the slicer from the engine
-wrap. `dist2_many`, `dist2_pairs`, and `wrap_many`, and their C
-entries, are one fused AVX pass over the packed rows for every cell
-shape; a squared distance equals the per-pair call bit for bit, and a
-wrapped vector equals it up to the sign of a zero. A C call
-looks up its cell once and borrows it in place.
-`Cell::fixed` stores positions as 64-bit fixed-point fractions of
-the cell. `dist2_fixed`, `displacement_fixed`, `dist2_many_fixed`,
-`dist2_pairs_fixed`, and `fixed_many`, with C entries `mi_fixed_many`,
-`mi_dist2_fixed`, `mi_dist2_many_fixed`, and `mi_dist2_pairs_fixed`,
-wrap with integer subtraction modulo `2^64`, exact, then one product
-with H for any cell shape (the Ozaki integer split).
-`Cell::fixed32` and `fixed32_many`, `dist2_many_fixed32`, and
-`dist2_pairs_fixed32` (C and Python too) store each fraction on 32
-bits, 12 bytes a position: the wrap stays exact modulo `2^32` and a
-displacement is within `2^-32 (|a| + |b| + |c|)` of the engine wrap.
-Batches past the cache are bandwidth bound, and these run 1.8 to 3.5
-times faster than the double batches, 2 times in cache.
-`dist2_euclidean_pairs_warm` (C, C++, Python) keeps each pair's
-lattice shift across frames; a pair still in its Voronoi cell skips
-the search, 2.2 to 2.8 times faster than the batch in cache.
-`dist2_euclidean_many` and `dist2_euclidean_pairs` (C:
-`mi_dist2_euclidean_many`, `mi_dist2_euclidean_pairs`; Python and C++
-methods of the same names) equal `dist2_euclidean` per pair bit for
-bit. They look the superbasis up once per call and slice eight rows
-per AVX-512 pass, the Smith test a lane mask and each lane's Gram row
-a `vpermpd`: 6 to 11 times faster than the per-pair call, 53 times
-faster than a Python loop over it.
-`Cell::from_vectors` reads each element of the caller's rows on its
-own. A 16-byte load of two neighbours straddled a row the caller had
-just stored, could not forward from the store buffer, and made
-skewed-cell construction 29 ns on recent compilers; it is 10 ns, and
-general cells 14 ns from 32. The lamda coefficients come from H and
-three stored reciprocals, and the frame tests take one maximum.
-Batch kernels run eight lanes wide where the processor has AVX-512F
-and DQ and the compiler has the intrinsics (Rust 1.89; `build.rs`
-checks, older compilers keep AVX2): 1.5 to 1.7 times faster for
-triclinic and fixed-point batches, 1.2 to 1.5 for orthorhombic
-distances, bit for bit the same results. A short group loads and
-stores under a lane mask, so no batch ends in a scalar tail.
-The orthorhombic kernels call their far-image fallback out of line, so
-their loops stop spilling the loaded rows to the stack: orthorhombic
-batches are a quarter faster and no longer depend on where the stack
-lands.
-Python batch methods read any DLPack producer (numpy, PyTorch, JAX,
-or CuPy host arrays) in place, with no `tolist`, and return numpy
-arrays that own their buffers through a DLPack 1.0 capsule; a list in
-still gives a list out. `dist2_pairs`, `fixed`, `fixed_many`,
-`dist2_fixed`, `dist2_many_fixed`, and `dist2_pairs_fixed` are bound.
-`minimage-burn` (in `burn/`, outside the workspace, Rust 1.95) puts
-the wrap on Burn tensors, whose device picks the backend at run time:
-CPU, wgpu, Vulkan, Metal, CUDA, or ROCm. Fractions folded on the CPU in
-double precision wrap exactly on a single- or half-precision device,
-since `ds - round(ds)` is exact for `|ds| < 1`.
+`fixed` and `fixed32` store a position as a fraction of the cell and
+wrap by integer subtraction. `dist2_euclidean_many`,
+`dist2_euclidean_pairs`, and `dist2_euclidean_pairs_warm` match
+`dist2_euclidean` per pair, on the C, C++, and Python APIs.
+Python batches read a DLPack array in place and return a numpy array.
+`minimage-burn` is a separate crate and is not in the default build.
 
 ## 0.1.3 - 2026-10-04
 

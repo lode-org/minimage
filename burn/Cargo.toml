@@ -1,6 +1,6 @@
 [package]
 name = "minimage-burn"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.95"
 license = "MIT"
@@ -9,7 +9,7 @@ description = "Minimum image on Burn tensors: one code path for CPU and GPU devi
 repository = "https://github.com/lode-org/minimage"
 
 [dependencies]
-minimage = { path = "..", version = "0.1.3", default-features = false }
+minimage = { path = "..", version = "0.1.4", default-features = false }
 burn-tensor = { version = "0.22", default-features = false, features = ["std"] }
 
 [dev-dependencies]
