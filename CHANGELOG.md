@@ -1,6 +1,43 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 - 2026-10-09
+
+`fixed` and `fixed32` store a position as a fraction of the cell and
+wrap by integer subtraction. `dist2_euclidean_many`,
+`dist2_euclidean_pairs`, and `dist2_euclidean_pairs_warm` match
+`dist2_euclidean` per pair, on the C, C++, and Python APIs.
+Python batches read a DLPack array in place and return a numpy array.
+`minimage-burn` is a separate crate and is not in the default build.
+
+## 0.1.3 - 2026-10-04
+
+Orthorhombic wrap is `d - L floor(d/L + 1/2)` for every image, and
+keeps the `-L/2` tie. Restricted triclinic engine wrap is the
+triangular lamda step. The structure-of-arrays orthorhombic kernel and the shifted bin
+kernel run AVX when the CPU has it.
+`displacement_euclidean` is Smith's half-altitude test, then the
+McKilliam-Grant-Clarkson closest point on the Selling superbasis.
+The superbasis is cached on the calling thread, keyed by H, and
+built on the first query that fails the Smith test. Constructors
+do not build it. A restricted cell keeps the three lamda reciprocals.
+The ortho and restricted tests scale by the face widths, which
+construction already computes, and do not take a second set of
+square roots. Lagrange size reduction runs before the
+Delone step, so a near-parallel cell does not take one iteration
+per reciprocal of the angle. C `mi_dist2` / `mi_displacement` /
+`mi_wrap_many` do not build that superbasis. Orthorhombic
+`mi_dist2`, `mi_displacement`, `mi_wrap_many`, and `mi_dist2_many`
+skip `Hinv` and use the per-axis wrap; the batch feeds the AVX kernel. `dist2_shifted_many`
+and `mi_dist2_shifted_many` are Rapaport's one-shift bin pair for
+linkcell. Constructors that only publish `mi_cell` skip Selling. A repeated
+C call on the same twelve doubles reuses that inverse.
+Orthorhombic `dist2` uses two comparisons inside one neighbouring
+image and the floor form past that image. `dist2_pairs` and `mi_dist2_pairs` use that orthorhombic
+structure-of-arrays kernel, and a repeated orthorhombic `mi_cell`
+reuses the lengths and the reciprocals. `dist2_shifted_indexed`
+gathers a linked-cell index list into the shifted kernel. The
+gather was slower than the inlined subtract on a long index list,
+so the production walk keeps that subtract.
 
 ## 0.1.2 - 2026-09-27
 

@@ -1,11 +1,13 @@
 //! Batched minimum-image squared distances.
 //!
-//! The orthorhombic kernel hoists one reciprocal per axis and wraps
-//! each component independently, the same arithmetic as the Highway
-//! `BatchPeriodicDistSq` path. The general path applies
-//! [`crate::Cell::dist2`] per pair. Loops are written as packed
-//! coordinate streams so a vectorising compiler emits SIMD for the
-//! ortho remainder.
+//! [`dist2_many`], [`dist2_pairs`], and [`wrap_many`] are one fused AVX
+//! pass over the packed rows when the CPU has it, for every cell shape,
+//! and a squared distance equals the per-pair call bit for bit; a
+//! wrapped vector equals it up to the sign of a zero.
+//! [`dist2_ortho_diffs`] keeps the Highway `BatchPeriodicDistSq` shape:
+//! precomputed differences, one reciprocal per axis, then `abs` and
+//! `round`. [`dist2_shifted_many`](crate::Cell::dist2_shifted_many) is
+//! Rapaport's linked-cell pair, one lattice shift for a whole bin.
 
 use crate::{Cell, Error};
 
@@ -17,24 +19,8 @@ pub fn wrap_many(cell: &Cell, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) -> Resul
     if out.len() != diffs.len() {
         return Err(Error::BufferSize);
     }
-    if cell.is_ortho() {
-        wrap_many_ortho(cell.widths(), diffs, out);
-    } else {
-        for (d, o) in diffs.iter().zip(out.iter_mut()) {
-            *o = cell.displacement([0.0, 0.0, 0.0], *d);
-        }
-    }
+    crate::fused::wrap_many(cell.frame(), diffs, out);
     Ok(())
-}
-
-fn wrap_many_ortho(l: [f64; 3], diffs: &[[f64; 3]], out: &mut [[f64; 3]]) {
-    for (d, o) in diffs.iter().zip(out.iter_mut()) {
-        *o = [
-            crate::cell::wrap_half(d[0], l[0]),
-            crate::cell::wrap_half(d[1], l[1]),
-            crate::cell::wrap_half(d[2], l[2]),
-        ];
-    }
 }
 
 /// Squared MIC distances from `p` to each packed candidate in `qs`.
@@ -44,13 +30,7 @@ pub fn dist2_many(cell: &Cell, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) ->
     if out.len() != qs.len() {
         return Err(Error::BufferSize);
     }
-    if cell.is_ortho() {
-        dist2_many_ortho(cell.widths(), p, qs, out);
-    } else {
-        for (q, o) in qs.iter().zip(out.iter_mut()) {
-            *o = cell.dist2(p, *q);
-        }
-    }
+    crate::fused::dist2_many(cell.frame(), p, qs, out);
     Ok(())
 }
 
@@ -66,19 +46,185 @@ pub fn dist2_pairs(
     if ps.len() != qs.len() || out.len() != ps.len() {
         return Err(Error::BufferSize);
     }
-    if cell.is_ortho() {
-        let l = cell.widths();
-        let rbx = 1.0 / l[0];
-        let rby = 1.0 / l[1];
-        let rbz = 1.0 / l[2];
-        for i in 0..ps.len() {
-            out[i] = dist2_ortho_one(ps[i], qs[i], l, rbx, rby, rbz);
-        }
-    } else {
-        for i in 0..ps.len() {
-            out[i] = cell.dist2(ps[i], qs[i]);
-        }
+    crate::fused::dist2_pairs(cell.frame(), ps, qs, out);
+    Ok(())
+}
+
+/// [`Cell::dist2_euclidean`] from `p` to each row of `qs`, bit for bit.
+/// The superbasis is looked up once per call rather than once per pair.
+pub fn dist2_euclidean_many(
+    cell: &Cell,
+    p: [f64; 3],
+    qs: &[[f64; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if out.len() != qs.len() {
+        return Err(Error::BufferSize);
     }
+    euclidean_many(cell, p, qs, out);
+    Ok(())
+}
+
+/// [`dist2_euclidean_many`] once the lengths are known to agree.
+pub(crate) fn euclidean_many(cell: &Cell, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
+    if cell.is_ortho() {
+        return crate::fused::dist2_many(cell.frame(), p, qs, out);
+    }
+    let (frame, room) = (cell.frame(), cell.smith_room());
+    crate::selling::with_basis(cell.h(), |b| {
+        crate::fused::dist2_euclidean_many(frame, room, b, p, qs, out)
+    });
+}
+
+/// [`Cell::dist2_euclidean`] for paired rows, bit for bit, with one
+/// superbasis lookup per call.
+pub fn dist2_euclidean_pairs(
+    cell: &Cell,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if ps.len() != qs.len() || out.len() != ps.len() {
+        return Err(Error::BufferSize);
+    }
+    euclidean_pairs(cell, ps, qs, out);
+    Ok(())
+}
+
+/// [`dist2_euclidean_pairs`] once the lengths are known to agree.
+pub(crate) fn euclidean_pairs(cell: &Cell, ps: &[[f64; 3]], qs: &[[f64; 3]], out: &mut [f64]) {
+    if cell.is_ortho() {
+        return crate::fused::dist2_pairs(cell.frame(), ps, qs, out);
+    }
+    let (frame, room) = (cell.frame(), cell.smith_room());
+    crate::selling::with_basis(cell.h(), |b| {
+        crate::fused::dist2_euclidean_pairs(frame, room, b, ps, qs, out)
+    });
+}
+
+/// Euclidean nearest-image squared distances for pairs that persist
+/// across frames.
+///
+/// `images[k]` is the cell-basis lattice shift `n` of pair `k`'s image,
+/// `x = (q - p) - H n`, from the previous call; start with zeros. A pair
+/// whose stored image still lies in the Voronoi cell costs a subtraction
+/// and seven dot products. The others run the full search, bit for bit
+/// [`Cell::dist2_euclidean`], and get their new shift. The image is the
+/// one `dist2_euclidean` finds; for a stored image the distance equals
+/// it to rounding, since `H n` is subtracted directly rather than
+/// through the engine wrap. An orthorhombic cell takes the plain batch
+/// and leaves `images` alone.
+pub fn dist2_euclidean_pairs_warm(
+    cell: &Cell,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    images: &mut [[i32; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if ps.len() != qs.len() || out.len() != ps.len() || images.len() != ps.len() {
+        return Err(Error::BufferSize);
+    }
+    euclidean_pairs_warm(cell, ps, qs, images, out);
+    Ok(())
+}
+
+/// [`dist2_euclidean_pairs_warm`] once the lengths are known to agree.
+pub(crate) fn euclidean_pairs_warm(
+    cell: &Cell,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    images: &mut [[i32; 3]],
+    out: &mut [f64],
+) {
+    if cell.is_ortho() {
+        return crate::fused::dist2_pairs(cell.frame(), ps, qs, out);
+    }
+    crate::selling::with_basis(cell.h(), |basis| {
+        let w = crate::fused::Warm {
+            h: cell.h(),
+            hinv: cell.hinv(),
+            frame: cell.frame(),
+            room: cell.smith_room(),
+            basis,
+        };
+        crate::fused::dist2_euclidean_pairs_warm(&w, ps, qs, images, out)
+    });
+}
+
+/// [`Cell::fixed`] for packed positions: one AVX2 pass folds, floors, and
+/// takes the mantissa of `t + 1` for four rows at once.
+pub fn fixed_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u64; 3]]) -> Result<(), Error> {
+    if out.len() != rs.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed::fixed_many(&cell.fold(), rs, out);
+    Ok(())
+}
+
+/// [`Cell::fixed32`] for packed positions.
+pub fn fixed32_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u32; 3]]) -> Result<(), Error> {
+    if out.len() != rs.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed32::fixed32_many(&cell.fold(), rs, out);
+    Ok(())
+}
+
+/// [`Cell::dist2_fixed32`] from `p` to each row of `qs`, bit for bit:
+/// sixteen rows per AVX-512 pass, eight per AVX2 pass.
+pub fn dist2_many_fixed32(
+    cell: &Cell,
+    p: [u32; 3],
+    qs: &[[u32; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if out.len() != qs.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed32::dist2_many(cell.fixed32_lattice(), p, qs, out);
+    Ok(())
+}
+
+/// [`Cell::dist2_fixed32`] for paired rows, bit for bit.
+pub fn dist2_pairs_fixed32(
+    cell: &Cell,
+    ps: &[[u32; 3]],
+    qs: &[[u32; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if ps.len() != qs.len() || out.len() != ps.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed32::dist2_pairs(cell.fixed32_lattice(), ps, qs, out);
+    Ok(())
+}
+
+/// Squared engine-wrap distances from fixed-point `p` to each fixed-point
+/// `qs` ([`Cell::fixed`]). Integer wrap, one product with `H`.
+pub fn dist2_many_fixed(
+    cell: &Cell,
+    p: [u64; 3],
+    qs: &[[u64; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if out.len() != qs.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed::dist2_many(cell.fixed_lattice(), p, qs, out);
+    Ok(())
+}
+
+/// Squared engine-wrap distances for fixed-point pair lists.
+pub fn dist2_pairs_fixed(
+    cell: &Cell,
+    ps: &[[u64; 3]],
+    qs: &[[u64; 3]],
+    out: &mut [f64],
+) -> Result<(), Error> {
+    if ps.len() != qs.len() || out.len() != ps.len() {
+        return Err(Error::BufferSize);
+    }
+    crate::fixed::dist2_pairs(cell.fixed_lattice(), ps, qs, out);
     Ok(())
 }
 
@@ -102,54 +248,8 @@ pub fn dist2_ortho_diffs(
     if !(bx > 0.0 && by > 0.0 && bz > 0.0) {
         return Err(Error::BadBox);
     }
-    let rbx = 1.0 / bx;
-    let rby = 1.0 / by;
-    let rbz = 1.0 / bz;
-    // Four-wide unroll so the wrap is a contiguous SIMD-shaped loop.
-    let mut i = 0;
-    while i + 4 <= n {
-        for k in 0..4 {
-            let mut ddx = dx[i + k].abs();
-            let mut ddy = dy[i + k].abs();
-            let mut ddz = dz[i + k].abs();
-            ddx -= bx * (ddx * rbx).round();
-            ddy -= by * (ddy * rby).round();
-            ddz -= bz * (ddz * rbz).round();
-            out[i + k] = ddx * ddx + ddy * ddy + ddz * ddz;
-        }
-        i += 4;
-    }
-    while i < n {
-        let mut ddx = dx[i].abs();
-        let mut ddy = dy[i].abs();
-        let mut ddz = dz[i].abs();
-        ddx -= bx * (ddx * rbx).round();
-        ddy -= by * (ddy * rby).round();
-        ddz -= bz * (ddz * rbz).round();
-        out[i] = ddx * ddx + ddy * ddy + ddz * ddz;
-        i += 1;
-    }
+    crate::simd::dist2_ortho_diffs(&dx[..n], &dy[..n], &dz[..n], bx, by, bz, &mut out[..n]);
     Ok(())
-}
-
-fn dist2_many_ortho(l: [f64; 3], p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) {
-    let rbx = 1.0 / l[0];
-    let rby = 1.0 / l[1];
-    let rbz = 1.0 / l[2];
-    for (q, o) in qs.iter().zip(out.iter_mut()) {
-        *o = dist2_ortho_one(p, *q, l, rbx, rby, rbz);
-    }
-}
-
-#[inline]
-fn dist2_ortho_one(p: [f64; 3], q: [f64; 3], l: [f64; 3], rbx: f64, rby: f64, rbz: f64) -> f64 {
-    let mut ddx = (q[0] - p[0]).abs();
-    let mut ddy = (q[1] - p[1]).abs();
-    let mut ddz = (q[2] - p[2]).abs();
-    ddx -= l[0] * (ddx * rbx).round();
-    ddy -= l[1] * (ddy * rby).round();
-    ddz -= l[2] * (ddz * rbz).round();
-    ddx * ddx + ddy * ddy + ddz * ddz
 }
 
 #[cfg(test)]
@@ -167,6 +267,12 @@ mod tests {
             assert!((out[i] - cell.dist2(p, qs[i])).abs() < 1e-12);
         }
         assert!((out[0] - 0.64).abs() < 1e-12);
+        let wide: Vec<[f64; 3]> = (0..70).map(|i| [f64::from(i) - 20.0, 0.0, 0.0]).collect();
+        let mut wide_out = vec![0.0; wide.len()];
+        dist2_many(&cell, p, &wide, &mut wide_out).unwrap();
+        for (q, got) in wide.iter().zip(wide_out.iter()) {
+            assert!((got - cell.dist2(p, *q)).abs() < 1e-12);
+        }
     }
 
     #[test]
@@ -203,6 +309,23 @@ mod tests {
         wrap_many(&cell, &diffs, &mut out).unwrap();
         assert!((out[0][0] + 0.8).abs() < 1e-12);
         assert!((out[1][0] - 0.2).abs() < 1e-12);
+    }
+
+    #[test]
+    fn pairs_match_scalar_including_later_images() {
+        let cell = Cell::ortho(10.0, 11.0, 12.0).unwrap();
+        let mut ps = vec![[0.0; 3]; 70];
+        let mut qs = vec![[0.0; 3]; 70];
+        for i in 0..70 {
+            let t = f64::from(i as i32) - 20.0;
+            ps[i] = [0.2, 0.0, 0.0];
+            qs[i] = [t, -18.0, 3.0];
+        }
+        let mut out = vec![0.0; 70];
+        dist2_pairs(&cell, &ps, &qs, &mut out).unwrap();
+        for i in 0..70 {
+            assert!((out[i] - cell.dist2(ps[i], qs[i])).abs() < 1e-9);
+        }
     }
 
     #[test]

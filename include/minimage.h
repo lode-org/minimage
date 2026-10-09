@@ -193,7 +193,8 @@ int mi_displacement(const struct mi_cell *simbox,
                     double *dr);
 
 /**
- * Euclidean MIC: Smith half-edge test, else Minkowski 27-image, into `dr`.
+ * Euclidean MIC: Smith half-altitude test, else the slicer on the
+ * Selling superbasis, into `dr`.
  *
  * # Safety
  *
@@ -218,6 +219,77 @@ int mi_dist2(const struct mi_cell *simbox,
              double *out);
 
 /**
+ * Euclidean nearest-image squared distances from `p` to `n` packed
+ * candidates: [`mi_displacement_euclidean`] per pair, bit for bit, with
+ * one superbasis lookup per call and eight pairs per slicer pass.
+ *
+ * # Safety
+ *
+ * `qs` is `n * 3` doubles. `out` is `n` doubles.
+ */
+int mi_dist2_euclidean_many(const struct mi_cell *simbox,
+                            const double *p,
+                            const double *qs,
+                            size_t n,
+                            double *out);
+
+/**
+ * [`mi_dist2_euclidean_many`] for paired rows.
+ *
+ * # Safety
+ *
+ * `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles.
+ */
+int mi_dist2_euclidean_pairs(const struct mi_cell *simbox,
+                             const double *ps,
+                             const double *qs,
+                             size_t n,
+                             double *out);
+
+/**
+ * [`mi_dist2_euclidean_pairs`] for pairs that persist across frames.
+ * `images` is `n` rows of three `int32_t`: the cell-basis lattice shift
+ * of each pair's image from the previous call, zeros to start, updated
+ * in place. A pair whose stored image still lies in the Voronoi cell
+ * skips the search; its distance equals the full search to rounding.
+ *
+ * # Safety
+ *
+ * `ps` and `qs` are `n * 3` doubles, `images` is `n * 3` writable
+ * `int32_t`, and `out` is `n` doubles.
+ */
+int mi_dist2_euclidean_pairs_warm(const struct mi_cell *simbox,
+                                  const double *ps,
+                                  const double *qs,
+                                  size_t n,
+                                  int32_t *images,
+                                  double *out);
+
+/**
+ * Squared engine-wrap distance between two fixed-point positions.
+ *
+ * # Safety
+ *
+ * `a` and `b` are three `uint64_t`. `out` is one writable double.
+ */
+int mi_dist2_fixed(const struct mi_cell *simbox,
+                   const uint64_t *a,
+                   const uint64_t *b,
+                   double *out);
+
+/**
+ * Squared engine-wrap distance between two 32-bit fixed-point positions.
+ *
+ * # Safety
+ *
+ * `a` and `b` are three `uint32_t`. `out` is one writable double.
+ */
+int mi_dist2_fixed32(const struct mi_cell *simbox,
+                     const uint32_t *a,
+                     const uint32_t *b,
+                     double *out);
+
+/**
  * Squared MIC distances from `p` to `n` packed candidates in `qs`.
  *
  * # Safety
@@ -229,6 +301,36 @@ int mi_dist2_many(const struct mi_cell *simbox,
                   const double *qs,
                   size_t n,
                   double *out);
+
+/**
+ * Squared engine-wrap distances from fixed-point `p` to `n` packed
+ * fixed-point candidates.
+ *
+ * # Safety
+ *
+ * `p` is three `uint64_t`. `qs` is `n * 3` `uint64_t`. `out` is `n`
+ * doubles.
+ */
+int mi_dist2_many_fixed(const struct mi_cell *simbox,
+                        const uint64_t *p,
+                        const uint64_t *qs,
+                        size_t n,
+                        double *out);
+
+/**
+ * Squared engine-wrap distances from 32-bit fixed-point `p` to `n` packed
+ * fixed-point candidates.
+ *
+ * # Safety
+ *
+ * `p` is three `uint32_t`. `qs` is `n * 3` `uint32_t`. `out` is `n`
+ * doubles.
+ */
+int mi_dist2_many_fixed32(const struct mi_cell *simbox,
+                          const uint32_t *p,
+                          const uint32_t *qs,
+                          size_t n,
+                          double *out);
 
 /**
  * Orthorhombic wrap of precomputed differences (Highway kernel).
@@ -258,6 +360,73 @@ int mi_dist2_pairs(const struct mi_cell *simbox,
                    const double *qs,
                    size_t n,
                    double *out);
+
+/**
+ * Squared engine-wrap distances for `n` packed fixed-point pairs.
+ *
+ * # Safety
+ *
+ * `ps` and `qs` are `n * 3` `uint64_t`. `out` is `n` doubles.
+ */
+int mi_dist2_pairs_fixed(const struct mi_cell *simbox,
+                         const uint64_t *ps,
+                         const uint64_t *qs,
+                         size_t n,
+                         double *out);
+
+/**
+ * Squared engine-wrap distances for `n` packed 32-bit fixed-point pairs.
+ *
+ * # Safety
+ *
+ * `ps` and `qs` are `n * 3` `uint32_t`. `out` is `n` doubles.
+ */
+int mi_dist2_pairs_fixed32(const struct mi_cell *simbox,
+                           const uint32_t *ps,
+                           const uint32_t *qs,
+                           size_t n,
+                           double *out);
+
+/**
+ * Squared distances from `p` to `n` points in `qs`, plus one lattice
+ * shift `(sx, sy, sz)` on every candidate. Rapaport's bin pair.
+ *
+ * # Safety
+ *
+ * `p` is three doubles. `qs` is `n * 3` doubles. `out` is `n` doubles.
+ */
+int mi_dist2_shifted_many(const double *p,
+                          const double *qs,
+                          const double *shift,
+                          size_t n,
+                          double *out);
+
+/**
+ * 32-bit fixed-point fractional coordinates of `n` packed positions:
+ * three `uint32_t` per position, each the 64-bit fraction of
+ * [`mi_fixed_many`] rounded to its top 32 bits.
+ *
+ * # Safety
+ *
+ * `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint32_t`.
+ */
+int mi_fixed32_many(const struct mi_cell *simbox,
+                    const double *rs,
+                    size_t n,
+                    uint32_t *out);
+
+/**
+ * Fixed-point fractional coordinates of `n` packed positions: three
+ * `uint64_t` per position, each fraction as `round(s * 2^52) * 2^12`.
+ *
+ * # Safety
+ *
+ * `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint64_t`.
+ */
+int mi_fixed_many(const struct mi_cell *simbox,
+                  const double *rs,
+                  size_t n,
+                  uint64_t *out);
 
 /**
  * Thread-local last-error string from this thread's most recent `mi_*`

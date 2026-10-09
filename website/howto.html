@@ -28,9 +28,10 @@
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
-<section id="outline-container-orga2472e5" class="outline-2">
-<h2 id="orga2472e5">Embed from C</h2>
-<div class="outline-text-2" id="text-orga2472e5">
+
+<section id="outline-container-org47d7a02" class="outline-2">
+<h2 id="org47d7a02">Embed from C</h2>
+<div class="outline-text-2" id="text-org47d7a02">
 <div class="org-src-container">
 <pre class="src src-c">#include "minimage.h"
 
@@ -50,9 +51,10 @@ exposes <code>minimage_dep</code>. CMake exposes <code>minimage::minimage</code>
 </p>
 </div>
 </section>
-<section id="outline-container-orge6e050c" class="outline-2">
-<h2 id="orge6e050c">Embed from C++</h2>
-<div class="outline-text-2" id="text-orge6e050c">
+
+<section id="outline-container-orgfb381bc" class="outline-2">
+<h2 id="orgfb381bc">Embed from C++</h2>
+<div class="outline-text-2" id="text-orgfb381bc">
 <div class="org-src-container">
 <pre class="src src-cpp">#include "minimage.hpp"
 
@@ -67,21 +69,63 @@ The header is a RAII wrap of <code>minimage.h</code>. Failures throw
 </p>
 </div>
 </section>
-<section id="outline-container-org83b9ab5" class="outline-2">
-<h2 id="org83b9ab5">Embed from Python</h2>
-<div class="outline-text-2" id="text-org83b9ab5">
+
+<section id="outline-container-org7f76993" class="outline-2">
+<h2 id="org7f76993">Embed from Python</h2>
+<div class="outline-text-2" id="text-org7f76993">
 <div class="org-src-container">
 <pre class="src src-python">import minimage
 
 cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
 print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
+
+d2 = cell.dist2_pairs(ps, qs)        # (n, 3) arrays in, numpy out
+f = cell.fixed_many(positions)       # uint64 (n, 3)
+d2 = cell.dist2_pairs_fixed(f[i], f[j])
 </pre>
 </div>
+
+<p>
+Array arguments go through DLPack: numpy, PyTorch, JAX, and CuPy host
+arrays are read in place, and the result is a numpy array that owns
+its buffer. A list in gives a list out. A device array raises; move it
+to the host, or run the wrap on the device with <code>minimage-burn</code>.
+</p>
 </div>
 </section>
-<section id="outline-container-org0d5823d" class="outline-2">
-<h2 id="org0d5823d">pkg-config</h2>
-<div class="outline-text-2" id="text-org0d5823d">
+
+<section id="outline-container-orgafe3f95" class="outline-2">
+<h2 id="orgafe3f95">Run on a GPU with Burn</h2>
+<div class="outline-text-2" id="text-orgafe3f95">
+<p>
+<code>burn/</code> is the <code>minimage-burn</code> crate, outside the workspace because
+Burn needs Rust 1.95. Enable the backend features you need (<code>wgpu</code>,
+<code>vulkan</code>, <code>metal</code>, <code>cuda</code>, <code>rocm</code>, <code>cpu</code>, <code>flex</code>, <code>fusion</code>).
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">use burn_tensor::{DType, Device, DeviceKind};
+use minimage_burn::{to_vec, Lattice};
+
+let device = Device::wgpu(DeviceKind::DefaultDevice);
+let lat = Lattice::new(&amp;cell, &amp;device, DType::F32);
+let sp = lat.fractions(&amp;cell, &amp;ps);
+let sq = lat.fractions(&amp;cell, &amp;qs);
+let d2 = to_vec(lat.dist2_pairs_fractional(sp, sq));
+</pre>
+</div>
+
+<p>
+<code>fractions</code> folds on the CPU in double precision and uploads; the wrap
+on the device is then exact in single or half precision.
+<code>dist2_pairs</code>, <code>dist2_many</code>, and <code>wrap</code> take Cartesian rows instead.
+</p>
+</div>
+</section>
+
+<section id="outline-container-org512ef66" class="outline-2">
+<h2 id="org512ef66">pkg-config</h2>
+<div class="outline-text-2" id="text-org512ef66">
 <div class="org-src-container">
 <pre class="src src-text">pkg-config --cflags --libs minimage
 </pre>
