@@ -2,9 +2,10 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, perf/neon-dispatch]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
 
 jobs:
   fmt:
@@ -94,6 +95,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       - run: cargo test --locked --workspace --exclude minimage-python ${{ matrix.crate.flags }}
+      - name: NEON bench
+        if: matrix.os == 'ubuntu-24.04-arm' && matrix.crate.name == 'default'
+        run: cargo test --release --locked --lib bench_dispatch -- --ignored --nocapture
       - run: cargo clippy --locked --workspace --exclude minimage-python --all-targets ${{ matrix.crate.flags }} -- -D warnings
 
   meson:
