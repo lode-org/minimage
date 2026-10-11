@@ -26,6 +26,7 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
@@ -43,6 +44,7 @@
   <a href="https://github.com/lode-org/minimage">Source</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </p>
+
 <section id="outline-container-main" class="outline-2">
 <h2 id="main">What it is</h2>
 <div class="outline-text-2" id="text-main">
@@ -59,21 +61,25 @@ length-angle box, an ASE-style 3x3 cell, and a vesin box.
 </p>
 </div>
 </section>
-<section id="outline-container-org2d7997c" class="outline-2">
-<h2 id="org2d7997c">Diataxis</h2>
-<div class="outline-text-2" id="text-org2d7997c">
+
+<section id="outline-container-org6c7ae73" class="outline-2">
+<h2 id="org6c7ae73">Diataxis</h2>
+<div class="outline-text-2" id="text-org6c7ae73">
 <dl class="org-dl">
 <dt><a href="tutorial.html">Tutorial</a></dt><dd>a wrapped pair (0.64 on a 10-wide box, 0.25 on the
 sheared LAMMPS dump).</dd>
 <dt><a href="howto.html">How-to</a></dt><dd>embed from C, C++, Python; pkg-config.</dd>
 <dt><a href="explanation.html">Explanation</a></dt><dd>MIC and H, dump bounds, vesin reduction.</dd>
+<dt><a href="simd.html">SIMD paths and dispatch</a></dt><dd>runtime path selection,
+<code>MINIMAGE_SIMD</code>, and bit-identical batches.</dd>
 <dt><a href="reference.html">Reference</a></dt><dd><code>mi_*</code> C API.</dd>
 </dl>
 </div>
 </section>
-<section id="outline-container-org324a7ff" class="outline-2">
-<h2 id="org324a7ff">Install</h2>
-<div class="outline-text-2" id="text-org324a7ff">
+
+<section id="outline-container-org2d5d3c9" class="outline-2">
+<h2 id="org2d5d3c9">Install</h2>
+<div class="outline-text-2" id="text-org2d5d3c9">
 <div class="org-src-container">
 <pre class="src src-text">cargo add minimage
 pip install minimage

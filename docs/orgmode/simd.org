@@ -1,0 +1,87 @@
+#+title: SIMD paths and dispatch
+#+setupfile: setup.org
+#+description: Runtime ISA selection for the batch kernels.
+
+#+begin_export html
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+#+end_export
+
+Batch kernels pick one instruction set at run time and keep a scalar
+fallback. A build does not crash on a CPU that lacks a wider set.
+Nothing in the build asks for =-march=native= or a =target-cpu=.
+
+* Paths
+
+| Path | Lanes | When it is usable |
+|------+-------+-------------------|
+| =scalar= | 1 | always |
+| =avx= | 4 f64 | x86_64 with AVX |
+| =avx2= | 4, integer kernels | x86_64 with AVX2 and FMA |
+| =avx512= | 8 f64 | x86_64 with AVX-512F and AVX-512DQ, and rustc 1.89 or newer |
+| =neon= | 2 f64 | aarch64, where NEON is baseline |
+
+Unset, the widest usable path is chosen: AVX-512, then AVX2, then
+AVX, then NEON, then scalar. AVX2 is a candidate only when FMA is
+present too, so a Sandy Bridge machine stays on AVX. FMA is a
+selection gate. The kernels do not enable it.
+
+The float batches (=dist2_many=, =dist2_pairs=, =wrap_many=,
+=dist2_ortho_diffs=) use the AVX kernel for both the =avx= and =avx2=
+paths. The orthorhombic =wrap_many= stays on that four-wide kernel
+even when AVX-512 is selected, because a 64-byte store splits a cache
+line on most alignments. The fixed and fixed32 batches use AVX2 or
+AVX-512. An =avx= selection runs those on the scalar path.
+
+NEON processes two rows at a time, in the same order and with the
+same multiply and add as the scalar loop. The odd tail is scalar.
+
+* Selection
+
+=simd_path()= returns the name of the path the next batch will use.
+Each batch entry reads that choice once, before the row loop.
+
+=MINIMAGE_SIMD= may be =scalar=, =avx=, =avx2=, =avx512=, or =neon=.
+The variable is read once and cached for the process. An unknown name
+is ignored. A name this CPU cannot run selects =scalar=. Tests can
+override the choice on the calling thread. A worker thread does not
+see that override, so a batch that fans out must read the path on the
+calling thread and pass it down.
+
+* Bit identity
+
+The same input gives the same output bits on every path, including
+the sign of zero. Reductions add in the scalar order,
+=(x^2 + y^2) + z^2=, with separate multiply and add. There is no
+fused multiply-add in a value that is stored.
+
+=floor_fast= and =round_away= use one truncation on every
+architecture, the one baseline x86-64 already used. =floor_fast(-0.0)=
+is =+0.0=, so the fractional part of =-0.0= is =-0.0=. =f64::floor=
+and =f64::round= keep the sign of a zero and are not used. x86_64
+results of these two functions are unchanged. On aarch64 they used to
+follow libm, which kept the minus sign.
+
+linkcell's NEON fold still rounds with =vrndmq_f64=, which is
+=f64::floor= and returns =-0.0= for =-0.0=. That fold has to follow
+this truncation, and =fold_edges_match_scalar_on_every_path= has to
+expect the x86_64 sign.
+
+=tests/golden/isa-hashes.toml= records the SHA-256 of the little-endian
+output bytes for one input recipe. Every usable path must match the
+scalar digest. A path the runner cannot execute is not treated as a
+pass.
+
+The lane layout follows the cluster-pair approach of Páll and Hess,
+Comput. Phys. Commun. 184, 2641 (2013), doi:10.1016/j.cpc.2013.06.003.
+Per-architecture checks of the same bits are the EESSI model of
+Dröge et al., Softw. Pract. Exp. 53, 176 (2023), doi:10.1002/spe.3075.

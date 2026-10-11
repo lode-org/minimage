@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SIMD paths and dispatch</title>
+<meta name="description" content="Runtime ISA selection for the batch kernels." />
+<meta name="generator" content="Org Mode" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/site.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+<div id="org-div-home-and-up">
+ <a accesskey="h" href="index.html"> UP </a>
+ |
+ <a accesskey="H" href="index.html"> HOME </a>
+</div><div id="content" class="content">
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+
+<p>
+Batch kernels pick one instruction set at run time and keep a scalar
+fallback. A build does not crash on a CPU that lacks a wider set.
+Nothing in the build asks for <code>-march=native</code> or a <code>target-cpu</code>.
+</p>
+
+<section id="outline-container-orge1f9d47" class="outline-2">
+<h2 id="orge1f9d47">Paths</h2>
+<div class="outline-text-2" id="text-orge1f9d47">
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Path</th>
+<th scope="col" class="org-left">Lanes</th>
+<th scope="col" class="org-left">When it is usable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>scalar</code></td>
+<td class="org-left">1</td>
+<td class="org-left">always</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>avx</code></td>
+<td class="org-left">4 f64</td>
+<td class="org-left">x86_64 with AVX</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>avx2</code></td>
+<td class="org-left">4, integer kernels</td>
+<td class="org-left">x86_64 with AVX2 and FMA</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>avx512</code></td>
+<td class="org-left">8 f64</td>
+<td class="org-left">x86_64 with AVX-512F and AVX-512DQ, and rustc 1.89 or newer</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>neon</code></td>
+<td class="org-left">2 f64</td>
+<td class="org-left">aarch64, where NEON is baseline</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+Unset, the widest usable path is chosen: AVX-512, then AVX2, then
+AVX, then NEON, then scalar. AVX2 is a candidate only when FMA is
+present too, so a Sandy Bridge machine stays on AVX. FMA is a
+selection gate. The kernels do not enable it.
+</p>
+
+<p>
+The float batches (<code>dist2_many</code>, <code>dist2_pairs</code>, <code>wrap_many</code>,
+<code>dist2_ortho_diffs</code>) use the AVX kernel for both the <code>avx</code> and <code>avx2</code>
+paths. The orthorhombic <code>wrap_many</code> stays on that four-wide kernel
+even when AVX-512 is selected, because a 64-byte store splits a cache
+line on most alignments. The fixed and fixed32 batches use AVX2 or
+AVX-512. An <code>avx</code> selection runs those on the scalar path.
+</p>
+
+<p>
+NEON processes two rows at a time, in the same order and with the
+same multiply and add as the scalar loop. The odd tail is scalar.
+</p>
+</div>
+</section>
+
+<section id="outline-container-orgabdca39" class="outline-2">
+<h2 id="orgabdca39">Selection</h2>
+<div class="outline-text-2" id="text-orgabdca39">
+<p>
+<code>simd_path()</code> returns the name of the path the next batch will use.
+Each batch entry reads that choice once, before the row loop.
+</p>
+
+<p>
+<code>MINIMAGE_SIMD</code> may be <code>scalar</code>, <code>avx</code>, <code>avx2</code>, <code>avx512</code>, or <code>neon</code>.
+The variable is read once and cached for the process. An unknown name
+is ignored. A name this CPU cannot run selects <code>scalar</code>. Tests can
+override the choice on the calling thread. A worker thread does not
+see that override, so a batch that fans out must read the path on the
+calling thread and pass it down.
+</p>
+</div>
+</section>
+
+<section id="outline-container-org549eccf" class="outline-2">
+<h2 id="org549eccf">Bit identity</h2>
+<div class="outline-text-2" id="text-org549eccf">
+<p>
+The same input gives the same output bits on every path, including
+the sign of zero. Reductions add in the scalar order,
+<code>(x^2 + y^2) + z^2</code>, with separate multiply and add. There is no
+fused multiply-add in a value that is stored.
+</p>
+
+<p>
+<code>floor_fast</code> and <code>round_away</code> use one truncation on every
+architecture, the one baseline x86-64 already used. <code>floor_fast(-0.0)</code>
+is <code>+0.0</code>, so the fractional part of <code>-0.0</code> is <code>-0.0</code>. <code>f64::floor</code>
+and <code>f64::round</code> keep the sign of a zero and are not used. x86_64
+results of these two functions are unchanged. On aarch64 they used to
+follow libm, which kept the minus sign.
+</p>
+
+<p>
+linkcell's NEON fold still rounds with <code>vrndmq_f64</code>, which is
+<code>f64::floor</code> and returns <code>-0.0</code> for <code>-0.0</code>. That fold has to follow
+this truncation, and <code>fold_edges_match_scalar_on_every_path</code> has to
+expect the x86_64 sign.
+</p>
+
+<p>
+<code>tests/golden/isa-hashes.toml</code> records the SHA-256 of the little-endian
+output bytes for one input recipe. Every usable path must match the
+scalar digest. A path the runner cannot execute is not treated as a
+pass.
+</p>
+
+<p>
+The lane layout follows the cluster-pair approach of Páll and Hess,
+Comput. Phys. Commun. 184, 2641 (2013), <a href="https://doi.org/10.1016/j.cpc.2013.06.003">https://doi.org/10.1016/j.cpc.2013.06.003</a>.
+Per-architecture checks of the same bits are the EESSI model of
+Dröge et al., Softw. Pract. Exp. 53, 176 (2023), <a href="https://doi.org/10.1002/spe.3075">https://doi.org/10.1002/spe.3075</a>.
+</p>
+</div>
+</section>
+</div>
+</body>
+</html>

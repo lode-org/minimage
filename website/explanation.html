@@ -25,6 +25,7 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
@@ -51,8 +52,12 @@ same square bit for bit with a third of the selects.
 Baseline x86-64 has no rounding instruction, so <code>f64::round</code> and
 <code>floor</code> are libm calls. Rounding half away from zero adds the largest
 double below one half, with the sign of the argument, and truncates
-with <code>cvttsd2si</code>. That is the same integer for every double, and the
-expansion LLVM itself uses when SSE4.1 is present.
+toward zero. That is the same integer for every finite double, and the
+expansion LLVM itself uses when SSE4.1 is present. The same truncation
+runs on every architecture. Truncation of a negative zero is <code>+0.0</code>,
+so <code>floor_fast(-0.0)</code> is <code>+0.0</code> and the fractional part of <code>-0.0</code> is
+<code>-0.0</code>. <code>f64::floor(-0.0)</code> keeps the minus sign and is not used.
+See <a href="simd.html">SIMD paths and dispatch</a>.
 </p>
 
 <p>
@@ -87,9 +92,9 @@ stores as much as it loads, and a 64-byte store splits a cache line
 on all but one alignment in eight.
 </p>
 
-<section id="outline-container-org75cc666" class="outline-2">
-<h2 id="org75cc666">Nearest image</h2>
-<div class="outline-text-2" id="text-org75cc666">
+<section id="outline-container-orgabcdabf" class="outline-2">
+<h2 id="orgabcdabf">Nearest image</h2>
+<div class="outline-text-2" id="text-orgabcdabf">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -153,9 +158,9 @@ production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-orgb7699af" class="outline-2">
-<h2 id="orgb7699af">Fixed-point fractions</h2>
-<div class="outline-text-2" id="text-orgb7699af">
+<section id="outline-container-orgb53bc9c" class="outline-2">
+<h2 id="orgb53bc9c">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-orgb53bc9c">
 <p>
 <code>Cell::fixed</code> stores a position folded into the cell as three
 fractions on 64 bits, <code>round(s * 2^52) * 2^12</code>: the low 52 bits of
@@ -215,9 +220,9 @@ wrap, with relative errors of <code>1.5e-11</code>.
 </div>
 </section>
 
-<section id="outline-container-orgba527ae" class="outline-2">
-<h2 id="orgba527ae">Arrays and devices</h2>
-<div class="outline-text-2" id="text-orgba527ae">
+<section id="outline-container-org071b402" class="outline-2">
+<h2 id="org071b402">Arrays and devices</h2>
+<div class="outline-text-2" id="text-org071b402">
 <p>
 The Python methods take any DLPack producer, numpy, PyTorch, JAX, or
 CuPy host memory, and read contiguous rows where they lie; the result
@@ -244,9 +249,9 @@ the CPU.
 </div>
 </section>
 
-<section id="outline-container-org0fb3e08" class="outline-2">
-<h2 id="org0fb3e08">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-org0fb3e08">
+<section id="outline-container-org1b2c39d" class="outline-2">
+<h2 id="org1b2c39d">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-org1b2c39d">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -266,9 +271,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-org9a4247e" class="outline-2">
-<h2 id="org9a4247e">vesin images</h2>
-<div class="outline-text-2" id="text-org9a4247e">
+<section id="outline-container-org5e12fd6" class="outline-2">
+<h2 id="org5e12fd6">vesin images</h2>
+<div class="outline-text-2" id="text-org5e12fd6">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -278,9 +283,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-orgaedc8f7" class="outline-2">
-<h2 id="orgaedc8f7">Consumers</h2>
-<div class="outline-text-2" id="text-orgaedc8f7">
+<section id="outline-container-org7ff297d" class="outline-2">
+<h2 id="org7ff297d">Consumers</h2>
+<div class="outline-text-2" id="text-org7ff297d">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
