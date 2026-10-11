@@ -39,23 +39,27 @@ pub(crate) fn fixed32_many(fold: &Fold, rs: &[[f64; 3]], out: &mut [[u32; 3]]) {
 
 /// `out[k] = |b(qs[k]) - b(p)|^2` over 32-bit positions.
 pub(crate) fn dist2_many(lat: Lattice, p: [u32; 3], qs: &[[u32; 3]], out: &mut [f64]) {
+    let path = crate::simd::select();
     #[cfg(all(target_arch = "x86_64", minimage_avx512))]
-    {
-        if avx512::detected() {
-            // SAFETY: AVX-512F and DQ were detected. `qs` and `out` share
-            // one length.
-            unsafe { avx512::many(&lat, p, qs, out) };
-            return;
-        }
+    if path == crate::simd::Path::Avx512 {
+        // SAFETY: AVX-512F and DQ were detected. `qs` and `out` share
+        // one length.
+        unsafe { avx512::many(&lat, p, qs, out) };
+        return;
     }
     #[cfg(target_arch = "x86_64")]
-    {
-        if qs.len() >= 8 && std::is_x86_feature_detected!("avx2") {
-            // SAFETY: `avx2` was detected. `qs` and `out` share one length.
-            unsafe { avx2::many(&lat, p, qs, out) };
-            return;
-        }
+    if path == crate::simd::Path::Avx2 {
+        // SAFETY: AVX2 was detected. `qs` and `out` share one length.
+        unsafe { avx2::many(&lat, p, qs, out) };
+        return;
     }
+    #[cfg(target_arch = "aarch64")]
+    if path == crate::simd::Path::Neon {
+        // SAFETY: NEON is baseline on this target. `qs` and `out` share one length.
+        unsafe { neon::many(&lat, p, qs, out) };
+        return;
+    }
+    let _ = path;
     for (q, o) in qs.iter().zip(out.iter_mut()) {
         *o = dist2(&lat, p, *q);
     }
@@ -63,23 +67,27 @@ pub(crate) fn dist2_many(lat: Lattice, p: [u32; 3], qs: &[[u32; 3]], out: &mut [
 
 /// `out[k] = |b(qs[k]) - b(ps[k])|^2` over 32-bit positions.
 pub(crate) fn dist2_pairs(lat: Lattice, ps: &[[u32; 3]], qs: &[[u32; 3]], out: &mut [f64]) {
+    let path = crate::simd::select();
     #[cfg(all(target_arch = "x86_64", minimage_avx512))]
-    {
-        if avx512::detected() {
-            // SAFETY: AVX-512F and DQ were detected. The slices share one
-            // length.
-            unsafe { avx512::pairs(&lat, ps, qs, out) };
-            return;
-        }
+    if path == crate::simd::Path::Avx512 {
+        // SAFETY: AVX-512F and DQ were detected. The slices share one
+        // length.
+        unsafe { avx512::pairs(&lat, ps, qs, out) };
+        return;
     }
     #[cfg(target_arch = "x86_64")]
-    {
-        if ps.len() >= 8 && std::is_x86_feature_detected!("avx2") {
-            // SAFETY: `avx2` was detected. The slices share one length.
-            unsafe { avx2::pairs(&lat, ps, qs, out) };
-            return;
-        }
+    if path == crate::simd::Path::Avx2 {
+        // SAFETY: AVX2 was detected. `qs` and `out` share one length.
+        unsafe { avx2::pairs(&lat, ps, qs, out) };
+        return;
     }
+    #[cfg(target_arch = "aarch64")]
+    if path == crate::simd::Path::Neon {
+        // SAFETY: NEON is baseline on this target. The slices share one length.
+        unsafe { neon::pairs(&lat, ps, qs, out) };
+        return;
+    }
+    let _ = path;
     for ((p, q), o) in ps.iter().zip(qs).zip(out.iter_mut()) {
         *o = dist2(&lat, *p, *q);
     }
@@ -95,10 +103,6 @@ mod avx512 {
     use crate::fixed::Lattice;
 
     type V = __m512d;
-
-    pub(super) fn detected() -> bool {
-        std::is_x86_feature_detected!("avx512f") && std::is_x86_feature_detected!("avx512dq")
-    }
 
     #[inline(always)]
     unsafe fn idx(i: [i32; 16]) -> __m512i {
@@ -413,6 +417,89 @@ mod avx2 {
         }
         for j in i..n {
             out[j] = super::dist2(lat, p, qs[j]);
+        }
+    }
+}
+
+/// Two lanes of the 32-bit wrap. The difference is the scalar `wrapping_sub`
+/// read as `i32`, then an exact conversion.
+#[cfg(target_arch = "aarch64")]
+mod neon {
+    use core::arch::aarch64::*;
+
+    use super::dist2;
+    use crate::fixed::Lattice;
+
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn wrapped(a: uint32x2_t, b: uint32x2_t) -> float64x2_t {
+        let d = vsub_s32(vreinterpret_s32_u32(b), vreinterpret_s32_u32(a));
+        vcvtq_f64_s64(vmovl_s32(d))
+    }
+
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn map(lat: &Lattice, d: [float64x2_t; 3]) -> [float64x2_t; 3] {
+        match lat {
+            Lattice::Diagonal(w) => [
+                vmulq_f64(vdupq_n_f64(w[0]), d[0]),
+                vmulq_f64(vdupq_n_f64(w[1]), d[1]),
+                vmulq_f64(vdupq_n_f64(w[2]), d[2]),
+            ],
+            Lattice::Full(m) => {
+                let mut r = [vdupq_n_f64(0.0); 3];
+                for (i, slot) in r.iter_mut().enumerate() {
+                    *slot = vaddq_f64(
+                        vaddq_f64(
+                            vmulq_f64(vdupq_n_f64(m[0][i]), d[0]),
+                            vmulq_f64(vdupq_n_f64(m[1][i]), d[1]),
+                        ),
+                        vmulq_f64(vdupq_n_f64(m[2][i]), d[2]),
+                    );
+                }
+                r
+            }
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn dist2_lanes(lat: &Lattice, d: [float64x2_t; 3]) -> float64x2_t {
+        let [x, y, z] = map(lat, d);
+        vaddq_f64(vaddq_f64(vmulq_f64(x, x), vmulq_f64(y, y)), vmulq_f64(z, z))
+    }
+
+    #[target_feature(enable = "neon")]
+    pub(super) unsafe fn many(lat: &Lattice, p: [u32; 3], qs: &[[u32; 3]], out: &mut [f64]) {
+        let pa = vdup_n_u32(p[0]);
+        let pb = vdup_n_u32(p[1]);
+        let pc = vdup_n_u32(p[2]);
+        let n = qs.len();
+        let mut i = 0usize;
+        while i + 2 <= n {
+            let q = vld3_u32(qs.as_ptr().add(i).cast());
+            let d = [wrapped(pa, q.0), wrapped(pb, q.1), wrapped(pc, q.2)];
+            vst1q_f64(out.as_mut_ptr().add(i), dist2_lanes(lat, d));
+            i += 2;
+        }
+        for j in i..n {
+            out[j] = dist2(lat, p, qs[j]);
+        }
+    }
+
+    #[target_feature(enable = "neon")]
+    pub(super) unsafe fn pairs(lat: &Lattice, ps: &[[u32; 3]], qs: &[[u32; 3]], out: &mut [f64]) {
+        let n = ps.len();
+        let mut i = 0usize;
+        while i + 2 <= n {
+            let p = vld3_u32(ps.as_ptr().add(i).cast());
+            let q = vld3_u32(qs.as_ptr().add(i).cast());
+            let d = [wrapped(p.0, q.0), wrapped(p.1, q.1), wrapped(p.2, q.2)];
+            vst1q_f64(out.as_mut_ptr().add(i), dist2_lanes(lat, d));
+            i += 2;
+        }
+        for j in i..n {
+            out[j] = dist2(lat, ps[j], qs[j]);
         }
     }
 }

@@ -1,7 +1,7 @@
 //! Batched minimum-image squared distances.
 //!
-//! [`dist2_many`], [`dist2_pairs`], and [`wrap_many`] are one fused AVX
-//! pass over the packed rows when the CPU has it, for every cell shape,
+//! [`dist2_many`], [`dist2_pairs`], and [`wrap_many`] are one fused pass
+//! over the packed rows on the path [`crate::simd_path`] selects, for every cell shape,
 //! and a squared distance equals the per-pair call bit for bit; a
 //! wrapped vector equals it up to the sign of a zero.
 //! [`dist2_ortho_diffs`] keeps the Highway `BatchPeriodicDistSq` shape:

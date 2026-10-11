@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 - 2026-10-11
+
+Batch kernels choose one SIMD path per call: AVX-512F and DQ, AVX2,
+AVX, NEON, or scalar. `MINIMAGE_SIMD` overrides the choice.
+`floor_fast` and `round_away` use the x86_64 truncation on every
+architecture. `floor_fast(-0.0)` is `+0.0`, so the fractional part of
+`-0.0` is `-0.0`. On aarch64 this used to follow `f64::floor` and
+`f64::round`. x86_64 results of those two functions are unchanged.
+NEON runs two lanes of the scalar arithmetic for `dist2_many`,
+`dist2_pairs`, `wrap_many`, `dist2_ortho_diffs`, and the fixed and
+fixed32 batches.
+
 ## 0.1.4 - 2026-10-09
 
 `fixed` and `fixed32` store a position as a fraction of the cell and

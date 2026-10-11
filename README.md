@@ -116,6 +116,9 @@ assert_eq!(kept, vec![[0, 1]]);
 `Cell::from_vesin` take the same row-major 3x3 lattice. Displacement
 is the wrapped vector from `p` to `q`.
 
+Batch kernels select AVX-512, AVX2, AVX, NEON, or scalar at run time.
+`MINIMAGE_SIMD` overrides that choice. `simd_path()` returns the name.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

@@ -10,6 +10,7 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
@@ -51,6 +52,16 @@ failure; read =mi_last_error()= on the same thread.
 
 The C++ header =minimage.hpp= is a RAII wrap of this ABI.
 =docs.rs/minimage= is the Rust reference.
+
+* Rust
+
+| Item | Role |
+|------+------|
+| =simd_path()= | Name of the path the next batch will use: =scalar=, =avx=, =avx2=, =avx512=, or =neon= |
+
+=MINIMAGE_SIMD= overrides the choice. An unknown name is ignored.
+A name this CPU cannot run selects =scalar=.
+The selection is cached. Details are on [[file:simd.org][SIMD paths and dispatch]].
 
 * Python
 

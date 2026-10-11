@@ -1,0 +1,23 @@
+# Dispatched minimage kernels and the ISA features they may use.
+# Baseline x86-64 and armv8-a need no entry. FMA is a selection gate
+# only and is not an allowed instruction in these symbols.
+
+[[allow]]
+symbol = ".*::avx512::.*"
+features = ["avx512f", "avx512dq"]
+
+[[allow]]
+symbol = ".*::avx2::.*"
+features = ["avx", "avx2"]
+
+[[allow]]
+symbol = ".*::avx::.*"
+features = ["avx"]
+
+[[allow]]
+symbol = ".*::neon::.*"
+features = ["neon"]
+
+[[allow]]
+symbol = ".*::neonf::.*"
+features = ["neon"]
