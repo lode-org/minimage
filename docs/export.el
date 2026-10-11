@@ -34,7 +34,7 @@
        (org-dir (expand-file-name "orgmode" this))
        (out-dir (expand-file-name "../website" this))
        (pages '("index.org" "getting-started.org" "tutorial.org"
-                "howto.org" "explanation.org" "reference.org")))
+                "howto.org" "explanation.org" "simd.org" "reference.org")))
   (unless (file-directory-p out-dir)
     (make-directory out-dir t))
   (dolist (page pages)

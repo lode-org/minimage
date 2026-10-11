@@ -11,6 +11,7 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
@@ -49,6 +50,8 @@ length-angle box, an ASE-style 3x3 cell, and a vesin box.
   sheared LAMMPS dump).
 - [[file:howto.org][How-to]] :: embed from C, C++, Python; pkg-config.
 - [[file:explanation.org][Explanation]] :: MIC and H, dump bounds, vesin reduction.
+- [[file:simd.org][SIMD paths and dispatch]] :: runtime path selection,
+  =MINIMAGE_SIMD=, and bit-identical batches.
 - [[file:reference.org][Reference]] :: =mi_*= C API.
 
 * Install

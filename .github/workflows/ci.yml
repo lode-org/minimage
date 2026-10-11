@@ -2,9 +2,15 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'perf/**'
+      - 'feat/**'
+      - 'fix/**'
+      - 'ci/**'
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
 
 jobs:
   fmt:
@@ -59,7 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
         crate:
           - name: default
             flags: ""
@@ -69,6 +75,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: CPU flags
+        run: |
+          echo "runner=${{ matrix.os }}"
+          if [ -r /proc/cpuinfo ]; then
+            grep -m1 'model name' /proc/cpuinfo || true
+            grep -m1 flags /proc/cpuinfo || true
+          fi
+          if command -v sysctl >/dev/null 2>&1; then
+            sysctl -n machdep.cpu.brand_string 2>/dev/null || true
+            sysctl machdep.cpu.features 2>/dev/null || true
+            sysctl hw.optional.neon 2>/dev/null || true
+          fi
+          command -v lscpu >/dev/null && lscpu || true
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -81,6 +100,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       - run: cargo test --locked --workspace --exclude minimage-python ${{ matrix.crate.flags }}
+      - name: NEON bench
+        if: matrix.os == 'ubuntu-24.04-arm' && matrix.crate.name == 'default'
+        run: cargo test --release --locked --lib bench_dispatch -- --ignored --nocapture
       - run: cargo clippy --locked --workspace --exclude minimage-python --all-targets ${{ matrix.crate.flags }} -- -D warnings
 
   meson:
@@ -153,3 +175,10 @@ jobs:
           export LD_LIBRARY_PATH="$PWD/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           export DYLD_LIBRARY_PATH="$PWD/prefix/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
           ./find-build/find_mi
+
+  # TODO: I0 has not landed. Enable this job when OmniPotentRPC/rgpot
+  # branch ci/isa-audit publishes .github/workflows/isa-audit.yml.
+  # isa-audit:
+  #   uses: OmniPotentRPC/rgpot/.github/workflows/isa-audit.yml@ci/isa-audit
+  #   with:
+  #     allow-file: isa-allow.toml

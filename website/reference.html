@@ -25,6 +25,7 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
@@ -196,9 +197,42 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <code>docs.rs/minimage</code> is the Rust reference.
 </p>
 
-<section id="outline-container-orgf19b40e" class="outline-2">
-<h2 id="orgf19b40e">Python</h2>
-<div class="outline-text-2" id="text-orgf19b40e">
+<section id="outline-container-org845bf6e" class="outline-2">
+<h2 id="org845bf6e">Rust</h2>
+<div class="outline-text-2" id="text-org845bf6e">
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Item</th>
+<th scope="col" class="org-left">Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>simd_path()</code></td>
+<td class="org-left">Name of the path the next batch will use: <code>scalar</code>, <code>avx</code>, <code>avx2</code>, <code>avx512</code>, or <code>neon</code></td>
+</tr>
+</tbody>
+</table>
+
+<p>
+<code>MINIMAGE_SIMD</code> overrides the choice. An unknown name is ignored.
+A name this CPU cannot run selects <code>scalar</code>.
+The selection is cached. Details are on <a href="simd.html">SIMD paths and dispatch</a>.
+</p>
+</div>
+</section>
+
+<section id="outline-container-org6bee81d" class="outline-2">
+<h2 id="org6bee81d">Python</h2>
+<div class="outline-text-2" id="text-org6bee81d">
 <table>
 
 
@@ -278,9 +312,9 @@ an array result is a numpy array. A list in gives a list out.
 </div>
 </section>
 
-<section id="outline-container-orga1170e4" class="outline-2">
-<h2 id="orga1170e4">Burn</h2>
-<div class="outline-text-2" id="text-orga1170e4">
+<section id="outline-container-orgbfa7742" class="outline-2">
+<h2 id="orgbfa7742">Burn</h2>
+<div class="outline-text-2" id="text-orgbfa7742">
 <table>
 
 

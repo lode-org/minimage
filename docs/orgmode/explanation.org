@@ -10,6 +10,7 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
@@ -32,8 +33,12 @@ same square bit for bit with a third of the selects.
 Baseline x86-64 has no rounding instruction, so =f64::round= and
 =floor= are libm calls. Rounding half away from zero adds the largest
 double below one half, with the sign of the argument, and truncates
-with =cvttsd2si=. That is the same integer for every double, and the
-expansion LLVM itself uses when SSE4.1 is present.
+toward zero. That is the same integer for every finite double, and the
+expansion LLVM itself uses when SSE4.1 is present. The same truncation
+runs on every architecture. Truncation of a negative zero is =+0.0=,
+so =floor_fast(-0.0)= is =+0.0= and the fractional part of =-0.0= is
+=-0.0=. =f64::floor(-0.0)= keeps the minus sign and is not used.
+See [[file:simd.org][SIMD paths and dispatch]].
 
 A restricted triclinic box (=a= along x, =b= in the xy plane) uses
 the triangular lamda step of LAMMPS =Domain::minimum_image=, HOOMD

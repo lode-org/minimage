@@ -13,8 +13,9 @@
 //! Babai's rounding and the Sommer–Feder–Shalvi slicer on the Selling
 //! superbasis cached on the calling thread. Lagrange size reduction runs before
 //! that Delone step. [`dist2_many`], [`dist2_pairs`], [`wrap_many`], and
-//! [`dist2_ortho_diffs`] batch the engine wrap. The orthorhombic SoA
-//! kernel is AVX when the CPU has it. [`Cell::fixed`] stores a position
+//! [`dist2_ortho_diffs`] batch the engine wrap. Each batch reads
+//! [`simd_path`] once and runs AVX-512, AVX2, AVX, NEON, or scalar.
+//! [`Cell::fixed`] stores a position
 //! as 64-bit fixed-point fractions, and the wrap between two of them is
 //! exact integer arithmetic ([`Cell::dist2_fixed`], [`dist2_many_fixed`],
 //! [`dist2_pairs_fixed`]).
@@ -55,6 +56,9 @@ mod pairs;
 mod selling;
 mod simd;
 
+#[cfg(test)]
+mod isa_golden;
+
 pub use batch::{
     dist2_euclidean_many, dist2_euclidean_pairs, dist2_euclidean_pairs_warm, dist2_many,
     dist2_many_fixed, dist2_many_fixed32, dist2_ortho_diffs, dist2_pairs, dist2_pairs_fixed,
@@ -64,6 +68,7 @@ pub use cell::{dump_bounds_to_h, Cell};
 pub use error::Error;
 pub use minkowski::{is_minkowski_reduced, minkowski_reduce};
 pub use pairs::{reduce_pairs, reduce_pairs_packed};
+pub use simd::simd_path;
 
 #[cfg(feature = "capi")]
 mod capi;

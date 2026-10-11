@@ -1,0 +1,187 @@
+#+title: SIMD paths and dispatch
+#+setupfile: setup.org
+#+description: Runtime ISA selection for the batch kernels.
+
+#+begin_export html
+<nav class="top" aria-label="minimage">
+  <a class="brand" href="index.html">minimage</a>
+  <a href="getting-started.html">Install</a>
+  <a href="tutorial.html">Tutorial</a>
+  <a href="howto.html">How-to</a>
+  <a href="explanation.html">Explain</a>
+  <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
+  <a href="https://lode-org.github.io/">LODE</a>
+</nav>
+<div class="rule" aria-hidden="true"></div>
+#+end_export
+
+Batch kernels pick one instruction set at run time and keep a scalar
+fallback. A build does not crash on a CPU that lacks a wider set.
+Nothing in the build asks for =-march=native= or a =target-cpu=.
+
+* Paths
+
+| Path | Lanes | When it is usable |
+|------+-------+-------------------|
+| =scalar= | 1 | always |
+| =avx= | 4 f64 | x86_64 with AVX |
+| =avx2= | 4, integer kernels | x86_64 with AVX2 and FMA |
+| =avx512= | 8 f64 | x86_64 with AVX-512F and AVX-512DQ, and rustc 1.89 or newer |
+| =neon= | 2 f64 | aarch64, where NEON is baseline |
+
+Unset, the widest usable path is chosen: AVX-512, then AVX2, then
+AVX, then NEON, then scalar. AVX2 is a candidate only when FMA is
+present too, so a Sandy Bridge machine stays on AVX. FMA is a
+selection gate. The kernels do not enable it.
+
+The float batches (=dist2_many=, =dist2_pairs=, =wrap_many=,
+=dist2_ortho_diffs=) use the AVX kernel for both the =avx= and =avx2=
+paths. The orthorhombic =wrap_many= stays on that four-wide kernel
+even when AVX-512 is selected, because a 64-byte store splits a cache
+line on most alignments. Orthorhombic =dist2_pairs= and =dist2_many=
+use the full width of the selected path. A lane with =|d| / L= below
+one million stays in the vector form when it is more than one box
+away. A larger quotient, or a NaN, runs the scalar code for that
+group. The fixed and fixed32 batches use AVX2 or AVX-512. An =avx=
+selection runs those on the scalar path.
+
+NEON processes two rows at a time, in the same order and with the
+same multiply and add as the scalar loop. The odd tail is scalar.
+=dist2_ortho_diffs= runs two of those pairs side by side. After
+=abs= the quotient is non-negative, so each pair truncates
+=q + (1/2 - eps)= and sums =(x^2 + y^2) + z^2=. A lane at =2^52=,
+or a NaN, sends that group through the scalar loop.
+
+* Selection
+
+=simd_path()= returns the name of the path the next batch will use.
+Each batch entry reads that choice once, before the row loop.
+
+=MINIMAGE_SIMD= may be =scalar=, =avx=, =avx2=, =avx512=, or =neon=.
+The variable is read once and cached for the process. An unknown name
+is ignored. A name this CPU cannot run selects =scalar=. Tests can
+override the choice on the calling thread. A worker thread does not
+see that override, so a batch that fans out must read the path on the
+calling thread and pass it down.
+
+* Packed rows
+
+An orthorhombic packed kernel used to send a whole vector group back
+to scalar when any lane was a full box away. On the review batch that
+is most groups, so the wide path paid for the transpose and then ran
+the scalar loop. The default path was the wide one, and it was slower
+than scalar for =dist2_pairs= and =wrap_many=.
+
+The batch is the orthorhombic cell 10 by 11 by 12, =n = 100000=.
+Row =i= uses =t = i * 0.17= and =u = i * 0.13 + 1=:
+
+- =ps[i] = [sin(t) * 9, cos(t) * 8, sin(t * 0.3) * 7]=
+- =qs[i] = [cos(u) * 9, sin(u) * 8, cos(u * 0.2) * 7]=
+
+A row is far when the absolute difference on some axis is at least
+the box length. For =dist2_pairs= that
+is 55.5% of rows, 68.9% of groups of four, and 86.2% of groups of
+eight. For =dist2_many=, with =p = ps[0]=, 37.8% of rows are far.
+=wrap_many= sees the same pair differences.
+
+Bytes moved by one call: pairs 5.6 MB (two position arrays and the
+=f64= output), many 3.2 MB, wrap 4.8 MB, and the SoA =dist2_ortho_diffs=
+3.2 MB. At the old scalar pairs time of 0.675 ms, 5.6 MB is 8.3 GB/s.
+One core's L2 is 2 MiB (16 MiB across eight cores), so 5.6 MB misses
+that L2. The 320 MiB L3 holds it. On the same machine the SoA kernel
+moves 3.2 MB in 0.090 ms, about 36 GB/s, and runs 3.5 times faster
+than its scalar loop. The packed kernels were not waiting on memory.
+
+The 256-bit path lost on the same batches: pairs 0.759 ms against
+scalar 0.675, wrap 0.646 against 0.564. That is the width that wins
+on =dist2_ortho_diffs=. A 512-bit frequency licence does not account
+for a loss the 256-bit kernel shares. Eight-wide was the slowest of
+the wide paths because 86% of its groups contained a far row and were
+thrown away.
+
+Scaling the coordinates by 0.4 keeps every difference inside one box,
+so no group bails. One process, five rounds, median, =n = 100000=,
+milliseconds: pairs scalar 0.181, AVX 0.161, AVX-512 0.172; many
+scalar 0.179, AVX 0.099, AVX-512 0.087; wrap scalar 0.181, AVX 0.141,
+AVX-512 0.141. The AoS shuffle is faster than scalar when the vector
+result is stored. The AVX-512 wrap figure is the four-wide kernel.
+
+The vector form now keeps those lanes. While =|d| / L= is below one
+million, the square is =abs(d) - L * round(abs(d) / L)= and the wrap
+is the floor form, then =+0.0= so =-0.0= comes back as =+0.0=. Both
+match the scalar bits. Past that quotient the group still runs
+scalar. =MINIMAGE_SIMD= still forces a path for tests. With the
+variable unset, =simd_path()= is the native path. On this CPU that is
+AVX-512, which is the =default= column below.
+
+The machine is a KVM guest, Intel Xeon family 6 model 207, eight
+cores, AVX-512F and AVX-512DQ. Times are medians of five process
+medians. Each process runs five interleaved rounds. The range is the
+minimum and maximum of those five medians. Branch and =main=
+processes alternate. Release build, LTO, one codegen unit.
+Milliseconds per call, =n = 100000=.
+
+| kernel | scalar | avx | avx2 | avx512 | default | main |
+|--------+--------+-----+------+--------+---------+------|
+| =dist2_pairs= | 0.6665 (0.6648–0.6675) | 0.1630 (0.1603–0.1702) | 0.1603 (0.1588–0.1692) | 0.1531 (0.1504–0.1590) | 0.1558 (0.1525–0.1605) | 0.8238 (0.8165–0.8265) |
+| =dist2_many= | 0.5237 (0.5230–0.5247) | 0.1384 (0.1380–0.1420) | 0.1400 (0.1386–0.1419) | 0.0932 (0.0914–0.0989) | 0.0933 (0.0915–0.0993) | 0.5644 (0.5472–0.5719) |
+| =wrap_many= | 0.5488 (0.5477–0.5540) | 0.1784 (0.1774–0.1860) | 0.1842 (0.1771–0.1870) | 0.1774 (0.1764–0.1844) | 0.1786 (0.1779–0.1830) | 0.6460 (0.6405–0.6532) |
+| =dist2_ortho_diffs= | 0.3145 (0.3138–0.3164) | 0.0852 (0.0848–0.0889) | 0.0851 (0.0844–0.0888) | 0.0851 (0.0844–0.0888) | 0.0853 (0.0844–0.0889) | 0.0816 (0.0803–0.0825) |
+
+=default= is auto-dispatch. It matches =avx512= on this CPU. All four
+kernels beat scalar. =main= still bails the group, so its packed
+kernels stay slower than scalar. Its =dist2_ortho_diffs= is a few
+percent faster than the column here. That kernel already won, and the
+shared rounding is unchanged.
+
+At =n = 1000= the same ordering holds. =default= pairs is 0.0008 ms
+against scalar 0.0065.
+
+The arm64 runner is =ubuntu-24.04-arm=. One process, five rounds,
+release build. =cpu_path_native= is =neon=, so =default= is that
+path. These are runner timings. The number is the middle round, and
+the range is the minimum and maximum of the five rounds.
+Milliseconds per call, =n = 100000=.
+
+| kernel | scalar | neon | default |
+|--------+--------+------+---------|
+| =dist2_pairs= | 1.1583 (1.1572–1.1815) | 0.4809 (0.4783–0.4826) | 0.4743 (0.4722–0.4788) |
+| =dist2_many= | 0.7044 (0.7031–0.7284) | 0.5002 (0.4996–0.5011) | 0.5026 (0.5010–0.5028) |
+| =wrap_many= | 1.2679 (1.2624–1.3400) | 0.7018 (0.7001–0.7039) | 0.7004 (0.6997–0.7028) |
+| =dist2_ortho_diffs= | 0.3120 (0.3113–0.3129) | 0.2976 (0.2972–0.2986) | 0.2984 (0.2975–0.2990) |
+
+Pairs, many, and wrap are about 1.4× to 2.4× scalar on this runner.
+=dist2_ortho_diffs= is 0.2984 ms against scalar 0.3120 ms. At
+=n = 1000= the =default= medians are 0.0047, 0.0050, 0.0069, and
+0.0031 ms for those four kernels, against scalar 0.0107, 0.0070,
+0.0120, and 0.0031.
+
+* Bit identity
+
+The same input gives the same output bits on every path, including
+the sign of zero. Reductions add in the scalar order,
+=(x^2 + y^2) + z^2=, with separate multiply and add. There is no
+fused multiply-add in a value that is stored.
+
+=floor_fast= and =round_away= use one truncation on every
+architecture, the one baseline x86-64 already used. =floor_fast(-0.0)=
+is =+0.0=, so the fractional part of =-0.0= is =-0.0=. =f64::floor=
+and =f64::round= keep the sign of a zero and are not used. x86_64
+results of these two functions are unchanged. On aarch64 they used to
+follow libm, which kept the minus sign.
+
+linkcell's NEON fold still rounds with =vrndmq_f64=, which is
+=f64::floor= and returns =-0.0= for =-0.0=. That fold has to follow
+this truncation, and =fold_edges_match_scalar_on_every_path= has to
+expect the x86_64 sign.
+
+=tests/golden/isa-hashes.toml= records the SHA-256 of the little-endian
+output bytes for one input recipe. Every usable path must match the
+scalar digest. A path the runner cannot execute is not treated as a
+pass.
+
+The lane layout follows the cluster-pair approach of Páll and Hess,
+Comput. Phys. Commun. 184, 2641 (2013), doi:10.1016/j.cpc.2013.06.003.
+Per-architecture checks of the same bits are the EESSI model of
+Dröge et al., Softw. Pract. Exp. 53, 176 (2023), doi:10.1002/spe.3075.
