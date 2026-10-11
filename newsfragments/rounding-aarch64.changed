@@ -1,0 +1,6 @@
+`floor_fast` and `round_away` now use the x86_64 truncation on every
+architecture. `floor_fast(-0.0)` is `+0.0`, so the fractional part of
+`-0.0` is `-0.0`. On aarch64 this used to follow `f64::floor` and
+`f64::round`, which keep the sign of zero. x86_64 results of these
+two functions are unchanged. linkcell's NEON fold still uses
+`vrndmq_f64` and has to follow this truncation.

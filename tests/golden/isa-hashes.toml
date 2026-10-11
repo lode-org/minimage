@@ -1,0 +1,35 @@
+# SHA-256 of little-endian output bytes on the scalar path.
+# The same digest is required on x86_64 and aarch64.
+# Recipe: 24 awkward scalars (signed zero, subnormals, 1-ulp below 1,
+# 2^52, a quiet NaN payload, halves) cycled into 67 packed triples.
+# Cells: ortho 10x11x12, restricted triclinic, general triclinic with origin.
+# round_away and floor_fast hash those scalars directly.
+# Set MINIMAGE_WRITE_GOLDEN=1 to regenerate from the scalar path.
+dist2_many_fixed32_general = "bac6334858e6b456aea3248f3737c825da2e0cb6ae43fb459bec1c7809fa7b1d"
+dist2_many_fixed32_ortho = "8fcc1408f687fdeefe19860d4c83d3cccea39068bbd93925b6116cef25a7baeb"
+dist2_many_fixed32_tri = "e1fd125cba4e5f1886bb8b9c581ce4461097a4db22d0bb3abed1c2ca0656c993"
+dist2_many_fixed_general = "61b6572c3478edb79d2bdacb07f7d8a66e601121ede29324076f3be3e47cb571"
+dist2_many_fixed_ortho = "6a8215215d2f60155c0f5f3a4cbd563583accb8254ab6a57eafdd0a388878ceb"
+dist2_many_fixed_tri = "943f4743c929cbc722299a71832a12ba2100b4e6f6ed2676994982d99f50fa45"
+dist2_many_general = "d2248846ced17070b75dde6738de743fab0e32fa09e68f1569c2b9e18302c44a"
+dist2_many_ortho = "e89b433f7e3f77e086e664187f462c08aa2107e00732c500770d3bb37f953496"
+dist2_many_tri = "9238a787bf4592b901a52f0d847400c6e4447b66fb79df0b73873b12f9bf488a"
+dist2_ortho_diffs = "c85c0b9211b2b8ea0c76e61038dae66e4601eb03432e4bee17e0a5c76c006738"
+dist2_pairs_fixed32_general = "da9cd99411904ff482dcaf6613525a8740ddd2e14ef6732c2289bee3e27e2e0e"
+dist2_pairs_fixed32_ortho = "85b3b6e3cfdb5c2a546d825117205b4c1ebdba8342bec19cfad4dad65b40e7fd"
+dist2_pairs_fixed32_tri = "113c9392d67c8ae14fe938d2c4dd607c9427d133d1f555c1f1d2875db57c914b"
+dist2_pairs_fixed_general = "992d0c306b0d786d2098c3291da2979281811f9212b781ba758985bd3c3d3007"
+dist2_pairs_fixed_ortho = "c385df9d9540013f815472e8cc1bc2e9687bfec39a9902da4645e6374148de5b"
+dist2_pairs_fixed_tri = "4c327785988041a4df8c501370d8efde29a7474e43d49e39aa2e8403293632eb"
+dist2_pairs_general = "3b86e313e474ec594d7fede87e44c2733c476f2478f2001f3116fa59659b9abf"
+dist2_pairs_ortho = "aa73e13753771f3407087ba4e739ba257ca6c21c7211fa70aeed9324fea6202b"
+dist2_pairs_tri = "cf4ef39ca9e70ac19e727b859c4ccf709f07c65b6bcbfce71eca6d454ec654bc"
+dist2_shifted_many = "d8ecec52d1219ff81e7737cdcd71c77a6707be1d5b202f050188695e6809f803"
+fixed_many_general = "5f35a22e41fe2aa595134df68f035062e7263fd17eb23867b530f4b08977242f"
+fixed_many_ortho = "10f97038c21b67e7d8ba6213de3c89de4c2a8a42c7498be2c5cd91de53695bdf"
+fixed_many_tri = "a944afbed5403e6be3aec343516dc824ee9c29b9ba0f7b3b7cd045704a07a0b7"
+floor_fast = "a1bf91a94f231ff1cdecc42a1fba68c3f73d2ae917e4291fb8a16fa959437452"
+round_away = "71a8a11c633ac7ac25b7770586bab73dfbad24ee0019f8eb4596e51590dec2e9"
+wrap_many_general = "18f29665ffc656a075e9d6baa0bebf9097b92b96adf67e8bb16a7f72beab196d"
+wrap_many_ortho = "395f544c8173ea9aa147a184f0f5b96f65d74fa79bc671249ee199b7b6e45b43"
+wrap_many_tri = "a33055889dd4c3ed881d1187c4678d675624467adee5bc4ee206715f587b7065"

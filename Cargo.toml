@@ -1,6 +1,6 @@
 [package]
 name = "minimage"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.70"
 description = "Minimum-image convention for periodic parallelepiped cells"
@@ -32,3 +32,6 @@ required-features = ["capi"]
 [profile.release]
 lto = true
 codegen-units = 1
+
+[dev-dependencies]
+sha2 = "0.10"

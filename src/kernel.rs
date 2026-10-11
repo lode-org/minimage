@@ -48,48 +48,82 @@ impl Tri {
 }
 
 /// Below this magnitude a double may have a fractional part.
-#[cfg(target_arch = "x86_64")]
 const INTEGRAL: f64 = 4503599627370496.0;
 
 /// `f64::round`, half away from zero, without the libm call.
 ///
-/// Baseline x86-64 has no rounding instruction, so `f64::round` is a
-/// call. Adding the largest double below one half, with the sign of
-/// `x`, and truncating gives the same integer for every double; LLVM
-/// expands `round` the same way when SSE4.1 is present. Truncation is
-/// `cvttsd2si`, which is baseline. Other targets have the instruction.
+/// The same truncation runs on every architecture. Baseline x86-64 has
+/// no rounding instruction, so `f64::round` is a call. Adding the
+/// largest double below one half, with the sign of `x`, and truncating
+/// gives the same integer for every finite double; LLVM expands `round`
+/// the same way when SSE4.1 is present. Truncation toward zero of a
+/// negative zero is `+0.0`, so [`round_away`]`(-0.0)` is `+0.0` on
+/// x86_64 and on aarch64. `f64::round(-0.0)` keeps the sign and is not
+/// used.
 #[inline(always)]
 pub(crate) fn round_away(x: f64) -> f64 {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if x.abs() < INTEGRAL {
-            let t = x + 0.499_999_999_999_999_94_f64.copysign(x);
-            // SAFETY: |t| < 2^52 + 1 is inside the i64 range.
-            return unsafe { t.to_int_unchecked::<i64>() } as f64;
-        }
-        x
+    if x.abs() < INTEGRAL {
+        let t = x + 0.499_999_999_999_999_94_f64.copysign(x);
+        // SAFETY: |t| < 2^52 + 1 is inside the i64 range.
+        return unsafe { t.to_int_unchecked::<i64>() } as f64;
     }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        x.round()
-    }
+    x
 }
 
-/// `f64::floor` without the libm call on baseline x86-64.
+/// `f64::floor` by truncation toward zero, on every architecture.
+///
+/// For `|x| < 2^52`, convert to an integer toward zero and subtract one
+/// when that integer is above `x`. `floor_fast(-0.0)` is `+0.0`, so the
+/// fractional part `-0.0 - floor_fast(-0.0)` is `-0.0`. `f64::floor(-0.0)`
+/// is `-0.0` and is not used. Values at or above `2^52` are already
+/// integral. A NaN is returned unchanged.
 #[inline(always)]
 pub(crate) fn floor_fast(x: f64) -> f64 {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if x.abs() < INTEGRAL {
-            // SAFETY: |x| < 2^52 is inside the i64 range.
-            let t = unsafe { x.to_int_unchecked::<i64>() } as f64;
-            return if t > x { t - 1.0 } else { t };
-        }
-        x
+    if x.abs() < INTEGRAL {
+        // SAFETY: |x| < 2^52 is inside the i64 range.
+        let t = unsafe { x.to_int_unchecked::<i64>() } as f64;
+        return if t > x { t - 1.0 } else { t };
     }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        x.floor()
+    x
+}
+
+/// Two-lane copies of [`floor_fast`] and [`round_away`].
+#[cfg(target_arch = "aarch64")]
+pub(crate) mod neonf {
+    use core::arch::aarch64::*;
+
+    use super::INTEGRAL;
+
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn trunc(x: float64x2_t) -> float64x2_t {
+        vcvtq_f64_s64(vcvtq_s64_f64(x))
+    }
+
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn in_range(x: float64x2_t) -> uint64x2_t {
+        vcltq_f64(vabsq_f64(x), vdupq_n_f64(INTEGRAL))
+    }
+
+    /// [`super::round_away`] on two lanes, including the sign of zero.
+    #[inline]
+    #[target_feature(enable = "neon")]
+    pub(crate) unsafe fn round_away(x: float64x2_t) -> float64x2_t {
+        let sign = vandq_u64(vreinterpretq_u64_f64(x), vdupq_n_u64(0x8000_0000_0000_0000));
+        let mag = vdupq_n_u64(0.499_999_999_999_999_94_f64.to_bits());
+        let t = vaddq_f64(x, vreinterpretq_f64_u64(vorrq_u64(sign, mag)));
+        vbslq_f64(in_range(x), trunc(t), x)
+    }
+
+    /// [`super::floor_fast`] on two lanes, including the sign of zero.
+    #[inline]
+    #[target_feature(enable = "neon")]
+    pub(crate) unsafe fn floor_fast(x: float64x2_t) -> float64x2_t {
+        let t = trunc(x);
+        let down = vsubq_f64(t, vdupq_n_f64(1.0));
+        let floored = vbslq_f64(vcltq_f64(x, t), down, t);
+        vbslq_f64(in_range(x), floored, x)
     }
 }
 
@@ -341,6 +375,22 @@ mod tests {
         }
         assert!(round_away(f64::NAN).is_nan());
         assert!(floor_fast(f64::NAN).is_nan());
+    }
+
+    /// x86_64 truncation is the reference on every architecture.
+    /// `f64::floor(-0.0)` and `f64::round(-0.0)` keep a minus sign;
+    /// these two do not. The fractional part of `-0.0` is therefore `-0.0`.
+    #[test]
+    fn signed_zero_matches_the_x86_64_truncation() {
+        assert_eq!(floor_fast(-0.0).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(round_away(-0.0).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(floor_fast(0.0).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(round_away(0.0).to_bits(), 0.0_f64.to_bits());
+        let frac = -0.0_f64 - floor_fast(-0.0);
+        assert_eq!(frac.to_bits(), (-0.0_f64).to_bits());
+        let neg_tiny = f64::from_bits(0x8000_0000_0000_0001);
+        assert_eq!(round_away(neg_tiny).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(floor_fast(neg_tiny).to_bits(), (-1.0_f64).to_bits());
     }
 
     #[test]
