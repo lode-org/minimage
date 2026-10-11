@@ -297,6 +297,282 @@ fn every_usable_path_matches_the_scalar_hash() {
     println!("simd paths not exercised: {}", skipped.join(", "));
 }
 
+#[cfg(target_arch = "x86_64")]
+fn push_u32_rows(buf: &mut Vec<u8>, rows: &[[u32; 3]]) {
+    for row in rows {
+        for lane in row {
+            buf.extend_from_slice(&lane.to_le_bytes());
+        }
+    }
+}
+
+/// Positions several boxes away, and rows on both sides of `|d| / L = 1e6`.
+#[cfg(target_arch = "x86_64")]
+fn far_points() -> Vec<[f64; 3]> {
+    let l = [10.0, 11.0, 12.0];
+    let mut v = Vec::new();
+    for k in [-9, -4, -2, 3, 6, 11] {
+        let k = f64::from(k);
+        v.push([k * l[0] + 0.25, k * l[1] - 0.5, k * l[2] + 1.0]);
+        v.push([-k * l[0] + 1.5, k * l[1] * 0.5, -k * l[2] - 2.0]);
+    }
+    let limit = 1.0e6;
+    for (axis, length) in l.into_iter().enumerate() {
+        for mag in [
+            length * limit,
+            length * limit + 8.0,
+            length * 1.0e7,
+            -length * 2.5e6,
+        ] {
+            let mut row = [0.2, -0.3, 0.4];
+            row[axis] = mag;
+            v.push(row);
+        }
+    }
+    v.push([f64::NAN, 1.0e7, -2.0]);
+    v.push([f64::INFINITY, -1.0e7, 3.0]);
+    v.push([f64::NEG_INFINITY, 0.0, 1.0e8]);
+    v
+}
+
+#[cfg(target_arch = "x86_64")]
+fn batch_hashes(
+    tag: &str,
+    ps: &[[f64; 3]],
+    qs: &[[f64; 3]],
+    shift: [f64; 3],
+    positions_as_diffs: bool,
+) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let mut buf = Vec::new();
+    for (name, cell) in cells() {
+        let n = ps.len();
+        let mut dist = vec![0.0; n];
+        crate::dist2_many(&cell, ps[0], qs, &mut dist).unwrap();
+        buf.clear();
+        push_f64(&mut buf, &dist);
+        out.insert(format!("{tag} dist2_many_{name}"), sha(&buf));
+        crate::dist2_pairs(&cell, ps, qs, &mut dist).unwrap();
+        buf.clear();
+        push_f64(&mut buf, &dist);
+        out.insert(format!("{tag} dist2_pairs_{name}"), sha(&buf));
+        let diffs: Vec<[f64; 3]> = ps
+            .iter()
+            .zip(qs)
+            .map(|(p, q)| [q[0] - p[0], q[1] - p[1], q[2] - p[2]])
+            .collect();
+        let mut wrapped = vec![[0.0; 3]; n];
+        crate::wrap_many(&cell, &diffs, &mut wrapped).unwrap();
+        buf.clear();
+        push_f64_rows(&mut buf, &wrapped);
+        out.insert(format!("{tag} wrap_many_{name}"), sha(&buf));
+        let mut fixed = vec![[0u64; 3]; n];
+        let mut fixed_q = vec![[0u64; 3]; n];
+        crate::fixed_many(&cell, ps, &mut fixed).unwrap();
+        crate::fixed_many(&cell, qs, &mut fixed_q).unwrap();
+        buf.clear();
+        push_u64_rows(&mut buf, &fixed);
+        out.insert(format!("{tag} fixed_many_{name}"), sha(&buf));
+        crate::dist2_many_fixed(&cell, fixed[0], &fixed_q, &mut dist).unwrap();
+        buf.clear();
+        push_f64(&mut buf, &dist);
+        out.insert(format!("{tag} dist2_many_fixed_{name}"), sha(&buf));
+        crate::dist2_pairs_fixed(&cell, &fixed, &fixed_q, &mut dist).unwrap();
+        buf.clear();
+        push_f64(&mut buf, &dist);
+        out.insert(format!("{tag} dist2_pairs_fixed_{name}"), sha(&buf));
+        let mut f32p = vec![[0u32; 3]; n];
+        let mut f32q = vec![[0u32; 3]; n];
+        crate::fixed32_many(&cell, ps, &mut f32p).unwrap();
+        crate::fixed32_many(&cell, qs, &mut f32q).unwrap();
+        buf.clear();
+        push_u32_rows(&mut buf, &f32p);
+        out.insert(format!("{tag} fixed32_many_{name}"), sha(&buf));
+        crate::dist2_many_fixed32(&cell, f32p[0], &f32q, &mut dist).unwrap();
+        buf.clear();
+        push_f64(&mut buf, &dist);
+        out.insert(format!("{tag} dist2_many_fixed32_{name}"), sha(&buf));
+        crate::dist2_pairs_fixed32(&cell, &f32p, &f32q, &mut dist).unwrap();
+        buf.clear();
+        push_f64(&mut buf, &dist);
+        out.insert(format!("{tag} dist2_pairs_fixed32_{name}"), sha(&buf));
+        if name != "ortho" {
+            crate::dist2_euclidean_many(&cell, ps[0], qs, &mut dist).unwrap();
+            buf.clear();
+            push_f64(&mut buf, &dist);
+            out.insert(format!("{tag} dist2_euclidean_many_{name}"), sha(&buf));
+            crate::dist2_euclidean_pairs(&cell, ps, qs, &mut dist).unwrap();
+            buf.clear();
+            push_f64(&mut buf, &dist);
+            out.insert(format!("{tag} dist2_euclidean_pairs_{name}"), sha(&buf));
+        }
+    }
+    let dx: Vec<f64> = if positions_as_diffs {
+        ps.iter().map(|p| p[0]).collect()
+    } else {
+        ps.iter().zip(qs).map(|(p, q)| q[0] - p[0]).collect()
+    };
+    let dy: Vec<f64> = if positions_as_diffs {
+        ps.iter().map(|p| p[1]).collect()
+    } else {
+        ps.iter().zip(qs).map(|(p, q)| q[1] - p[1]).collect()
+    };
+    let dz: Vec<f64> = if positions_as_diffs {
+        ps.iter().map(|p| p[2]).collect()
+    } else {
+        ps.iter().zip(qs).map(|(p, q)| q[2] - p[2]).collect()
+    };
+    let mut dist = vec![0.0; ps.len()];
+    crate::dist2_ortho_diffs(&dx, &dy, &dz, 10.0, 11.0, 12.0, &mut dist).unwrap();
+    buf.clear();
+    push_f64(&mut buf, &dist);
+    out.insert(format!("{tag} dist2_ortho_diffs"), sha(&buf));
+    let ortho = Cell::ortho(10.0, 11.0, 12.0).unwrap();
+    ortho
+        .dist2_shifted_many(ps[0], qs, shift, &mut dist)
+        .unwrap();
+    buf.clear();
+    push_f64(&mut buf, &dist);
+    out.insert(format!("{tag} dist2_shifted_many"), sha(&buf));
+    out
+}
+
+#[cfg(target_arch = "x86_64")]
+fn load_frozen(path: &str) -> BTreeMap<String, String> {
+    let text = std::fs::read_to_string(path).unwrap();
+    let mut out = BTreeMap::new();
+    for line in text.lines() {
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        let (key, value) = line.split_once(" = ").expect("frozen line");
+        out.insert(key.to_string(), value.trim_matches('"').to_string());
+    }
+    out
+}
+
+/// Every forced path against outputs frozen from main `ce6dfb1` on x86_64.
+///
+/// The golden inputs are the 67 triples in [`points`]. The far batch is
+/// several boxes away and also crosses `|d| / L = 1e6`. Two far hashes
+/// differ from main: `dist2_ortho_diffs`, because main's AVX rounded
+/// with `roundpd` nearest-even, and `dist2_shifted_many`, because
+/// main's AVX computed `q - (p - shift)`. Both follow the scalar order
+/// here. Their main hashes are the `*_main` lines.
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn every_path_matches_main_ce6dfb1_on_golden_and_far_images() {
+    let frozen = load_frozen(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/golden/main-ce6dfb1.toml"
+    ));
+    let l = [10.0, 11.0, 12.0];
+    let far = far_points();
+    let far_q: Vec<[f64; 3]> = far.iter().rev().copied().collect();
+    let crossed = far.iter().zip(&far_q).any(|(p, q)| {
+        (0..3).any(|a| {
+            let d = q[a] - p[a];
+            d.is_finite() && d.abs() >= l[a] * 1.0e6
+        })
+    });
+    assert!(crossed, "the far batch must cross |d|/L = 1e6");
+
+    let ps = points();
+    let qs: Vec<[f64; 3]> = points().into_iter().rev().collect();
+    for path in simd::paths_to_compare() {
+        let _guard = simd::force(path);
+        let mut got = batch_hashes("golden", &ps, &qs, [10.0, -11.0, 0.0], true);
+        got.extend(batch_hashes(
+            "far",
+            &far,
+            &far_q,
+            [30.0, -44.0, 60.0],
+            false,
+        ));
+        for (key, expected) in &frozen {
+            if let Some(base) = key.strip_suffix("_main") {
+                assert_ne!(
+                    got.get(base).map(String::as_str),
+                    Some(expected.as_str()),
+                    "{path:?} {base} matched main's AVX bits"
+                );
+            } else {
+                assert_eq!(
+                    got.get(key).map(String::as_str),
+                    Some(expected.as_str()),
+                    "{path:?} {key}"
+                );
+            }
+        }
+    }
+}
+
+/// A row with `|d| / L >= 1e6` takes the scalar group (`out_of_fast`).
+///
+/// The batch mixes that threshold, a value just under it, several
+/// boxes, and a NaN. Every forced path, including NEON where it is
+/// usable, matches the scalar bits.
+#[test]
+fn image_limit_matches_scalar_on_every_path() {
+    let cell = Cell::ortho(10.0, 11.0, 12.0).unwrap();
+    let l = [10.0, 11.0, 12.0];
+    let limit = 1.0e6;
+    let ps = vec![[0.0; 3]; 9];
+    // First four rows stay under the limit, including several boxes.
+    // The next four cross it, so that group takes the scalar fallback.
+    let qs = vec![
+        [3.0 * l[0] + 0.2, -4.0 * l[1], 2.0 * l[2] - 0.5],
+        [0.5, -0.25, 0.125],
+        [-2.0 * l[0], 0.0, l[2]],
+        [0.1, -0.2, l[2] * limit - 1.0],
+        [l[0] * limit, 0.1, -0.2],
+        [0.2, -(l[1] * limit + 4.0), 0.3],
+        [1.0e8, -2.0e8, 3.0e7],
+        [f64::NAN, 1.0, 2.0],
+        [f64::INFINITY, 0.0, -1.0],
+    ];
+    assert!((0..qs.len()).any(|i| {
+        (0..3).any(|a| {
+            let d = qs[i][a] - ps[i][a];
+            d.is_finite() && d.abs() >= l[a] * limit
+        })
+    }));
+    let diffs: Vec<[f64; 3]> = ps
+        .iter()
+        .zip(&qs)
+        .map(|(p, q)| [q[0] - p[0], q[1] - p[1], q[2] - p[2]])
+        .collect();
+    let scalar = {
+        let _guard = simd::force(Path::Scalar);
+        let mut dist_pairs = vec![0.0; qs.len()];
+        let mut dist_many = vec![0.0; qs.len()];
+        let mut wrapped = vec![[0.0; 3]; qs.len()];
+        crate::dist2_pairs(&cell, &ps, &qs, &mut dist_pairs).unwrap();
+        crate::dist2_many(&cell, ps[0], &qs, &mut dist_many).unwrap();
+        crate::wrap_many(&cell, &diffs, &mut wrapped).unwrap();
+        (dist_pairs, dist_many, wrapped)
+    };
+    for path in simd::paths_to_compare() {
+        let _guard = simd::force(path);
+        let mut dist_pairs = vec![0.0; qs.len()];
+        let mut dist_many = vec![0.0; qs.len()];
+        let mut wrapped = vec![[0.0; 3]; qs.len()];
+        crate::dist2_pairs(&cell, &ps, &qs, &mut dist_pairs).unwrap();
+        crate::dist2_many(&cell, ps[0], &qs, &mut dist_many).unwrap();
+        crate::wrap_many(&cell, &diffs, &mut wrapped).unwrap();
+        let bits = |xs: &[f64]| xs.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&dist_pairs), bits(&scalar.0), "{path:?} pairs");
+        assert_eq!(bits(&dist_many), bits(&scalar.1), "{path:?} many");
+        for (got, exp) in wrapped.iter().zip(&scalar.2) {
+            assert_eq!(
+                got.map(f64::to_bits),
+                exp.map(f64::to_bits),
+                "{path:?} wrap"
+            );
+        }
+    }
+}
+
 /// Interleaved per-path timings. Ignored in the default suite.
 ///
 /// `cargo test --release --lib bench_dispatch -- --ignored --nocapture`
