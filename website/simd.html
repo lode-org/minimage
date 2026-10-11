@@ -36,9 +36,9 @@ fallback. A build does not crash on a CPU that lacks a wider set.
 Nothing in the build asks for <code>-march=native</code> or a <code>target-cpu</code>.
 </p>
 
-<section id="outline-container-org51a4e46" class="outline-2">
-<h2 id="org51a4e46">Paths</h2>
-<div class="outline-text-2" id="text-org51a4e46">
+<section id="outline-container-orga0c67af" class="outline-2">
+<h2 id="orga0c67af">Paths</h2>
+<div class="outline-text-2" id="text-orga0c67af">
 <table>
 
 
@@ -112,13 +112,17 @@ selection runs those on the scalar path.
 <p>
 NEON processes two rows at a time, in the same order and with the
 same multiply and add as the scalar loop. The odd tail is scalar.
+<code>dist2_ortho_diffs</code> runs two of those pairs side by side. After
+<code>abs</code> the quotient is non-negative, so each pair truncates
+<code>q + (1/2 - eps)</code> and sums <code>(x^2 + y^2) + z^2</code>. A lane at <code>2^52</code>,
+or a NaN, sends that group through the scalar loop.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org5489e7b" class="outline-2">
-<h2 id="org5489e7b">Selection</h2>
-<div class="outline-text-2" id="text-org5489e7b">
+<section id="outline-container-org5b78a27" class="outline-2">
+<h2 id="org5b78a27">Selection</h2>
+<div class="outline-text-2" id="text-org5b78a27">
 <p>
 <code>simd_path()</code> returns the name of the path the next batch will use.
 Each batch entry reads that choice once, before the row loop.
@@ -135,9 +139,9 @@ calling thread and pass it down.
 </div>
 </section>
 
-<section id="outline-container-org4d639c1" class="outline-2">
-<h2 id="org4d639c1">Packed rows</h2>
-<div class="outline-text-2" id="text-org4d639c1">
+<section id="outline-container-orgdc00b94" class="outline-2">
+<h2 id="orgdc00b94">Packed rows</h2>
+<div class="outline-text-2" id="text-orgdc00b94">
 <p>
 An orthorhombic packed kernel used to send a whole vector group back
 to scalar when any lane was a full box away. On the review batch that
@@ -295,12 +299,79 @@ shared rounding is unchanged.
 At <code>n = 1000</code> the same ordering holds. <code>default</code> pairs is 0.0008 ms
 against scalar 0.0065.
 </p>
+
+<p>
+The arm64 runner is <code>ubuntu-24.04-arm</code>. One process, five rounds,
+release build. <code>cpu_path_native</code> is <code>neon</code>, so <code>default</code> is that
+path. These are runner timings. The number is the middle round, and
+the range is the minimum and maximum of the five rounds.
+Milliseconds per call, <code>n = 100000</code>.
+</p>
+
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">kernel</th>
+<th scope="col" class="org-left">scalar</th>
+<th scope="col" class="org-left">neon</th>
+<th scope="col" class="org-left">default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>dist2_pairs</code></td>
+<td class="org-left">1.1583 (1.1572–1.1815)</td>
+<td class="org-left">0.4809 (0.4783–0.4826)</td>
+<td class="org-left">0.4743 (0.4722–0.4788)</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_many</code></td>
+<td class="org-left">0.7044 (0.7031–0.7284)</td>
+<td class="org-left">0.5002 (0.4996–0.5011)</td>
+<td class="org-left">0.5026 (0.5010–0.5028)</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>wrap_many</code></td>
+<td class="org-left">1.2679 (1.2624–1.3400)</td>
+<td class="org-left">0.7018 (0.7001–0.7039)</td>
+<td class="org-left">0.7004 (0.6997–0.7028)</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_ortho_diffs</code></td>
+<td class="org-left">0.3120 (0.3113–0.3129)</td>
+<td class="org-left">0.2976 (0.2972–0.2986)</td>
+<td class="org-left">0.2984 (0.2975–0.2990)</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+Pairs, many, and wrap are about 1.4× to 2.4× scalar on this runner.
+<code>dist2_ortho_diffs</code> is 0.2984 ms against scalar 0.3120 ms. At
+<code>n = 1000</code> the <code>default</code> medians are 0.0047, 0.0050, 0.0069, and
+0.0031 ms for those four kernels, against scalar 0.0107, 0.0070,
+0.0120, and 0.0031.
+</p>
 </div>
 </section>
 
-<section id="outline-container-orgf8f3c24" class="outline-2">
-<h2 id="orgf8f3c24">Bit identity</h2>
-<div class="outline-text-2" id="text-orgf8f3c24">
+<section id="outline-container-orgc9b2c2a" class="outline-2">
+<h2 id="orgc9b2c2a">Bit identity</h2>
+<div class="outline-text-2" id="text-orgc9b2c2a">
 <p>
 The same input gives the same output bits on every path, including
 the sign of zero. Reductions add in the scalar order,
