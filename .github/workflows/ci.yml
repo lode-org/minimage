@@ -2,7 +2,12 @@ name: ci
 
 on:
   push:
-    branches: [main, perf/neon-dispatch]
+    branches:
+      - main
+      - 'perf/**'
+      - 'feat/**'
+      - 'fix/**'
+      - 'ci/**'
     tags: ['v*']
   pull_request:
   workflow_dispatch:
