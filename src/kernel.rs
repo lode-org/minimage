@@ -48,7 +48,7 @@ impl Tri {
 }
 
 /// Below this magnitude a double may have a fractional part.
-const INTEGRAL: f64 = 4503599627370496.0;
+pub(crate) const INTEGRAL: f64 = 4503599627370496.0;
 
 /// `f64::round`, half away from zero, without the libm call.
 ///

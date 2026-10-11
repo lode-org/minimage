@@ -361,6 +361,11 @@ unsafe fn shifted_avx(p: [f64; 3], qs: &[[f64; 3]], shift: [f64; 3], out: &mut [
 }
 
 /// Two lanes, the same arithmetic as the scalar loops.
+///
+/// [`ortho`] runs two independent pairs. After `abs` the quotient is
+/// non-negative, so each pair rounds with `trunc(q + (1/2 - eps))`
+/// and sums `(x^2 + y^2) + z^2`. A lane at `2^52` or a NaN sends that
+/// group through the scalar loop, which is what `kernel::round_away` does.
 #[cfg(target_arch = "aarch64")]
 mod neon {
     use core::arch::aarch64::*;
@@ -376,6 +381,53 @@ mod neon {
         vaddq_f64(vaddq_f64(x2, y2), z2)
     }
 
+    /// `trunc(q + (1/2 - eps))` for a non-negative quotient below `2^52`.
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn trunc_pos(q: float64x2_t, half: float64x2_t) -> float64x2_t {
+        vcvtq_f64_s64(vcvtq_s64_f64(vaddq_f64(q, half)))
+    }
+
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn in_fast(q: float64x2_t, lim: float64x2_t) -> uint64x2_t {
+        vcltq_f64(q, lim)
+    }
+
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn lanes_fast(m: uint64x2_t) -> bool {
+        vgetq_lane_u64(m, 0) == u64::MAX && vgetq_lane_u64(m, 1) == u64::MAX
+    }
+
+    /// One pair: absolute quotient, fast rounding, square in scalar order.
+    #[inline]
+    #[target_feature(enable = "neon")]
+    unsafe fn pair(
+        x: float64x2_t,
+        y: float64x2_t,
+        z: float64x2_t,
+        len: [float64x2_t; 3],
+        recip: [float64x2_t; 3],
+        half: float64x2_t,
+        lim: float64x2_t,
+    ) -> (float64x2_t, uint64x2_t) {
+        let x = vabsq_f64(x);
+        let y = vabsq_f64(y);
+        let z = vabsq_f64(z);
+        let qx = vmulq_f64(x, recip[0]);
+        let qy = vmulq_f64(y, recip[1]);
+        let qz = vmulq_f64(z, recip[2]);
+        let ok = vandq_u64(
+            vandq_u64(in_fast(qx, lim), in_fast(qy, lim)),
+            in_fast(qz, lim),
+        );
+        let x = vsubq_f64(x, vmulq_f64(len[0], trunc_pos(qx, half)));
+        let y = vsubq_f64(y, vmulq_f64(len[1], trunc_pos(qy, half)));
+        let z = vsubq_f64(z, vmulq_f64(len[2], trunc_pos(qz, half)));
+        (norm(x, y, z), ok)
+    }
+
     #[target_feature(enable = "neon")]
     pub(super) unsafe fn ortho(
         dx: &[f64],
@@ -387,30 +439,73 @@ mod neon {
         out: &mut [f64],
     ) {
         let n = dx.len();
-        let vbx = vdupq_n_f64(bx);
-        let vby = vdupq_n_f64(by);
-        let vbz = vdupq_n_f64(bz);
-        let vrbx = vdupq_n_f64(1.0 / bx);
-        let vrby = vdupq_n_f64(1.0 / by);
-        let vrbz = vdupq_n_f64(1.0 / bz);
+        let len = [vdupq_n_f64(bx), vdupq_n_f64(by), vdupq_n_f64(bz)];
+        let recip = [
+            vdupq_n_f64(1.0 / bx),
+            vdupq_n_f64(1.0 / by),
+            vdupq_n_f64(1.0 / bz),
+        ];
+        let half = vdupq_n_f64(0.499_999_999_999_999_94);
+        let lim = vdupq_n_f64(crate::kernel::INTEGRAL);
         let mut i = 0usize;
-        while i + 2 <= n {
-            let x = vabsq_f64(vld1q_f64(dx.as_ptr().add(i)));
-            let y = vabsq_f64(vld1q_f64(dy.as_ptr().add(i)));
-            let z = vabsq_f64(vld1q_f64(dz.as_ptr().add(i)));
-            let x = vsubq_f64(
-                x,
-                vmulq_f64(vbx, crate::kernel::neonf::round_away(vmulq_f64(x, vrbx))),
+        while i + 4 <= n {
+            let (r0, ok0) = pair(
+                vld1q_f64(dx.as_ptr().add(i)),
+                vld1q_f64(dy.as_ptr().add(i)),
+                vld1q_f64(dz.as_ptr().add(i)),
+                len,
+                recip,
+                half,
+                lim,
             );
-            let y = vsubq_f64(
-                y,
-                vmulq_f64(vby, crate::kernel::neonf::round_away(vmulq_f64(y, vrby))),
+            let (r1, ok1) = pair(
+                vld1q_f64(dx.as_ptr().add(i + 2)),
+                vld1q_f64(dy.as_ptr().add(i + 2)),
+                vld1q_f64(dz.as_ptr().add(i + 2)),
+                len,
+                recip,
+                half,
+                lim,
             );
-            let z = vsubq_f64(
-                z,
-                vmulq_f64(vbz, crate::kernel::neonf::round_away(vmulq_f64(z, vrbz))),
+            if lanes_fast(ok0) && lanes_fast(ok1) {
+                vst1q_f64(out.as_mut_ptr().add(i), r0);
+                vst1q_f64(out.as_mut_ptr().add(i + 2), r1);
+            } else {
+                dist2_ortho_diffs_scalar(
+                    &dx[i..i + 4],
+                    &dy[i..i + 4],
+                    &dz[i..i + 4],
+                    bx,
+                    by,
+                    bz,
+                    &mut out[i..i + 4],
+                );
+            }
+            i += 4;
+        }
+        if i + 2 <= n {
+            let (r0, ok0) = pair(
+                vld1q_f64(dx.as_ptr().add(i)),
+                vld1q_f64(dy.as_ptr().add(i)),
+                vld1q_f64(dz.as_ptr().add(i)),
+                len,
+                recip,
+                half,
+                lim,
             );
-            vst1q_f64(out.as_mut_ptr().add(i), norm(x, y, z));
+            if lanes_fast(ok0) {
+                vst1q_f64(out.as_mut_ptr().add(i), r0);
+            } else {
+                dist2_ortho_diffs_scalar(
+                    &dx[i..i + 2],
+                    &dy[i..i + 2],
+                    &dz[i..i + 2],
+                    bx,
+                    by,
+                    bz,
+                    &mut out[i..i + 2],
+                );
+            }
             i += 2;
         }
         if i < n {
