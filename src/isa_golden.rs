@@ -333,9 +333,13 @@ fn bench_dispatch() {
         let dy: Vec<f64> = ps.iter().map(|p| p[1]).collect();
         let dz: Vec<f64> = ps.iter().map(|p| p[2]).collect();
         let reps = if n >= 100_000 { 8u32 } else { 40u32 };
+        // `None` is auto-dispatch: no force, so `select` follows
+        // `MINIMAGE_SIMD` or the native path.
+        let slots = paths.iter().copied().map(Some).chain(std::iter::once(None));
         for round in 0..5 {
-            for path in &paths {
-                let _guard = simd::force(*path);
+            for path in slots.clone() {
+                let _guard = path.map(simd::force);
+                let name = path.map(|p| p.name()).unwrap_or("default");
                 let time = |body: &mut dyn FnMut()| {
                     let start = std::time::Instant::now();
                     for _ in 0..reps {
@@ -360,8 +364,7 @@ fn bench_dispatch() {
                     black_box(&out);
                 });
                 println!(
-                    "bench n={n} path={} round={round} dist2_pairs={pairs:.4} dist2_many={many:.4} wrap_many={wrap:.4} dist2_ortho_diffs={diffs_ms:.4}",
-                    path.name()
+                    "bench n={n} path={name} round={round} dist2_pairs={pairs:.4} dist2_many={many:.4} wrap_many={wrap:.4} dist2_ortho_diffs={diffs_ms:.4}"
                 );
             }
         }

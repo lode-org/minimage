@@ -393,6 +393,70 @@ mod tests {
         assert_eq!(floor_fast(neg_tiny).to_bits(), (-1.0_f64).to_bits());
     }
 
+    /// Vector ortho kernels use this square while `|d| / L < 1e6`.
+    fn round_abs_sq(d: [f64; 3], l: [f64; 3]) -> f64 {
+        let mut acc = 0.0;
+        for a in 0..3 {
+            let mut x = d[a].abs();
+            x -= l[a] * round_away(x * (1.0 / l[a]));
+            acc += x * x;
+        }
+        acc
+    }
+
+    /// Vector ortho wrap, including the `+0.0` that turns `-0.0` into `+0.0`.
+    fn wrap_floor_axis(d: f64, length: f64) -> f64 {
+        let w = d - length * floor_fast(d / length + 0.5);
+        let half = 0.5 * length;
+        let w = if w < -half { w + length } else { w };
+        let w = if w >= half { w - length } else { w };
+        w + 0.0
+    }
+
+    #[test]
+    fn vector_ortho_form_matches_below_the_image_limit() {
+        let boxes = [
+            [10.0, 11.0, 12.0],
+            [2.5, 2.5, 2.5],
+            [1.0e-3, 4.0, 8.0],
+            [1000.0, 1.0, 30.0],
+        ];
+        let mut xs = vec![0.0, -0.0, 0.5, -0.5, 1.0, -1.0, 5.0, -15.0, 1e-320, -1e-320];
+        let mut state = 0x1234_5678_9abc_def0u64;
+        for _ in 0..400 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let u = (state >> 11) as f64 / (1u64 << 53) as f64;
+            xs.push((u - 0.5) * 40.0);
+            xs.push((u - 0.5) * 2.0e5);
+        }
+        for l in boxes {
+            for &x in &xs {
+                for &y in &xs[..24] {
+                    let dp = [x, y, xs[(x.to_bits() as usize).wrapping_add(3) % xs.len()]];
+                    let modest = (0..3).all(|a| dp[a].is_finite() && dp[a].abs() < l[a] * 1.0e6);
+                    if !modest {
+                        continue;
+                    }
+                    assert_eq!(
+                        round_abs_sq(dp, l).to_bits(),
+                        ortho_dist2(l, dp).to_bits(),
+                        "dist2 {dp:?} {l:?}"
+                    );
+                    let wrapped = ortho_wrap(l, dp);
+                    for a in 0..3 {
+                        assert_eq!(
+                            wrap_floor_axis(dp[a], l[a]).to_bits(),
+                            wrapped[a].to_bits(),
+                            "wrap axis {a} {dp:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn ortho_square_is_the_signed_wrap_square() {
         let l = [10.0, 11.0, 12.0];
