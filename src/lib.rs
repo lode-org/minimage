@@ -22,7 +22,8 @@
 //! [`Cell::dist2_shifted_indexed`] gathers a linked-cell bin's index
 //! list into that shifted kernel. [`reduce_pairs`] turns
 //! a vesin image pair list into one minimum-image pair and drops the
-//! self image.
+//! self image. [`PartialCell`] is periodic along some axes only: a slab,
+//! a wire, or an open system, with no image along an open axis.
 //!
 //! It is a LODE library. The Rust crate is the implementation. The C
 //! ABI (`mi_*`) is the hourglass waist, the same shape as
@@ -53,6 +54,7 @@ mod fused;
 mod kernel;
 mod minkowski;
 mod pairs;
+mod partial;
 mod selling;
 mod simd;
 
@@ -68,6 +70,7 @@ pub use cell::{dump_bounds_to_h, Cell};
 pub use error::Error;
 pub use minkowski::{is_minkowski_reduced, minkowski_reduce};
 pub use pairs::{reduce_pairs, reduce_pairs_packed};
+pub use partial::PartialCell;
 pub use simd::simd_path;
 
 #[cfg(feature = "capi")]

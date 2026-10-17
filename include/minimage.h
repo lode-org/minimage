@@ -91,6 +91,29 @@ typedef struct mi_cell {
     double oz;
 } mi_cell;
 
+/**
+ * Cell periodic along the axes of a mask (a slab or a wire). The rows
+ * of open axes are carried but ignored.
+ */
+typedef struct mi_pbc_cell {
+    /**
+     * Lattice rows and origin, as in an `mi_cell`.
+     */
+    struct mi_cell cell;
+    /**
+     * Nonzero when axis a is periodic.
+     */
+    int pbc_a;
+    /**
+     * Nonzero when axis b is periodic.
+     */
+    int pbc_b;
+    /**
+     * Nonzero when axis c is periodic.
+     */
+    int pbc_c;
+} mi_pbc_cell;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -206,6 +229,19 @@ int mi_displacement_euclidean(const struct mi_cell *simbox,
                               double *dr);
 
 /**
+ * Nearest-image displacement from `p` to `q` over the periodic axes of
+ * `simbox`, into `dr`. Open axes take no image.
+ *
+ * # Safety
+ *
+ * `simbox` is one `mi_pbc_cell`. `p`, `q`, and `dr` are three doubles.
+ */
+int mi_displacement_euclidean_pbc(const struct mi_pbc_cell *simbox,
+                                  const double *p,
+                                  const double *q,
+                                  double *dr);
+
+/**
  * Squared minimum-image distance from `p` to `q`.
  *
  * # Safety
@@ -264,6 +300,19 @@ int mi_dist2_euclidean_pairs_warm(const struct mi_cell *simbox,
                                   size_t n,
                                   int32_t *images,
                                   double *out);
+
+/**
+ * Squared length of `mi_displacement_euclidean_pbc` into `out`.
+ *
+ * # Safety
+ *
+ * `simbox` is one `mi_pbc_cell`. `p` and `q` are three doubles; `out` is
+ * one writable double.
+ */
+int mi_dist2_euclidean_pbc(const struct mi_pbc_cell *simbox,
+                           const double *p,
+                           const double *q,
+                           double *out);
 
 /**
  * Squared engine-wrap distance between two fixed-point positions.
@@ -439,6 +488,23 @@ int mi_fixed_many(const struct mi_cell *simbox,
  * call on this thread. Do not free it.
  */
 const char *mi_last_error(void);
+
+/**
+ * Fill `out` from ASE-style rows, a periodicity mask and an origin.
+ * `pbc` holds three ints, nonzero for a periodic axis; `origin` may be
+ * NULL (then zero). The rows of periodic axes must be finite and
+ * linearly independent; rows of open axes may be zero. All three
+ * periodic is the cell of `mi_cell_from_ase`.
+ *
+ * # Safety
+ *
+ * `rows` is nine readable doubles, `pbc` three readable ints, `origin`
+ * NULL or three readable doubles, and `out` one writable `mi_pbc_cell`.
+ */
+int mi_pbc_cell_from_ase(const double *rows,
+                         const int *pbc,
+                         const double *origin,
+                         struct mi_pbc_cell *out);
 
 /**
  * Drop self images and collapse duplicate `(i, j)` rows.

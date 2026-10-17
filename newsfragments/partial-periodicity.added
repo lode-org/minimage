@@ -1,0 +1,8 @@
+`PartialCell` is periodic along some axes only: a slab periodic in two
+directions, a wire in one, or an open system. The Euclidean nearest
+image is searched over the lattice of the periodic vectors, with no
+image along an open axis; a half-box tie keeps the engine wrap. With all
+three axes periodic it is a `Cell` and returns the same bits. The C ABI
+adds `mi_pbc_cell`, `mi_pbc_cell_from_ase`,
+`mi_displacement_euclidean_pbc` and `mi_dist2_euclidean_pbc`; the
+`mi_cell` functions and layout are unchanged.

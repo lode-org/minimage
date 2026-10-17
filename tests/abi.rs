@@ -524,3 +524,137 @@ fn fixed32_abi_matches_rust() {
         assert_eq!(out[k].to_bits(), cell.dist2_fixed32(fx[2], qs[k]).to_bits());
     }
 }
+
+extern "C" {
+    fn mi_cell_from_ase(rows: *const f64, origin: *const f64, out: *mut mi_cell) -> c_int;
+    fn mi_pbc_cell_from_ase(
+        rows: *const f64,
+        pbc: *const c_int,
+        origin: *const f64,
+        out: *mut minimage::mi_pbc_cell,
+    ) -> c_int;
+    fn mi_displacement_euclidean_pbc(
+        simbox: *const minimage::mi_pbc_cell,
+        p: *const f64,
+        q: *const f64,
+        dr: *mut f64,
+    ) -> c_int;
+    fn mi_dist2_euclidean_pbc(
+        simbox: *const minimage::mi_pbc_cell,
+        p: *const f64,
+        q: *const f64,
+        out: *mut f64,
+    ) -> c_int;
+}
+
+fn pbc_cell(rows: &[f64; 9], pbc: [c_int; 3]) -> (c_int, minimage::mi_pbc_cell) {
+    let mut out = std::mem::MaybeUninit::<minimage::mi_pbc_cell>::zeroed();
+    let status = unsafe {
+        mi_pbc_cell_from_ase(
+            rows.as_ptr(),
+            pbc.as_ptr(),
+            std::ptr::null(),
+            out.as_mut_ptr(),
+        )
+    };
+    (status, unsafe { out.assume_init() })
+}
+
+#[test]
+fn pbc_abi_matches_rust_and_the_full_cell() {
+    use minimage::PartialCell;
+    let rows = [8.0, 0.0, 0.0, 3.0, 7.0, 0.0, 1.0, -2.0, 9.0];
+    let nested = [[8.0, 0.0, 0.0], [3.0, 7.0, 0.0], [1.0, -2.0, 9.0]];
+    let pairs = [
+        ([0.1, 0.2, 0.3], [7.9, 6.5, -8.2]),
+        ([4.0, -3.0, 2.0], [-9.0, 11.0, 30.0]),
+        ([0.0, 0.0, 0.0], [4.0, 3.5, 4.5]),
+    ];
+    // All three periodic: bit for bit the mi_cell path.
+    let mut full = std::mem::MaybeUninit::<mi_cell>::zeroed();
+    assert_eq!(
+        unsafe { mi_cell_from_ase(rows.as_ptr(), std::ptr::null(), full.as_mut_ptr()) },
+        0
+    );
+    let full = unsafe { full.assume_init() };
+    let (status, all) = pbc_cell(&rows, [1, 1, 1]);
+    assert_eq!(status, 0);
+    for (p, q) in pairs {
+        let mut a = [0.0; 3];
+        let mut b = [0.0; 3];
+        assert_eq!(
+            unsafe { mi_displacement_euclidean_pbc(&all, p.as_ptr(), q.as_ptr(), a.as_mut_ptr()) },
+            0
+        );
+        assert_eq!(
+            unsafe { mi_displacement_euclidean(&full, p.as_ptr(), q.as_ptr(), b.as_mut_ptr()) },
+            0
+        );
+        assert_eq!(a.map(f64::to_bits), b.map(f64::to_bits));
+    }
+    // A slab and a wire match the Rust type.
+    for mask in [[1, 1, 0], [0, 1, 1], [1, 0, 0]] {
+        let (status, raw) = pbc_cell(&rows, mask);
+        assert_eq!(status, 0);
+        let cell = PartialCell::from_ase(nested, mask.map(|m| m != 0)).unwrap();
+        for (p, q) in pairs {
+            let mut d = [0.0; 3];
+            let mut d2 = 0.0;
+            assert_eq!(
+                unsafe {
+                    mi_displacement_euclidean_pbc(&raw, p.as_ptr(), q.as_ptr(), d.as_mut_ptr())
+                },
+                0
+            );
+            assert_eq!(
+                unsafe { mi_dist2_euclidean_pbc(&raw, p.as_ptr(), q.as_ptr(), &mut d2) },
+                0
+            );
+            assert_eq!(
+                d.map(f64::to_bits),
+                cell.displacement_euclidean(p, q).map(f64::to_bits)
+            );
+            assert_eq!(d2.to_bits(), cell.dist2_euclidean(p, q).to_bits());
+        }
+    }
+}
+
+#[test]
+fn pbc_abi_refuses_bad_input_and_reports_it() {
+    let parallel = [4.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let (status, _) = pbc_cell(&parallel, [1, 1, 0]);
+    assert_ne!(status, 0);
+    assert!(!unsafe { mi_last_error() }.is_null());
+    let rows = [10.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0];
+    let mut out = std::mem::MaybeUninit::<minimage::mi_pbc_cell>::zeroed();
+    assert_ne!(
+        unsafe {
+            mi_pbc_cell_from_ase(
+                rows.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                out.as_mut_ptr(),
+            )
+        },
+        0
+    );
+    let (status, slab) = pbc_cell(&rows, [1, 1, 0]);
+    assert_eq!(status, 0);
+    assert!(unsafe { mi_last_error() }.is_null());
+    let p = [0.0; 3];
+    let mut d2 = 0.0;
+    assert_ne!(
+        unsafe { mi_dist2_euclidean_pbc(&slab, p.as_ptr(), std::ptr::null(), &mut d2) },
+        0
+    );
+    assert_ne!(
+        unsafe { mi_dist2_euclidean_pbc(std::ptr::null(), p.as_ptr(), p.as_ptr(), &mut d2) },
+        0
+    );
+    let q = [9.5, 0.5, 40.0];
+    assert_eq!(
+        unsafe { mi_dist2_euclidean_pbc(&slab, p.as_ptr(), q.as_ptr(), &mut d2) },
+        0
+    );
+    assert!((d2 - (0.25 + 0.25 + 1600.0)).abs() < 1e-9);
+}

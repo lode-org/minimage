@@ -8,7 +8,7 @@ use std::ptr;
 use std::slice;
 
 use crate::fused;
-use crate::{dist2_ortho_diffs, reduce_pairs_packed, Cell, Error};
+use crate::{dist2_ortho_diffs, reduce_pairs_packed, Cell, Error, PartialCell};
 
 /// Periodic parallelepiped. Lattice vectors are a, b, c (same as vesin rows).
 #[repr(C)]
@@ -1151,5 +1151,228 @@ pub unsafe extern "C" fn mi_reduce_pairs(
             0
         }
         Err(e) => fail(e),
+    }
+}
+
+/// Cell periodic along the axes of a mask (a slab or a wire). The rows
+/// of open axes are carried but ignored.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct mi_pbc_cell {
+    /// Lattice rows and origin, as in an `mi_cell`.
+    pub cell: mi_cell,
+    /// Nonzero when axis a is periodic.
+    pub pbc_a: c_int,
+    /// Nonzero when axis b is periodic.
+    pub pbc_b: c_int,
+    /// Nonzero when axis c is periodic.
+    pub pbc_c: c_int,
+}
+
+impl mi_pbc_cell {
+    fn mask(&self) -> [bool; 3] {
+        [self.pbc_a != 0, self.pbc_b != 0, self.pbc_c != 0]
+    }
+
+    fn to_partial(self) -> Result<PartialCell, Error> {
+        PartialCell::from_ase(self.cell.columns(), self.mask())
+    }
+}
+
+/// The last partial cell built on this thread, keyed like the full cell.
+/// A separate slot: the fully periodic path keeps its own state untouched.
+type PartialEntry = ([f64; 12], [bool; 3], PartialCell);
+
+struct PartialState {
+    cell: RefCell<Option<PartialEntry>>,
+}
+
+thread_local! {
+    static PARTIAL: PartialState = const {
+        PartialState {
+            cell: RefCell::new(None),
+        }
+    };
+}
+
+fn with_partial<R>(
+    simbox: *const mi_pbc_cell,
+    f: impl FnOnce(&PartialCell) -> R,
+) -> Result<R, c_int> {
+    if simbox.is_null() {
+        return Err(fail_msg("null simbox"));
+    }
+    // SAFETY: `simbox` is a readable `mi_pbc_cell`.
+    let raw = unsafe { &*simbox };
+    let key = cell_key(&raw.cell);
+    let mask = raw.mask();
+    PARTIAL.with(|st| {
+        if let Some((cached, cached_mask, cell)) = st.cell.borrow().as_ref() {
+            if same_key(cached, &key) && *cached_mask == mask {
+                let out = f(cell);
+                clear_error();
+                return Ok(out);
+            }
+        }
+        let cell = raw.to_partial().map_err(fail)?;
+        let out = f(&cell);
+        *st.cell.borrow_mut() = Some((key, mask, cell));
+        clear_error();
+        Ok(out)
+    })
+}
+
+/// Fill `out` from ASE-style rows, a periodicity mask and an origin.
+/// `pbc` holds three ints, nonzero for a periodic axis; `origin` may be
+/// NULL (then zero). The rows of periodic axes must be finite and
+/// linearly independent; rows of open axes may be zero. All three
+/// periodic is the cell of `mi_cell_from_ase`.
+///
+/// # Safety
+///
+/// `rows` is nine readable doubles, `pbc` three readable ints, `origin`
+/// NULL or three readable doubles, and `out` one writable `mi_pbc_cell`.
+#[no_mangle]
+pub unsafe extern "C" fn mi_pbc_cell_from_ase(
+    rows: *const f64,
+    pbc: *const c_int,
+    origin: *const f64,
+    out: *mut mi_pbc_cell,
+) -> c_int {
+    if rows.is_null() {
+        return fail_msg("null ASE cell");
+    }
+    if pbc.is_null() {
+        return fail_msg("null periodicity mask");
+    }
+    if out.is_null() {
+        return fail_msg("null cell output");
+    }
+    // SAFETY: nine readable doubles, three readable ints.
+    let (r, mask) = unsafe {
+        (
+            [
+                *rows,
+                *rows.add(1),
+                *rows.add(2),
+                *rows.add(3),
+                *rows.add(4),
+                *rows.add(5),
+                *rows.add(6),
+                *rows.add(7),
+                *rows.add(8),
+            ],
+            [*pbc, *pbc.add(1), *pbc.add(2)],
+        )
+    };
+    let o = if origin.is_null() {
+        [0.0; 3]
+    } else {
+        // SAFETY: three readable doubles.
+        unsafe { [*origin, *origin.add(1), *origin.add(2)] }
+    };
+    let raw = mi_pbc_cell {
+        cell: mi_cell {
+            ax: r[0],
+            ay: r[1],
+            az: r[2],
+            bx: r[3],
+            by: r[4],
+            bz: r[5],
+            cx: r[6],
+            cy: r[7],
+            cz: r[8],
+            ox: o[0],
+            oy: o[1],
+            oz: o[2],
+        },
+        pbc_a: c_int::from(mask[0] != 0),
+        pbc_b: c_int::from(mask[1] != 0),
+        pbc_c: c_int::from(mask[2] != 0),
+    };
+    match raw.to_partial() {
+        Ok(_) => {
+            clear_error();
+            // SAFETY: `out` is a valid `mi_pbc_cell`.
+            unsafe {
+                *out = raw;
+            }
+            0
+        }
+        Err(e) => fail(e),
+    }
+}
+
+/// Nearest-image displacement from `p` to `q` over the periodic axes of
+/// `simbox`, into `dr`. Open axes take no image.
+///
+/// # Safety
+///
+/// `simbox` is one `mi_pbc_cell`. `p`, `q`, and `dr` are three doubles.
+#[no_mangle]
+pub unsafe extern "C" fn mi_displacement_euclidean_pbc(
+    simbox: *const mi_pbc_cell,
+    p: *const f64,
+    q: *const f64,
+    dr: *mut f64,
+) -> c_int {
+    let p = match read3(p, "null p") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let q = match read3(q, "null q") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if dr.is_null() {
+        return fail_msg("null dr");
+    }
+    match with_partial(simbox, |cell| cell.displacement_euclidean(p, q)) {
+        Ok(v) => {
+            // SAFETY: `dr` is three writable doubles.
+            unsafe {
+                *dr = v[0];
+                *dr.add(1) = v[1];
+                *dr.add(2) = v[2];
+            }
+            0
+        }
+        Err(e) => e,
+    }
+}
+
+/// Squared length of `mi_displacement_euclidean_pbc` into `out`.
+///
+/// # Safety
+///
+/// `simbox` is one `mi_pbc_cell`. `p` and `q` are three doubles; `out` is
+/// one writable double.
+#[no_mangle]
+pub unsafe extern "C" fn mi_dist2_euclidean_pbc(
+    simbox: *const mi_pbc_cell,
+    p: *const f64,
+    q: *const f64,
+    out: *mut f64,
+) -> c_int {
+    let p = match read3(p, "null p") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let q = match read3(q, "null q") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if out.is_null() {
+        return fail_msg("null out");
+    }
+    match with_partial(simbox, |cell| cell.dist2_euclidean(p, q)) {
+        Ok(d2) => {
+            // SAFETY: `out` is one writable double.
+            unsafe {
+                *out = d2;
+            }
+            0
+        }
+        Err(e) => e,
     }
 }

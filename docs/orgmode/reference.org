@@ -46,6 +46,10 @@ failure; read =mi_last_error()= on the same thread.
 | =mi_dist2_pairs_fixed= | Packed fixed-point pair lists |
 | =mi_fixed32_many=, =mi_dist2_fixed32= | 32-bit fixed-point fractions and distance |
 | =mi_dist2_many_fixed32=, =mi_dist2_pairs_fixed32= | 32-bit fixed-point batches |
+| =mi_pbc_cell= | An =mi_cell= with a periodicity flag per axis |
+| =mi_pbc_cell_from_ase= | Row-major 3x3 and a mask of three ints; open rows may be zero |
+| =mi_displacement_euclidean_pbc= | Nearest image over the periodic axes only |
+| =mi_dist2_euclidean_pbc= | Its squared length |
 | =mi_reduce_pairs= | Drop self images, unique pairs |
 | =mi_last_error= | Thread-local error string |
 | =mi_version= | Process-static version |
@@ -58,6 +62,15 @@ The C++ header =minimage.hpp= is a RAII wrap of this ABI.
 | Item | Role |
 |------+------|
 | =simd_path()= | Name of the path the next batch will use: =scalar=, =avx=, =avx2=, =avx512=, or =neon= |
+| =PartialCell::from_ase(rows, pbc)= | Periodic along the axes of =pbc= only: slabs, wires, open systems |
+| =PartialCell::displacement_euclidean= | Nearest image over the periodic lattice; open axes take no image |
+
+A slab rounds its in-plane coordinates and tries the nine neighbouring
+images on a Lagrange-reduced basis of its two vectors; a wire rounds
+along its one. The component normal to the periodic vectors is kept. A
+half-box tie keeps the engine wrap =s - floor(s + 1/2)=, as
+=Cell::displacement_euclidean= does. With all three axes periodic a
+=PartialCell= is a =Cell= and returns its displacement bit for bit.
 
 =MINIMAGE_SIMD= overrides the choice. An unknown name is ignored.
 A name this CPU cannot run selects =scalar=.
