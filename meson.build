@@ -32,6 +32,10 @@ endif
 _profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
 
 # Native Rust and C objects use the consumer's linker and libc.
+# CARGO_TARGET_<TRIPLE>_LINKER selects that driver. On MSVC the last
+# entry of cc.cmd_array() is cl, and rustc then links build scripts with
+# the compiler driver (LNK2001: memcpy, mainCRTStartup, __CxxFrameHandler3).
+# Leave the variable unset so rustc keeps link.exe.
 rustc_prog = find_program('rustc', required: true)
 _rust_host = ''
 foreach line : run_command(rustc_prog, '-vV', check: true).stdout().split('\n')
@@ -43,7 +47,25 @@ if _rust_host == ''
   error('rustc did not report its host target')
 endif
 _rust_linker_key = 'CARGO_TARGET_' + _rust_host.to_upper().replace('-', '_') + '_LINKER'
-_cargo_env = {_rust_linker_key: cc.cmd_array()[-1]}
+_cargo_env = {}
+if cc.get_argument_syntax() != 'msvc'
+  _cargo_env = {_rust_linker_key: cc.cmd_array()[-1]}
+  message('Cargo linker ' + _rust_linker_key + '=' + cc.cmd_array()[-1])
+else
+  message('Cargo linker unset (MSVC)')
+endif
+_linker_report = meson.project_build_root() / 'cargo-linker.env.json'
+run_command(
+  py,
+  _msproot / 'scripts' / 'check-cargo-linker.py',
+  '--write-report',
+  _linker_report,
+  cc.get_argument_syntax(),
+  _rust_host,
+  _rust_linker_key,
+  cc.cmd_array()[-1],
+  check: true,
+)
 _rust_sources = run_command(
   py, '-c',
   'from pathlib import Path; print("\\n".join(str(p) for p in sorted(Path("src").rglob("*.rs"))))',
@@ -149,6 +171,15 @@ if _install
 endif
 
 if get_option('with_tests')
+  test(
+    'cargo-linker-env',
+    py,
+    args: [
+      _msproot / 'scripts' / 'check-cargo-linker.py',
+      meson.project_build_root(),
+    ],
+    timeout: 60,
+  )
   test(
     'cargo-tests',
     cargo_prog,

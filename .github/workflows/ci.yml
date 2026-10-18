@@ -105,8 +105,30 @@ jobs:
         run: cargo test --release --locked --lib bench_dispatch -- --ignored --nocapture
       - run: cargo clippy --locked --workspace --exclude minimage-python --all-targets ${{ matrix.crate.flags }} -- -D warnings
 
+  # Linux and macOS must keep CARGO_TARGET_<TRIPLE>_LINKER pointed at
+  # the C driver. Windows MSVC must leave it unset: cl cannot link
+  # rustc build scripts. Examples stay off on MSVC because link.exe
+  # needs an import library the cargo custom target does not stage;
+  # the library build itself is the MSVC proof.
   meson:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            require_syntax: gcc
+            pkgconfig: true
+          - os: macos-latest
+            require_syntax: gcc
+            pkgconfig: false
+          - os: windows-latest
+            require_syntax: msvc
+            pkgconfig: false
+    name: meson (${{ matrix.os }}, ${{ matrix.require_syntax }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -121,12 +143,37 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install meson ninja
-      - run: meson setup build
-      - run: meson compile -C build
-      - run: meson test -C build --print-errorlogs
-      - run: meson install -C build --destdir "$PWD/destdir"
+      - run: python -m pip install meson ninja
+      - name: Configure
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.require_syntax }}" = "msvc" ]; then
+            # Point Meson at setup-python, not the WindowsApps python3 stub.
+            pyexe="$(python -c 'import sys; print(sys.executable.replace("\\", "/"))')"
+            native="${RUNNER_TEMP:-/tmp}/minimage-python.ini"
+            printf "[binaries]\npython = '%s'\npython3 = '%s'\n" "$pyexe" "$pyexe" > "$native"
+            meson setup build --vsenv --native-file "$native" -Dwith_examples=false
+          else
+            meson setup build
+          fi
+      - name: Cargo linker matches the C toolchain
+        run: |
+          set -euo pipefail
+          python scripts/check-cargo-linker.py build --require-syntax "${{ matrix.require_syntax }}"
+      - name: Compile and test
+        run: |
+          set -euo pipefail
+          meson compile -C build
+          if [ "${{ matrix.require_syntax }}" = "msvc" ]; then
+            meson test -C build --print-errorlogs --timeout-multiplier 2
+          else
+            meson test -C build --print-errorlogs
+          fi
+      - name: Install
+        if: matrix.pkgconfig
+        run: meson install -C build --destdir "$PWD/destdir"
       - name: pkg-config after meson install
+        if: matrix.pkgconfig
         run: |
           prefix="$PWD/destdir/usr/local"
           export PKG_CONFIG_PATH="$prefix/lib/x86_64-linux-gnu/pkgconfig:$prefix/lib/pkgconfig"
