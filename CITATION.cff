@@ -7,7 +7,9 @@ authors:
     given-names: Rohit
     orcid: https://orcid.org/0000-0002-2393-8056
 license: MIT
+# [[[cog cog.outl(f'version: {VERSION}') ]]]
 version: 0.2.0
+# [[[end]]]
 date-released: "2026-10-11"
 repository-code: "https://github.com/lode-org/minimage"
 url: "https://lode-org.github.io/minimage/"

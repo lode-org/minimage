@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Version source of truth: Cargo.toml [package].version.
+# Version source of truth: Cargo.toml [workspace.package].version.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml" _minimage_cargo_toml)
 set(MINIMAGE_VERSION "")
 foreach(_line ${_minimage_cargo_toml})

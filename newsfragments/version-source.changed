@@ -1,0 +1,4 @@
+The version is written by hand only in `[workspace.package]`.
+Meson and maturin read it from `Cargo.toml` at build time.
+`scripts/sync-version.py` regenerates the other copies.
+The four Meson wrap snippets name the newest release tag, v0.1.4, which `[workspace.metadata.release].tag` in `Cargo.toml` sets.
