@@ -1376,3 +1376,122 @@ pub unsafe extern "C" fn mi_dist2_euclidean_pbc(
         Err(e) => e,
     }
 }
+
+/// Squared-distance filter of candidate pairs `(ii[k], jj[k], shift[k])`.
+///
+/// Writes the kept rows into caller buffers. `kept` receives the number
+/// of rows. Each output buffer holds at least `n` entries. `vectors`
+/// may be null; when it is not, it receives `q + H S - p`.
+///
+/// # Safety
+///
+/// `simbox` is one `mi_cell`. `xyz` is `n_atoms * 3` doubles. `ii`, `jj`
+/// and `shift` describe `n` candidates (`shift` is `n * 3` ints). The
+/// output pointers are writable for `n` rows.
+#[no_mangle]
+pub unsafe extern "C" fn mi_filter_shifted(
+    simbox: *const mi_cell,
+    xyz: *const f64,
+    n_atoms: usize,
+    ii: *const u32,
+    jj: *const u32,
+    shift: *const i32,
+    n: usize,
+    cut2: f64,
+    out_i: *mut u32,
+    out_j: *mut u32,
+    out_shift: *mut i32,
+    out_dist2: *mut f64,
+    out_vector: *mut f64,
+    kept: *mut usize,
+) -> c_int {
+    if xyz.is_null() || ii.is_null() || jj.is_null() || shift.is_null() || kept.is_null() {
+        return fail_msg("null filter input");
+    }
+    if out_i.is_null() || out_j.is_null() || out_shift.is_null() || out_dist2.is_null() {
+        return fail_msg("null filter output");
+    }
+    let cell = match with_cell(simbox, |c| *c) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let pts: Vec<[f64; 3]> =
+        unsafe { std::slice::from_raw_parts(xyz.cast::<[f64; 3]>(), n_atoms).to_vec() };
+    let ii = unsafe { std::slice::from_raw_parts(ii, n) };
+    let jj = unsafe { std::slice::from_raw_parts(jj, n) };
+    let shift_raw = unsafe { std::slice::from_raw_parts(shift, n.saturating_mul(3)) };
+    if shift_raw.len() != n.saturating_mul(3) {
+        return fail(Error::BufferSize);
+    }
+    let mut sh = Vec::with_capacity(n);
+    for k in 0..n {
+        sh.push([shift_raw[3 * k], shift_raw[3 * k + 1], shift_raw[3 * k + 2]]);
+    }
+    let want = !out_vector.is_null();
+    let mut out = crate::FilterOut::default();
+    if let Err(e) = crate::filter_shifted(&cell, &pts, ii, jj, &sh, cut2, want, &mut out) {
+        return fail(e);
+    }
+    let m = out.i.len();
+    unsafe {
+        std::ptr::copy_nonoverlapping(out.i.as_ptr(), out_i, m);
+        std::ptr::copy_nonoverlapping(out.j.as_ptr(), out_j, m);
+        for (k, s) in out.shift.iter().enumerate() {
+            *out_shift.add(3 * k) = s[0];
+            *out_shift.add(3 * k + 1) = s[1];
+            *out_shift.add(3 * k + 2) = s[2];
+        }
+        std::ptr::copy_nonoverlapping(out.dist2.as_ptr(), out_dist2, m);
+        if want {
+            for (k, v) in out.vector.iter().enumerate() {
+                *out_vector.add(3 * k) = v[0];
+                *out_vector.add(3 * k + 1) = v[1];
+                *out_vector.add(3 * k + 2) = v[2];
+            }
+        }
+        *kept = m;
+    }
+    0
+}
+
+/// Ring-polymer centroid. `xyz` is bead-major `(beads * atoms, 3)`.
+/// `out` receives `atoms` positions.
+///
+/// # Safety
+///
+/// `simbox` is one `mi_cell`. `xyz` holds `beads * atoms` points and
+/// `out` holds `atoms` points.
+#[no_mangle]
+pub unsafe extern "C" fn mi_ring_centroid(
+    simbox: *const mi_cell,
+    xyz: *const f64,
+    beads: usize,
+    atoms: usize,
+    out: *mut f64,
+) -> c_int {
+    if xyz.is_null() || out.is_null() {
+        return fail_msg("null centroid buffer");
+    }
+    let cell = match with_cell(simbox, |c| *c) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let n = match beads.checked_mul(atoms) {
+        Some(n) => n,
+        None => return fail(Error::BufferSize),
+    };
+    let pts = unsafe { std::slice::from_raw_parts(xyz.cast::<[f64; 3]>(), n) };
+    match crate::ring_centroid(&cell, beads, pts) {
+        Ok(rows) => {
+            unsafe {
+                for (k, p) in rows.iter().enumerate() {
+                    *out.add(3 * k) = p[0];
+                    *out.add(3 * k + 1) = p[1];
+                    *out.add(3 * k + 2) = p[2];
+                }
+            }
+            0
+        }
+        Err(e) => fail(e),
+    }
+}

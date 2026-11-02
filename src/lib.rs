@@ -48,6 +48,7 @@
 mod batch;
 mod cell;
 mod error;
+mod filter;
 mod fixed;
 mod fixed32;
 mod fused;
@@ -68,6 +69,7 @@ pub use batch::{
 };
 pub use cell::{dump_bounds_to_h, Cell};
 pub use error::Error;
+pub use filter::{filter_shifted, ring_centroid, FilterOut};
 pub use minkowski::{is_minkowski_reduced, minkowski_reduce};
 pub use pairs::{reduce_pairs, reduce_pairs_packed};
 pub use partial::PartialCell;
