@@ -11,7 +11,7 @@ CMAKE_BUILD="${MINIMAGE_CMAKE_BUILD:-$ROOT/build-cmake}"
 MESON_DEST="${MINIMAGE_MESON_DEST:-$ROOT/destdir-meson}"
 CMAKE_PREFIX="${MINIMAGE_CMAKE_PREFIX:-$ROOT/prefix-cmake}"
 
-cargo_ver="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)"
+cargo_ver="$(python3 "$ROOT/scripts/crate_version.py")"
 if [[ -z "$cargo_ver" ]]; then
   echo "could not read version from Cargo.toml"
   exit 1
