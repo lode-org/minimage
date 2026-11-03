@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>How-to</title>
-<meta name="description" content="Embed minimage from C, C++, and Python. pkg-config." />
+<meta name="description" content="Embed minimage from C, C++, and Python. pkg-config. Cut a release." />
 <meta name="generator" content="Org Mode" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
@@ -29,9 +29,9 @@
 </nav>
 <div class="rule" aria-hidden="true"></div>
 
-<section id="outline-container-org47d7a02" class="outline-2">
-<h2 id="org47d7a02">Embed from C</h2>
-<div class="outline-text-2" id="text-org47d7a02">
+<section id="outline-container-orgcf12f01" class="outline-2">
+<h2 id="orgcf12f01">Embed from C</h2>
+<div class="outline-text-2" id="text-orgcf12f01">
 <div class="org-src-container">
 <pre class="src src-c">#include "minimage.h"
 
@@ -52,9 +52,9 @@ exposes <code>minimage_dep</code>. CMake exposes <code>minimage::minimage</code>
 </div>
 </section>
 
-<section id="outline-container-orgfb381bc" class="outline-2">
-<h2 id="orgfb381bc">Embed from C++</h2>
-<div class="outline-text-2" id="text-orgfb381bc">
+<section id="outline-container-org67f5122" class="outline-2">
+<h2 id="org67f5122">Embed from C++</h2>
+<div class="outline-text-2" id="text-org67f5122">
 <div class="org-src-container">
 <pre class="src src-cpp">#include "minimage.hpp"
 
@@ -70,9 +70,9 @@ The header is a RAII wrap of <code>minimage.h</code>. Failures throw
 </div>
 </section>
 
-<section id="outline-container-org7f76993" class="outline-2">
-<h2 id="org7f76993">Embed from Python</h2>
-<div class="outline-text-2" id="text-org7f76993">
+<section id="outline-container-org8edc384" class="outline-2">
+<h2 id="org8edc384">Embed from Python</h2>
+<div class="outline-text-2" id="text-org8edc384">
 <div class="org-src-container">
 <pre class="src src-python">import minimage
 
@@ -94,9 +94,9 @@ to the host, or run the wrap on the device with <code>minimage-burn</code>.
 </div>
 </section>
 
-<section id="outline-container-orgafe3f95" class="outline-2">
-<h2 id="orgafe3f95">Run on a GPU with Burn</h2>
-<div class="outline-text-2" id="text-orgafe3f95">
+<section id="outline-container-orgccbb9b6" class="outline-2">
+<h2 id="orgccbb9b6">Run on a GPU with Burn</h2>
+<div class="outline-text-2" id="text-orgccbb9b6">
 <p>
 <code>burn/</code> is the <code>minimage-burn</code> crate, outside the workspace because
 Burn needs Rust 1.95. Enable the backend features you need (<code>wgpu</code>,
@@ -123,9 +123,9 @@ on the device is then exact in single or half precision.
 </div>
 </section>
 
-<section id="outline-container-org512ef66" class="outline-2">
-<h2 id="org512ef66">pkg-config</h2>
-<div class="outline-text-2" id="text-org512ef66">
+<section id="outline-container-org23e4ad6" class="outline-2">
+<h2 id="org23e4ad6">pkg-config</h2>
+<div class="outline-text-2" id="text-org23e4ad6">
 <div class="org-src-container">
 <pre class="src src-text">pkg-config --cflags --libs minimage
 </pre>
@@ -135,6 +135,86 @@ on the device is then exact in single or half precision.
 Meson and CMake both write <code>minimage.pc</code>. <code>Libs</code> includes <code>-L${libdir}</code>
 so a wrap consumer can find <code>-lminimage</code>.
 </p>
+</div>
+</section>
+
+<section id="outline-container-org1f4ef43" class="outline-2">
+<h2 id="org1f4ef43">Cut a release</h2>
+<div class="outline-text-2" id="text-org1f4ef43">
+<p>
+The version is written by hand in one place, <code>[workspace.package].version</code> in <code>Cargo.toml</code>.
+Meson and CMake read it through <code>scripts/crate_version.py</code>, and maturin reads it from the crate.
+<code>scripts/sync-version.py</code> rewrites the other copies.
+Those are <code>CITATION.cff</code>, <code>burn/Cargo.toml</code>, <code>Cargo.lock</code> and the four Meson wrap snippets.
+</p>
+
+<p>
+Install cocogitto, which provides <code>cog bump</code>, and the two Python packages its hooks import.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">cargo install cocogitto --locked
+python3 -m pip install cogapp towncrier
+</pre>
+</div>
+
+<p>
+cogapp installs a <code>cog</code> command too.
+When that one comes first on <code>PATH</code>, call cocogitto by its full path, for example <code>~/.cargo/bin/cog</code>.
+</p>
+
+<p>
+Bump from a clean checkout of the main branch, then push the commit and the tag.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">cog bump --version 0.3.0
+git push origin main v0.3.0
+</pre>
+</div>
+
+<p>
+The <code>pre_bump_hooks</code> in <code>cog.toml</code> run in this order:
+</p>
+
+<ol class="org-ol">
+<li><code>scripts/crate_version.py --set 0.3.0</code> writes the version into <code>[workspace.package]</code>.</li>
+<li><code>scripts/sync-version.py --release</code> sets <code>[workspace.metadata.release].tag</code> to <code>v0.3.0</code> and rewrites every copy.</li>
+<li><code>towncrier build</code> moves the newsfragments into <code>CHANGELOG.md</code>.</li>
+<li><code>scripts/check_version_lockstep.py --tag v0.3.0</code> reads every copy back and checks the tag.</li>
+</ol>
+
+<p>
+<code>cog bump</code> then makes the release commit and tags it <code>v0.3.0</code>.
+A failed hook stops it before the commit.
+</p>
+</div>
+
+<div id="outline-container-org19e79f9" class="outline-3">
+<h3 id="org19e79f9">The wrap tag rule</h3>
+<div class="outline-text-3" id="text-org19e79f9">
+<p>
+A wrap snippet can only name a tag that exists, since Meson fetches each wrap at a git tag.
+The snippets sit in <code>README.md</code>, <code>packaging/wrapdb/minimage.wrap</code>, <code>getting-started.org</code> and its HTML page.
+Each one names <code>[workspace.metadata.release].tag</code>, the newest pushed release tag.
+Between releases, <code>sync-version.py</code> without <code>--release</code> leaves them on that tag while the version moves on.
+Only the release commit moves the tag to <code>v&lt;version&gt;</code>, and the git tag goes on that commit.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org78b4d04" class="outline-3">
+<h3 id="org78b4d04">The tag check</h3>
+<div class="outline-text-3" id="text-org78b4d04">
+<p>
+On a tag push, CI, the crates.io job and the wheels job run the tag check.
+They pass the pushed tag name to <code>scripts/check_version_lockstep.py --tag</code>.
+It fails unless the pushed tag is <code>v&lt;version&gt;</code> and equals the wrap tag.
+So a tag on any other commit fails the check before anything is published.
+The CI version job runs the sync on every push.
+That job fails when <code>git diff</code> is not empty.
+</p>
+</div>
 </div>
 </section>
 </div>

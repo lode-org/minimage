@@ -1,6 +1,6 @@
 #+title: How-to
 #+setupfile: setup.org
-#+description: Embed minimage from C, C++, and Python. pkg-config.
+#+description: Embed minimage from C, C++, and Python. pkg-config. Cut a release.
 
 #+begin_export html
 <nav class="top" aria-label="minimage">
@@ -91,3 +91,54 @@ pkg-config --cflags --libs minimage
 
 Meson and CMake both write =minimage.pc=. =Libs= includes =-L${libdir}=
 so a wrap consumer can find =-lminimage=.
+
+* Cut a release
+
+The version is written by hand in one place, =[workspace.package].version= in =Cargo.toml=.
+Meson and CMake read it through =scripts/crate_version.py=, and maturin reads it from the crate.
+=scripts/sync-version.py= rewrites the other copies.
+Those are =CITATION.cff=, =burn/Cargo.toml=, =Cargo.lock= and the four Meson wrap snippets.
+
+Install cocogitto, which provides =cog bump=, and the two Python packages its hooks import.
+
+#+begin_src sh
+cargo install cocogitto --locked
+python3 -m pip install cogapp towncrier
+#+end_src
+
+cogapp installs a =cog= command too.
+When that one comes first on =PATH=, call cocogitto by its full path, for example =~/.cargo/bin/cog=.
+
+Bump from a clean checkout of the main branch, then push the commit and the tag.
+
+#+begin_src sh
+cog bump --version 0.3.0
+git push origin main v0.3.0
+#+end_src
+
+The =pre_bump_hooks= in =cog.toml= run in this order:
+
+1. =scripts/crate_version.py --set 0.3.0= writes the version into =[workspace.package]=.
+2. =scripts/sync-version.py --release= sets =[workspace.metadata.release].tag= to =v0.3.0= and rewrites every copy.
+3. =towncrier build= moves the newsfragments into =CHANGELOG.md=.
+4. =scripts/check_version_lockstep.py --tag v0.3.0= reads every copy back and checks the tag.
+
+=cog bump= then makes the release commit and tags it =v0.3.0=.
+A failed hook stops it before the commit.
+
+** The wrap tag rule
+
+A wrap snippet can only name a tag that exists, since Meson fetches each wrap at a git tag.
+The snippets sit in =README.md=, =packaging/wrapdb/minimage.wrap=, =getting-started.org= and its HTML page.
+Each one names =[workspace.metadata.release].tag=, the newest pushed release tag.
+Between releases, =sync-version.py= without =--release= leaves them on that tag while the version moves on.
+Only the release commit moves the tag to =v<version>=, and the git tag goes on that commit.
+
+** The tag check
+
+On a tag push, CI, the crates.io job and the wheels job run the tag check.
+They pass the pushed tag name to =scripts/check_version_lockstep.py --tag=.
+It fails unless the pushed tag is =v<version>= and equals the wrap tag.
+So a tag on any other commit fails the check before anything is published.
+The CI version job runs the sync on every push.
+That job fails when =git diff= is not empty.
