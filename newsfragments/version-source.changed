@@ -1,4 +1,6 @@
 The version is written by hand only in `[workspace.package]`.
-Meson and maturin read it from `Cargo.toml` at build time.
+Meson, CMake and maturin read it from `Cargo.toml` at build time.
 `scripts/sync-version.py` regenerates the other copies.
-The four Meson wrap snippets name the newest release tag, v0.1.4, which `[workspace.metadata.release].tag` in `Cargo.toml` sets.
+The four Meson wrap snippets name the newest release tag, which `[workspace.metadata.release].tag` in `Cargo.toml` sets.
+`cog bump` writes the version and that tag, then runs the sync and towncrier.
+It checks the result before it tags the release commit.

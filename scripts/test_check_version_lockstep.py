@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import check_version_lockstep as lockstep
+import crate_version
 
 try:
     import cogapp  # noqa: F401
@@ -104,6 +105,14 @@ class Drift(unittest.TestCase):
         for rel in [lockstep.WRAP, *lockstep.SNIPPETS]:
             self.assertIn(f"revision = v{self.v}\n", self.text(rel))
         self.assertEqual(lockstep.check(self.root, pushed_tag=f"v{self.v}"), [])
+
+    @unittest.skipIf(sync is None, "needs cogapp")
+    def test_cog_bump_hooks_pass_the_tag_check(self):
+        cargo = self.root / "Cargo.toml"
+        crate_version.set_crate_version("10.20.30-rc.1", cargo)
+        self.assertEqual(crate_version.crate_version(cargo), "10.20.30-rc.1")
+        self.run_sync("--release")
+        self.assertEqual(lockstep.check(self.root, pushed_tag="v10.20.30-rc.1"), [])
 
 
 if __name__ == "__main__":
