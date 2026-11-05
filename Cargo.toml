@@ -1,6 +1,6 @@
 [package]
 name = "minimage"
-version = "0.2.0"
+version.workspace = true
 edition = "2021"
 rust-version = "1.70"
 description = "Minimum-image convention for periodic parallelepiped cells"
@@ -16,6 +16,15 @@ readme = "README.md"
 members = ["python"]
 exclude = ["burn"]
 resolver = "2"
+
+[workspace.package]
+version = "0.2.0"
+
+# The newest pushed release tag, which the Meson wrap snippets name. The
+# release commit sets it with `scripts/sync-version.py --release`, and the tag
+# goes on that commit.
+[workspace.metadata.release]
+tag = "v0.1.4"
 
 [lib]
 name = "minimage"

@@ -1,8 +1,7 @@
 project(
   'minimage',
   ['c', 'cpp'],
-  # Keep in lockstep with Cargo.toml [package].version (source of truth).
-  version: '0.2.0',
+  version: run_command('scripts/crate_version.py', check: true).stdout().strip(),
   meson_version: '>=1.2.0',
   license: 'MIT',
   default_options: [

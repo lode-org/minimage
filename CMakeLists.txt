@@ -1,24 +1,21 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Version source of truth: Cargo.toml [package].version.
-file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml" _minimage_cargo_toml)
-set(MINIMAGE_VERSION "")
-foreach(_line ${_minimage_cargo_toml})
-  if(_line MATCHES "^version = \"([0-9]+\\.[0-9]+\\.[0-9]+.*)\"")
-    set(MINIMAGE_VERSION "${CMAKE_MATCH_1}")
-    break()
-  endif()
-endforeach()
-if(MINIMAGE_VERSION STREQUAL "")
-  message(FATAL_ERROR "could not parse version from ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml")
-endif()
-unset(_minimage_cargo_toml)
-unset(_line)
+# Version source of truth: Cargo.toml [workspace.package].version, read by the
+# same script as meson.build. find_program() works before project().
+find_program(MINIMAGE_PYTHON NAMES python3 python REQUIRED)
+execute_process(
+  COMMAND "${MINIMAGE_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/crate_version.py"
+  OUTPUT_VARIABLE MINIMAGE_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml")
 
 string(REGEX REPLACE "([0-9]*)\\.([0-9]*)\\.([0-9]*).*" "\\1.\\2.\\3"
   MINIMAGE_CMAKE_VERSION "${MINIMAGE_VERSION}")
 project(minimage VERSION ${MINIMAGE_CMAKE_VERSION} LANGUAGES C CXX)
 set(PROJECT_VERSION ${MINIMAGE_VERSION})
+message(STATUS "minimage version ${MINIMAGE_VERSION}")
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
