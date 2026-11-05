@@ -451,6 +451,34 @@ int mi_dist2_shifted_many(const double *p,
                           double *out);
 
 /**
+ * Squared-distance filter of candidate pairs `(ii[k], jj[k], shift[k])`.
+ *
+ * Writes the kept rows into caller buffers. `kept` receives the number
+ * of rows. Each output buffer holds at least `n` entries. `vectors`
+ * may be null; when it is not, it receives `q + H S - p`.
+ *
+ * # Safety
+ *
+ * `simbox` is one `mi_cell`. `xyz` is `n_atoms * 3` doubles. `ii`, `jj`
+ * and `shift` describe `n` candidates (`shift` is `n * 3` ints). The
+ * output pointers are writable for `n` rows.
+ */
+int mi_filter_shifted(const struct mi_cell *simbox,
+                      const double *xyz,
+                      size_t n_atoms,
+                      const uint32_t *ii,
+                      const uint32_t *jj,
+                      const int32_t *shift,
+                      size_t n,
+                      double cut2,
+                      uint32_t *out_i,
+                      uint32_t *out_j,
+                      int32_t *out_shift,
+                      double *out_dist2,
+                      double *out_vector,
+                      size_t *kept);
+
+/**
  * 32-bit fixed-point fractional coordinates of `n` packed positions:
  * three `uint32_t` per position, each the 64-bit fraction of
  * [`mi_fixed_many`] rounded to its top 32 bits.
@@ -520,6 +548,21 @@ int mi_pbc_cell_from_ase(const double *rows,
 int mi_reduce_pairs(const int *pairs, size_t n, int *out, size_t *out_n);
 
 /**
+ * Ring-polymer centroid. `xyz` is bead-major `(beads * atoms, 3)`.
+ * `out` receives `atoms` positions.
+ *
+ * # Safety
+ *
+ * `simbox` is one `mi_cell`. `xyz` holds `beads * atoms` points and
+ * `out` holds `atoms` points.
+ */
+int mi_ring_centroid(const struct mi_cell *simbox,
+                     const double *xyz,
+                     size_t beads,
+                     size_t atoms,
+                     double *out);
+
+/**
  * Library version string. Process-static, NUL-terminated. Do not free.
  */
 const char *mi_version(void);
@@ -535,36 +578,6 @@ int mi_wrap_many(const struct mi_cell *simbox,
                  const double *diffs,
                  size_t n,
                  double *out);
-
-/**
- * Keep candidate pairs whose shifted squared distance is strictly below
- * `cut2`. `shift` is `n * 3` ints. `out_vector` may be NULL. `*kept` is
- * the number of rows written. Each output buffer holds `n` rows.
- */
-int mi_filter_shifted(const struct mi_cell *simbox,
-                      const double *xyz,
-                      size_t n_atoms,
-                      const uint32_t *ii,
-                      const uint32_t *jj,
-                      const int32_t *shift,
-                      size_t n,
-                      double cut2,
-                      uint32_t *out_i,
-                      uint32_t *out_j,
-                      int32_t *out_shift,
-                      double *out_dist2,
-                      double *out_vector,
-                      size_t *kept);
-
-/**
- * Mean position of each atom across `beads` images. `xyz` is bead-major
- * (`beads * atoms` points). `out` receives `atoms` points.
- */
-int mi_ring_centroid(const struct mi_cell *simbox,
-                     const double *xyz,
-                     size_t beads,
-                     size_t atoms,
-                     double *out);
 
 #ifdef __cplusplus
 }  // extern "C"
