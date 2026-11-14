@@ -226,6 +226,22 @@ int minimage_cell_from_con_box(const double *boxl,
                                struct mi_cell *out);
 
 /**
+ * Fill `out` from CON lengths and angles, with an exact right angle.
+ *
+ * An angle that compares equal to 90 degrees writes `+0.0` wherever
+ * [`minimage_cell_from_con_box`] would have written `cos` of that angle, and
+ * `+1.0` for its sine. An orthogonal box is then the diagonal of its
+ * lengths.
+ *
+ * # Safety
+ *
+ * Same contract as [`minimage_cell_from_con_box`].
+ */
+int minimage_cell_from_con_box_exact(const double *boxl,
+                                     const double *angles_deg,
+                                     struct mi_cell *out);
+
+/**
  * Fill `out` from LAMMPS dump-bound coordinates `xlo xhi ylo yhi zlo zhi`
  * and tilt factors `xy, xz, yz` in consistent length units.
  *
@@ -757,6 +773,18 @@ int minimage_ring_centroid(const struct mi_cell *simbox,
                            size_t beads,
                            size_t atoms,
                            double *out);
+
+/**
+ * Radius inside which a pair displacement has one nearest image.
+ *
+ * A zero lattice row is an open axis. `*out` is zero when no row is
+ * periodic. The value does not know about a vacuum-box convention.
+ *
+ * # Safety
+ *
+ * `simbox` is one `mi_cell`. `out` is one writable double.
+ */
+int minimage_unique_image_radius(const struct mi_cell *simbox, double *out);
 
 /**
  * Library version string. Process-static, NUL-terminated. Do not free.
