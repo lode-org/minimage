@@ -348,6 +348,82 @@ pub unsafe extern "C" fn mi_cell_from_con_box(
     )
 }
 
+/// Fill `out` from CON lengths and angles, with an exact right angle.
+///
+/// An angle that compares equal to 90 degrees writes `+0.0` wherever
+/// [`mi_cell_from_con_box`] would have written `cos` of that angle, and
+/// `+1.0` for its sine. An orthogonal box is then the diagonal of its
+/// lengths.
+///
+/// # Safety
+///
+/// Same contract as [`mi_cell_from_con_box`].
+#[no_mangle]
+pub unsafe extern "C" fn mi_cell_from_con_box_exact(
+    boxl: *const f64,
+    angles_deg: *const f64,
+    out: *mut mi_cell,
+) -> c_int {
+    if boxl.is_null() || angles_deg.is_null() || out.is_null() {
+        return fail_msg("null CON box");
+    }
+    let boxl = unsafe { [*boxl, *boxl.add(1), *boxl.add(2)] };
+    let angles = unsafe { [*angles_deg, *angles_deg.add(1), *angles_deg.add(2)] };
+    // A missing CON cell is `0 0 0` with right angles. It is the zero
+    // matrix, and it is not an invertible Cell.
+    if angles == [90.0, 90.0, 90.0]
+        && boxl.iter().all(|v| v.is_finite() && *v >= 0.0)
+        && boxl.iter().any(|v| *v == 0.0)
+    {
+        unsafe {
+            *out = mi_cell {
+                ax: boxl[0],
+                ay: 0.0,
+                az: 0.0,
+                bx: 0.0,
+                by: boxl[1],
+                bz: 0.0,
+                cx: 0.0,
+                cy: 0.0,
+                cz: boxl[2],
+                ox: 0.0,
+                oy: 0.0,
+                oz: 0.0,
+            };
+        }
+        clear_error();
+        return 0;
+    }
+    write_cell(
+        Cell::from_con_box_exact(boxl, angles)
+            .map(|c| Cell::from_vectors(c.a(), c.b(), c.c(), c.origin()))
+            .and_then(|r| r),
+        out,
+    )
+}
+
+/// Radius inside which a pair displacement has one nearest image.
+///
+/// A zero lattice row is an open axis. `*out` is zero when no row is
+/// periodic. The value does not know about a vacuum-box convention.
+///
+/// # Safety
+///
+/// `simbox` is one `mi_cell`. `out` is one writable double.
+#[no_mangle]
+pub unsafe extern "C" fn mi_unique_image_radius(simbox: *const mi_cell, out: *mut f64) -> c_int {
+    if simbox.is_null() || out.is_null() {
+        return fail_msg("null unique-image radius");
+    }
+    let cell = unsafe { *simbox };
+    let radius = Cell::unique_image_radius(cell.columns());
+    unsafe {
+        *out = radius;
+    }
+    clear_error();
+    0
+}
+
 /// Fill `out` from a vesin 3x3 box (rows a, b, c).
 ///
 /// # Safety

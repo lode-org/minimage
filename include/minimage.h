@@ -153,6 +153,22 @@ int mi_cell_from_con_box(const double *boxl,
                          struct mi_cell *out);
 
 /**
+ * Fill `out` from CON lengths and angles in degrees.
+ *
+ * An angle that compares equal to 90 degrees writes +0.0 wherever
+ * `mi_cell_from_con_box` would have written cos of that angle, and
+ * +1.0 for its sine. An orthogonal box is the diagonal of its lengths.
+ *
+ * # Safety
+ *
+ * `boxl` and `angles_deg` are three readable doubles. `out` is one
+ * writable `mi_cell`.
+ */
+int mi_cell_from_con_box_exact(const double *boxl,
+                               const double *angles_deg,
+                               struct mi_cell *out);
+
+/**
  * Fill `out` from LAMMPS `xlo xhi ylo yhi zlo zhi` and tilts.
  */
 int mi_cell_from_lammps(double xlo,
@@ -202,6 +218,18 @@ int mi_cell_from_vectors(const double *a,
  * Same contract as [`mi_cell_from_con`].
  */
 int mi_cell_from_vesin(const double *box_rows, struct mi_cell *out);
+
+/**
+ * Radius inside which a pair displacement has one nearest image.
+ *
+ * A zero lattice row is an open axis. `*out` is zero when no row is
+ * periodic.
+ *
+ * # Safety
+ *
+ * `simbox` is one `mi_cell`. `out` is one writable double.
+ */
+int mi_unique_image_radius(const struct mi_cell *simbox, double *out);
 
 /**
  * Minimum-image displacement from `p` to `q` into `dr`.

@@ -280,6 +280,50 @@ impl Cell {
         Self::from_rows(a, b, [cx, cy, cz2.sqrt()], [0.0, 0.0, 0.0])
     }
 
+    /// [`Self::from_con_box`] with an exact right angle.
+    ///
+    /// An angle that compares equal to 90 degrees contributes `+0.0`
+    /// for its cosine and `+1.0` for its sine, so an orthogonal box is
+    /// the diagonal of its lengths. Any other angle uses `cos` and
+    /// `sin` of the degree value, as [`Self::from_con_box`] does.
+    pub fn from_con_box_exact(boxl: [f64; 3], angles_deg: [f64; 3]) -> Result<Self, Error> {
+        let [lx, ly, lz] = boxl;
+        // A missing CON cell is `0 0 0` with right angles: the zero
+        // matrix, not an error. A negative length is still not a box.
+        if angles_deg == [90.0, 90.0, 90.0] {
+            if lx < 0.0 || ly < 0.0 || lz < 0.0 {
+                return Err(Error::BadBox);
+            }
+            return Self::from_rows([lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz], [0.0, 0.0, 0.0]);
+        }
+        if !(lx > 0.0 && ly > 0.0 && lz > 0.0) {
+            return Err(Error::BadBox);
+        }
+        let trig = |deg: f64| -> (f64, f64) {
+            if deg == 90.0 {
+                (0.0, 1.0)
+            } else {
+                let rad = deg.to_radians();
+                (rad.cos(), rad.sin())
+            }
+        };
+        let (cos_a, _) = trig(angles_deg[0]);
+        let (cos_b, _) = trig(angles_deg[1]);
+        let (cos_g, sin_g) = trig(angles_deg[2]);
+        if sin_g.abs() < 1e-18 {
+            return Err(Error::BadBox);
+        }
+        let a = [lx, 0.0, 0.0];
+        let b = [ly * cos_g, ly * sin_g, 0.0];
+        let cx = lz * cos_b;
+        let cy = lz * (cos_a - cos_b * cos_g) / sin_g;
+        let cz2 = lz * lz - cx * cx - cy * cy;
+        if cz2 <= 0.0 {
+            return Err(Error::BadBox);
+        }
+        Self::from_rows(a, b, [cx, cy, cz2.sqrt()], [0.0, 0.0, 0.0])
+    }
+
     /// vesin box: rows are lattice vectors a, b, c, origin zero.
     pub fn from_vesin(rows: [[f64; 3]; 3]) -> Result<Self, Error> {
         Self::from_ase(rows)
@@ -351,6 +395,59 @@ impl Cell {
     /// Dump-cell origin.
     pub fn origin(&self) -> [f64; 3] {
         self.origin
+    }
+
+    /// Radius inside which a pair displacement has one nearest image.
+    ///
+    /// `rows` are lattice vectors a, b, c. A zero row is an open axis
+    /// and does not enter the minimum. The value is half the shortest
+    /// altitude of the periodic rows: the cell volume over the area of
+    /// the other two rows for a bulk cell, the in-plane spacing for a
+    /// slab, or the row length for a wire. Zero when no row is periodic.
+    pub fn unique_image_radius(rows: [[f64; 3]; 3]) -> f64 {
+        let periodic = [
+            rows[0].iter().any(|v| *v != 0.0),
+            rows[1].iter().any(|v| *v != 0.0),
+            rows[2].iter().any(|v| *v != 0.0),
+        ];
+        if !periodic.iter().any(|p| *p) {
+            return 0.0;
+        }
+        let mut radius = f64::INFINITY;
+        for row in 0..3 {
+            if !periodic[row] {
+                continue;
+            }
+            let mut v = rows[row];
+            let mut basis = [[0.0; 3]; 2];
+            let mut n_basis = 0usize;
+            for other in 0..3 {
+                if other == row || !periodic[other] {
+                    continue;
+                }
+                let mut u = rows[other];
+                for b in &basis[..n_basis] {
+                    let dot = u[0] * b[0] + u[1] * b[1] + u[2] * b[2];
+                    u[0] -= dot * b[0];
+                    u[1] -= dot * b[1];
+                    u[2] -= dot * b[2];
+                }
+                let norm = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+                if norm > 0.0 {
+                    basis[n_basis] = [u[0] / norm, u[1] / norm, u[2] / norm];
+                    n_basis += 1;
+                }
+            }
+            for b in &basis[..n_basis] {
+                let dot = v[0] * b[0] + v[1] * b[1] + v[2] * b[2];
+                v[0] -= dot * b[0];
+                v[1] -= dot * b[1];
+                v[2] -= dot * b[2];
+            }
+            let height = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            radius = radius.min(0.5 * height);
+        }
+        if radius.is_finite() { radius } else { 0.0 }
     }
 
     /// Perpendicular widths of the three faces.
@@ -899,6 +996,41 @@ mod cartesian_tests {
     fn ortho_fractional_is_cartesian() {
         let c = Cell::ortho(10.0, 11.0, 12.0).unwrap();
         assert!(c.fractional_matches_cartesian());
+    }
+
+    #[test]
+    fn right_angle_box_is_the_diagonal() {
+        let c = Cell::from_con_box_exact([25.0, 25.0, 25.0], [90.0, 90.0, 90.0]).unwrap();
+        assert_eq!(c.a(), [25.0, 0.0, 0.0]);
+        assert_eq!(c.b(), [0.0, 25.0, 0.0]);
+        assert_eq!(c.c(), [0.0, 0.0, 25.0]);
+    }
+
+    #[test]
+    fn unique_image_radius_is_half_the_row_spacing() {
+        assert!((Cell::unique_image_radius([
+            [10.862, 0.0, 0.0],
+            [0.0, 10.862, 0.0],
+            [0.0, 0.0, 10.862],
+        ]) - 5.431)
+            .abs()
+            < 1e-12);
+        let s = 3.0_f64.sqrt();
+        assert!((Cell::unique_image_radius([
+            [4.0, 0.0, 0.0],
+            [-2.0, 2.0 * s, 0.0],
+            [0.0, 0.0, 10.0],
+        ]) - s)
+            .abs()
+            < 1e-12);
+        assert!((Cell::unique_image_radius([[4.0, 0.0, 0.0], [0.0, 6.0, 0.0], [0.0, 0.0, 0.0]])
+            - 2.0)
+            .abs()
+            < 1e-12);
+        assert_eq!(
+            Cell::unique_image_radius([[0.0; 3], [0.0; 3], [0.0; 3]]),
+            0.0
+        );
     }
 
     #[test]

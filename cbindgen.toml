@@ -98,6 +98,8 @@ include = [
     "mi_cell_from_ase",
     "mi_cell_from_con",
     "mi_cell_from_con_box",
+    "mi_cell_from_con_box_exact",
+    "mi_unique_image_radius",
     "mi_cell_from_lammps",
     "mi_cell_from_lammps_bounds",
     "mi_cell_from_vectors",
