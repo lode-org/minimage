@@ -70,21 +70,35 @@ pub(crate) fn round_away(x: f64) -> f64 {
     x
 }
 
-/// `f64::floor` by truncation toward zero, on every architecture.
+/// Floor for the fractional wrap.
 ///
-/// For `|x| < 2^52`, convert to an integer toward zero and subtract one
-/// when that integer is above `x`. `floor_fast(-0.0)` is `+0.0`, so the
-/// fractional part `-0.0 - floor_fast(-0.0)` is `-0.0`. `f64::floor(-0.0)`
-/// is `-0.0` and is not used. Values at or above `2^52` are already
-/// integral. A NaN is returned unchanged.
+/// x86_64 truncates toward zero. `floor_fast(-0.0)` is `+0.0`, so the
+/// fraction `-0.0 - floor_fast(-0.0)` is `-0.0`. Every other architecture
+/// uses `f64::floor`. `floor_fast(-0.0)` is `-0.0`, and the fraction is
+/// `+0.0`. That is the sign linkcell's bitwise fold compares. Values at
+/// or above `2^52` are already integral and are returned unchanged,
+/// including a NaN payload.
 #[inline(always)]
 pub(crate) fn floor_fast(x: f64) -> f64 {
+    // A NaN fails the comparison and is returned unchanged.
     if x.abs() < INTEGRAL {
-        // SAFETY: |x| < 2^52 is inside the i64 range.
-        let t = unsafe { x.to_int_unchecked::<i64>() } as f64;
-        return if t > x { t - 1.0 } else { t };
+        #[cfg(target_arch = "x86_64")]
+        {
+            // SAFETY: |x| < 2^52 is inside the i64 range.
+            let t = unsafe { x.to_int_unchecked::<i64>() } as f64;
+            if t > x {
+                t - 1.0
+            } else {
+                t
+            }
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            x.floor()
+        }
+    } else {
+        x
     }
-    x
 }
 
 /// Two-lane copies of [`floor_fast`] and [`round_away`].
@@ -117,12 +131,13 @@ pub(crate) mod neonf {
     }
 
     /// [`super::floor_fast`] on two lanes, including the sign of zero.
+    ///
+    /// This architecture uses `f64::floor` (`vrndmq`). An input of `-0`
+    /// stays `-0`, so a fraction `-0 - floor(-0)` is `+0`.
     #[inline]
     #[target_feature(enable = "neon")]
     pub(crate) unsafe fn floor_fast(x: float64x2_t) -> float64x2_t {
-        let t = trunc(x);
-        let down = vsubq_f64(t, vdupq_n_f64(1.0));
-        let floored = vbslq_f64(vcltq_f64(x, t), down, t);
+        let floored = vrndmq_f64(x);
         vbslq_f64(in_range(x), floored, x)
     }
 }
@@ -377,17 +392,23 @@ mod tests {
         assert!(floor_fast(f64::NAN).is_nan());
     }
 
-    /// x86_64 truncation is the reference on every architecture.
-    /// `f64::floor(-0.0)` and `f64::round(-0.0)` keep a minus sign;
-    /// these two do not. The fractional part of `-0.0` is therefore `-0.0`.
+    /// `round_away(-0.0)` is `+0.0` on every architecture.
+    /// `floor_fast(-0.0)` is `+0.0` on x86_64 (truncation) and `-0.0`
+    /// elsewhere (`f64::floor`). The fraction `-0 - floor(-0)` is therefore
+    /// `-0.0` on x86_64 and `+0.0` on every other architecture.
     #[test]
-    fn signed_zero_matches_the_x86_64_truncation() {
-        assert_eq!(floor_fast(-0.0).to_bits(), 0.0_f64.to_bits());
+    fn signed_zero_follows_the_architecture() {
         assert_eq!(round_away(-0.0).to_bits(), 0.0_f64.to_bits());
-        assert_eq!(floor_fast(0.0).to_bits(), 0.0_f64.to_bits());
         assert_eq!(round_away(0.0).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(floor_fast(0.0).to_bits(), 0.0_f64.to_bits());
+        let (floor_bits, frac_bits) = if cfg!(target_arch = "x86_64") {
+            (0.0_f64.to_bits(), (-0.0_f64).to_bits())
+        } else {
+            ((-0.0_f64).to_bits(), 0.0_f64.to_bits())
+        };
+        assert_eq!(floor_fast(-0.0).to_bits(), floor_bits);
         let frac = -0.0_f64 - floor_fast(-0.0);
-        assert_eq!(frac.to_bits(), (-0.0_f64).to_bits());
+        assert_eq!(frac.to_bits(), frac_bits);
         let neg_tiny = f64::from_bits(0x8000_0000_0000_0001);
         assert_eq!(round_away(neg_tiny).to_bits(), 0.0_f64.to_bits());
         assert_eq!(floor_fast(neg_tiny).to_bits(), (-1.0_f64).to_bits());

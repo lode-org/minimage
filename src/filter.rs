@@ -229,7 +229,7 @@ pub fn ring_centroid(cell: &Cell, beads: usize, xyz: &[[f64; 3]]) -> Result<Vec<
 
 #[inline]
 fn wrap01(mut s: f64) -> f64 {
-    s -= s.floor();
+    s -= crate::kernel::floor_fast(s);
     if s < 0.0 {
         s += 1.0;
     }

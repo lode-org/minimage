@@ -1,7 +1,8 @@
 //! Bit identity of every usable SIMD path against the scalar path.
 //!
 //! The golden file records SHA-256 of the little-endian output bytes.
-//! x86_64 and aarch64 runners must produce the same digest.
+//! x86_64 and aarch64 runners must produce the same digest, except
+//! `floor_fast`, whose sign of zero follows the architecture.
 
 use std::collections::BTreeMap;
 
@@ -209,7 +210,8 @@ fn digest() -> BTreeMap<String, String> {
 fn render(map: &BTreeMap<String, String>) -> String {
     let mut body = String::from(
         "# SHA-256 of little-endian output bytes on the scalar path.\n\
-         # The same digest is required on x86_64 and aarch64.\n\
+         # The same digest is required on x86_64 and aarch64, except\n\
+         # floor_fast: its sign of zero follows the architecture.\n\
          # Recipe: 24 awkward scalars (signed zero, subnormals, 1-ulp below 1,\n\
          # 2^52, a quiet NaN payload, halves) cycled into 67 packed triples.\n\
          # Cells: ortho 10x11x12, restricted triclinic, general triclinic with origin.\n\

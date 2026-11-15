@@ -1232,6 +1232,50 @@ fn mul_rows(r: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
 mod tests {
     use super::*;
 
+    /// `-0` folded into the unit cell. x86_64 truncation leaves the
+    /// fraction `-0`. Every other architecture uses `f64::floor`, and the
+    /// fraction is `+0`. `wrap_many` of a difference that is already `-0`
+    /// is the near-image add, which is `+0` on every architecture, and
+    /// every SIMD path stores those same bits.
+    #[test]
+    fn negative_zero_fraction_and_wrap_follow_the_architecture() {
+        let cell = Cell::ortho(1.0, 1.0, 1.0).unwrap();
+        let frac = cell.fractional([-0.0, 0.0, -0.0]);
+        let expect = if cfg!(target_arch = "x86_64") {
+            (-0.0f64).to_bits()
+        } else {
+            0.0f64.to_bits()
+        };
+        assert_eq!(frac[0].to_bits(), expect);
+        assert_eq!(frac[1].to_bits(), 0.0f64.to_bits());
+        assert_eq!(frac[2].to_bits(), expect);
+
+        let diffs = [[-0.0, 0.0, -0.0], [1.0, -0.0, -1.0]];
+        let mut scalar = [[0.0; 3]; 2];
+        {
+            let _guard = crate::simd::force(crate::simd::Path::Scalar);
+            crate::wrap_many(&cell, &diffs, &mut scalar).unwrap();
+        }
+        for path in crate::simd::paths_to_compare() {
+            let mut got = [[0.0; 3]; 2];
+            let _guard = crate::simd::force(path);
+            crate::wrap_many(&cell, &diffs, &mut got).unwrap();
+            for row in 0..2 {
+                for axis in 0..3 {
+                    assert_eq!(
+                        got[row][axis].to_bits(),
+                        scalar[row][axis].to_bits(),
+                        "{path:?} row {row} axis {axis}"
+                    );
+                }
+            }
+        }
+        assert_eq!(scalar[0][0].to_bits(), 0.0f64.to_bits());
+        assert_eq!(scalar[0][1].to_bits(), 0.0f64.to_bits());
+        assert_eq!(scalar[0][2].to_bits(), 0.0f64.to_bits());
+        assert_eq!(scalar[1][1].to_bits(), 0.0f64.to_bits());
+    }
+
     #[test]
     fn ortho_flag_and_dist2_match_general() {
         let b = Cell::ortho(10.0, 11.0, 12.0).unwrap();

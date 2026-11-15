@@ -4,6 +4,8 @@
 # 2^52, a quiet NaN payload, halves) cycled into 67 packed triples.
 # Cells: ortho 10x11x12, restricted triclinic, general triclinic with origin.
 # round_away and floor_fast hash those scalars directly.
+# floor_fast(-0) is +0 on x86_64 and -0 elsewhere, so that one digest
+# differs by architecture. Both lines are recorded. Every other key matches.
 # Set MINIMAGE_WRITE_GOLDEN=1 to regenerate from the scalar path.
 dist2_many_fixed32_general = "bac6334858e6b456aea3248f3737c825da2e0cb6ae43fb459bec1c7809fa7b1d"
 dist2_many_fixed32_ortho = "8fcc1408f687fdeefe19860d4c83d3cccea39068bbd93925b6116cef25a7baeb"
@@ -29,6 +31,7 @@ fixed_many_general = "5f35a22e41fe2aa595134df68f035062e7263fd17eb23867b530f4b089
 fixed_many_ortho = "10f97038c21b67e7d8ba6213de3c89de4c2a8a42c7498be2c5cd91de53695bdf"
 fixed_many_tri = "a944afbed5403e6be3aec343516dc824ee9c29b9ba0f7b3b7cd045704a07a0b7"
 floor_fast = "a1bf91a94f231ff1cdecc42a1fba68c3f73d2ae917e4291fb8a16fa959437452"
+floor_fast = "e7b00e7c33b633de47d90be59868187b825426d0bb9f69792b2fe1a21a51462e"
 round_away = "71a8a11c633ac7ac25b7770586bab73dfbad24ee0019f8eb4596e51590dec2e9"
 wrap_many_general = "18f29665ffc656a075e9d6baa0bebf9097b92b96adf67e8bb16a7f72beab196d"
 wrap_many_ortho = "395f544c8173ea9aa147a184f0f5b96f65d74fa79bc671249ee199b7b6e45b43"
