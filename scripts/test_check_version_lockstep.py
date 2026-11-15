@@ -96,8 +96,11 @@ class Drift(unittest.TestCase):
         self.assertFails("Cargo.lock")
 
     def test_release_tag_needs_the_release_commit(self):
-        errors = lockstep.check(self.root, pushed_tag=f"v{self.v}")
-        self.assertIn(f"tag v{self.v}: expected the wrap tag, {self.tag!r}", errors)
+        # A version ahead of the wrap tag, as before `sync-version.py --release`.
+        nxt = "10.20.30"
+        crate_version.set_crate_version(nxt, self.root / "Cargo.toml")
+        errors = lockstep.check(self.root, pushed_tag=f"v{nxt}")
+        self.assertIn(f"tag v{nxt}: expected the wrap tag, {self.tag!r}", errors)
 
     @unittest.skipIf(sync is None, "needs cogapp")
     def test_release_sync_moves_every_snippet(self):
