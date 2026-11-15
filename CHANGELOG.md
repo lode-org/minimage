@@ -2,6 +2,44 @@
 
 <!-- towncrier release notes start -->
 
+## 0.2.0 - 2026-11-15
+
+### Added
+
+`PartialCell` is periodic along some axes only: a slab periodic in two
+directions, a wire in one, or an open system. The Euclidean nearest
+image is searched over the lattice of the periodic vectors, with no
+image along an open axis; a half-box tie keeps the engine wrap. With all
+three axes periodic it is a `Cell` and returns the same bits. The C ABI
+adds `mi_pbc_cell`, `mi_pbc_cell_from_ase`,
+`mi_displacement_euclidean_pbc` and `mi_dist2_euclidean_pbc`; the
+`mi_cell` functions and layout are unchanged.
+
+`filter_shifted` keeps candidate rows whose shifted squared distance is
+inside a cutoff. `ring_centroid` averages the beads of a ring polymer
+after unwrapping each bead onto bead 0. The C ABI exposes both as
+`mi_filter_shifted` and `mi_ring_centroid`.
+
+Batch kernels choose one SIMD path per call: AVX-512F and DQ, AVX2,
+AVX, NEON, or scalar. `MINIMAGE_SIMD` overrides the choice. NEON runs
+two lanes of the scalar arithmetic for `dist2_many`, `dist2_pairs`,
+`wrap_many`, `dist2_ortho_diffs`, and the fixed and fixed32 batches.
+
+### Changed
+
+The version is written by hand only in `[workspace.package]`.
+Meson, CMake and maturin read it from `Cargo.toml` at build time.
+`scripts/sync-version.py` regenerates the other copies.
+The four Meson wrap snippets name the newest release tag, which `[workspace.metadata.release].tag` in `Cargo.toml` sets.
+`cog bump` writes the version and that tag, then runs the sync and towncrier.
+It checks the result before it tags the release commit.
+
+`floor_fast` and `round_away` now use the x86_64 truncation on every
+architecture. `floor_fast(-0.0)` is `+0.0`, so the fractional part of
+`-0.0` is `-0.0`. On aarch64 this used to follow `f64::floor` and
+`f64::round`, which keep the sign of zero. x86_64 results of these
+two functions are unchanged.
+
 ## 0.1.4 - 2026-10-09
 
 `fixed` and `fixed32` store a position as a fraction of the cell and

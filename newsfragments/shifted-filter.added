@@ -1,4 +1,0 @@
-`filter_shifted` keeps candidate rows whose shifted squared distance is
-inside a cutoff. `ring_centroid` averages the beads of a ring polymer
-after unwrapping each bead onto bead 0. The C ABI exposes both as
-`mi_filter_shifted` and `mi_ring_centroid`.
