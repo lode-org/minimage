@@ -25,4 +25,4 @@ jobs:
       - name: Publish minimage
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish --no-verify -p minimage
+        run: cargo publish --locked -p minimage
