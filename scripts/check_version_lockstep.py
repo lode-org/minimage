@@ -6,7 +6,8 @@ configparser for the Meson wrap and Meson's own parser for meson.build. A
 reformatted line, a second version key or a pre-release tag outside the sync
 patterns therefore fails here even when scripts/sync-version.py leaves the
 file alone. The wrap snippets in the docs sit inside code blocks, so every
-`revision` key there is read with a free-form value.
+`revision` key there is read with a free-form value, and so is the version
+of every `find_package(minimage`, which must be the wrap tag's major.minor.
 
 `--tag NAME` also requires NAME to be v<version> and the wrap tag, so a
 release tag pushed before the release commit moved the snippets fails.
@@ -130,6 +131,9 @@ def snippet(root, rel, version, tag):
         raise ValueError("no revision line")
     for value in found:
         yield "revision", value, tag
+    minor = ".".join(tag.removeprefix("v").split(".")[:2])
+    for value in re.findall(r"find_package\(\s*minimage\s+([^\s)]+)", read(root, rel)):
+        yield "find_package(minimage) version", value, minor
 
 
 def meson_build(root, rel, version, tag):

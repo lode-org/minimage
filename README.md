@@ -79,7 +79,7 @@ cmake --install build
 ```
 
 ```cmake
-find_package(minimage 0.1 REQUIRED)
+find_package(minimage 0.2 REQUIRED)
 target_link_libraries(app PRIVATE minimage::minimage)
 ```
 

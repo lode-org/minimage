@@ -1,0 +1,1 @@
+The README asks CMake for `find_package(minimage 0.2)`. The package config accepts the same minor version only, so the 0.1 line it showed failed against an installed 0.2.0. The version sync and check now cover that line.

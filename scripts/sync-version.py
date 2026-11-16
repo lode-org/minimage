@@ -5,7 +5,8 @@ CITATION.cff and burn/Cargo.toml, which sits outside the workspace, carry
 cog blocks. Cargo.lock keeps no markers, so an anchored pattern replaces any
 version there. The Meson wrap snippets name a git tag, which has to exist
 before a wrap can fetch it, so they take [workspace.metadata.release].tag
-instead of the version. `--release` first sets that tag to v<version>, for
+instead of the version, and the README's `find_package(minimage X.Y` takes
+that tag's major.minor. `--release` first sets that tag to v<version>, for
 the release commit. CI runs this and then `git diff --exit-code`.
 
 Needs cogapp: python -m pip install cogapp
@@ -31,6 +32,7 @@ WRAPS = [
     "website/getting-started.html",
 ]
 REVISION = rf"^revision = (?P<v>v{V})$"
+FIND_PACKAGE = r"find_package\(minimage (?P<v>\d+\.\d+) "
 RELEASE_TAG = r'^(\[workspace\.metadata\.release\]\ntag = ")[^"]*(")'
 
 
@@ -80,6 +82,8 @@ def main(argv=()):
     tag = release_tag()
     for rel in WRAPS:
         rewrite(rel, lambda text: substitute(REVISION, text, tag))
+    minor = ".".join(tag.removeprefix("v").split(".")[:2])
+    rewrite("README.md", lambda text: substitute(FIND_PACKAGE, text, minor))
     return 0
 
 
