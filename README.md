@@ -39,6 +39,11 @@ CMake, and pkg-config all install that archive and those headers.
 pip install minimage
 ```
 
+Python 3.10 or newer. Each release has one abi3 wheel per platform,
+for Linux x86_64 and aarch64 (manylinux_2_28), macOS arm64 and
+Windows x86_64, which covers every CPython from 3.10 on. Elsewhere pip
+builds the sdist, which needs a Rust toolchain.
+
 ```python
 import minimage
 

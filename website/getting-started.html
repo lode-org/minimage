@@ -28,9 +28,10 @@
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
-<section id="outline-container-org7309742" class="outline-2">
-<h2 id="org7309742">Install</h2>
-<div class="outline-text-2" id="text-org7309742">
+
+<section id="outline-container-orgdaf14ed" class="outline-2">
+<h2 id="orgdaf14ed">Install</h2>
+<div class="outline-text-2" id="text-orgdaf14ed">
 <p>
 Pick <strong>one</strong> language.
 </p>
@@ -67,9 +68,10 @@ Pick <strong>one</strong> language.
 </tbody>
 </table>
 </div>
-<div id="outline-container-orge53df96" class="outline-3">
-<h3 id="orge53df96">Rust</h3>
-<div class="outline-text-3" id="text-orge53df96">
+
+<div id="outline-container-org191c068" class="outline-3">
+<h3 id="org191c068">Rust</h3>
+<div class="outline-text-3" id="text-org191c068">
 <div class="org-src-container">
 <pre class="src src-rust">use minimage::Cell;
 
@@ -79,9 +81,17 @@ assert!((sim.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() &lt; 1e-12);
 </div>
 </div>
 </div>
-<div id="outline-container-orgae3d2e6" class="outline-3">
-<h3 id="orgae3d2e6">Python</h3>
-<div class="outline-text-3" id="text-orgae3d2e6">
+
+<div id="outline-container-org00591d4" class="outline-3">
+<h3 id="org00591d4">Python</h3>
+<div class="outline-text-3" id="text-org00591d4">
+<p>
+Python 3.10 or newer. Each release has one abi3 wheel per platform,
+for Linux x86_64 and aarch64 (manylinux_2_28), macOS arm64 and
+Windows x86_64, which covers every CPython from 3.10 on. Elsewhere pip
+builds the sdist, which needs a Rust toolchain.
+</p>
+
 <div class="org-src-container">
 <pre class="src src-python">import minimage
 
@@ -91,9 +101,10 @@ print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
 </div>
 </div>
 </div>
-<div id="outline-container-org5c81a94" class="outline-3">
-<h3 id="org5c81a94">Meson wrap</h3>
-<div class="outline-text-3" id="text-org5c81a94">
+
+<div id="outline-container-org2471b19" class="outline-3">
+<h3 id="org2471b19">Meson wrap</h3>
+<div class="outline-text-3" id="text-org2471b19">
 <div class="org-src-container">
 <pre class="src src-text">[wrap-git]
 url = https://github.com/lode-org/minimage.git

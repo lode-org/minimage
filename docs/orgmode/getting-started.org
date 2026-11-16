@@ -36,6 +36,11 @@ assert!((sim.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() < 1e-12);
 
 ** Python
 
+Python 3.10 or newer. Each release has one abi3 wheel per platform,
+for Linux x86_64 and aarch64 (manylinux_2_28), macOS arm64 and
+Windows x86_64, which covers every CPython from 3.10 on. Elsewhere pip
+builds the sdist, which needs a Rust toolchain.
+
 #+begin_src python
 import minimage
 
