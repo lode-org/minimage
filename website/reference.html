@@ -176,6 +176,26 @@ failure; read <code>mi_last_error()</code> on the same thread.
 </tr>
 
 <tr>
+<td class="org-left"><code>mi_pbc_cell</code></td>
+<td class="org-left">An <code>mi_cell</code> with a periodicity flag per axis</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_pbc_cell_from_ase</code></td>
+<td class="org-left">Row-major 3x3 and a mask of three ints; open rows may be zero</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_displacement_euclidean_pbc</code></td>
+<td class="org-left">Nearest image over the periodic axes only</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_dist2_euclidean_pbc</code></td>
+<td class="org-left">Its squared length</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>mi_reduce_pairs</code></td>
 <td class="org-left">Drop self images, unique pairs</td>
 </tr>
@@ -197,9 +217,9 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <code>docs.rs/minimage</code> is the Rust reference.
 </p>
 
-<section id="outline-container-org845bf6e" class="outline-2">
-<h2 id="org845bf6e">Rust</h2>
-<div class="outline-text-2" id="text-org845bf6e">
+<section id="outline-container-org49f77ed" class="outline-2">
+<h2 id="org49f77ed">Rust</h2>
+<div class="outline-text-2" id="text-org49f77ed">
 <table>
 
 
@@ -219,8 +239,27 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <td class="org-left"><code>simd_path()</code></td>
 <td class="org-left">Name of the path the next batch will use: <code>scalar</code>, <code>avx</code>, <code>avx2</code>, <code>avx512</code>, or <code>neon</code></td>
 </tr>
+
+<tr>
+<td class="org-left"><code>PartialCell::from_ase(rows, pbc)</code></td>
+<td class="org-left">Periodic along the axes of <code>pbc</code> only: slabs, wires, open systems</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>PartialCell::displacement_euclidean</code></td>
+<td class="org-left">Nearest image over the periodic lattice; open axes take no image</td>
+</tr>
 </tbody>
 </table>
+
+<p>
+A slab rounds its in-plane coordinates and tries the nine neighbouring
+images on a Lagrange-reduced basis of its two vectors; a wire rounds
+along its one. The component normal to the periodic vectors is kept. A
+half-box tie keeps the engine wrap <code>s - floor(s + 1/2)</code>, as
+<code>Cell::displacement_euclidean</code> does. With all three axes periodic a
+<code>PartialCell</code> is a <code>Cell</code> and returns its displacement bit for bit.
+</p>
 
 <p>
 <code>MINIMAGE_SIMD</code> overrides the choice. An unknown name is ignored.
@@ -230,9 +269,9 @@ The selection is cached. Details are on <a href="simd.html">SIMD paths and dispa
 </div>
 </section>
 
-<section id="outline-container-org6bee81d" class="outline-2">
-<h2 id="org6bee81d">Python</h2>
-<div class="outline-text-2" id="text-org6bee81d">
+<section id="outline-container-org61e5aea" class="outline-2">
+<h2 id="org61e5aea">Python</h2>
+<div class="outline-text-2" id="text-org61e5aea">
 <table>
 
 
@@ -312,9 +351,9 @@ an array result is a numpy array. A list in gives a list out.
 </div>
 </section>
 
-<section id="outline-container-orgbfa7742" class="outline-2">
-<h2 id="orgbfa7742">Burn</h2>
-<div class="outline-text-2" id="text-orgbfa7742">
+<section id="outline-container-orgf04c573" class="outline-2">
+<h2 id="orgf04c573">Burn</h2>
+<div class="outline-text-2" id="text-orgf04c573">
 <table>
 
 
