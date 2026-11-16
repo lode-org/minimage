@@ -64,7 +64,7 @@ As a wrap, Meson exposes `minimage_dep`:
 ```
 [wrap-git]
 url = https://github.com/lode-org/minimage.git
-revision = v0.2.0
+revision = v0.2.1
 depth = 1
 
 [provide]

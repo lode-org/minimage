@@ -2,6 +2,24 @@
 
 <!-- towncrier release notes start -->
 
+## 0.2.1 - 2026-11-16
+
+### Added
+
+Release wheels cover Linux x86_64 and aarch64 (manylinux_2_28), macOS arm64 and Windows x86_64, each tested with pytest before upload, and the sdist is installed and tested too.
+
+### Changed
+
+The crates.io job runs `cargo publish --locked` without `--no-verify`, so the packaged crate builds before it uploads. Every workflow pins its actions by commit, and Dependabot proposes one grouped update a month for the actions and one for `Cargo.lock`. CI audits the release library's instructions against `isa-allow.toml` with rgpot's ISA audit on the x86-64 baseline; each dispatched SIMD kernel has an allow entry with its reason.
+
+### Fixed
+
+CITATION.cff gives 2026-11-15, the 0.2.0 release date. `sync-version.py --release` now sets date-released on the release commit.
+
+The Python module builds against the stable ABI for CPython 3.10 and newer. `pip install minimage` from the 0.2.0 sdist failed on Python 3.14, which PyO3 0.23 rejects outside the stable ABI. The `test` extra now names numpy, which three of the four Python test files import.
+
+The README asks CMake for `find_package(minimage 0.2)`. The package config accepts the same minor version only, so the 0.1 line it showed failed against an installed 0.2.0. The version sync and check now cover that line.
+
 ## 0.2.0 - 2026-11-15
 
 ### Added
