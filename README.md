@@ -39,6 +39,11 @@ CMake, and pkg-config all install that archive and those headers.
 pip install minimage
 ```
 
+Python 3.10 or newer. Each release has one abi3 wheel per platform,
+for Linux x86_64 and aarch64 (manylinux_2_28), macOS arm64 and
+Windows x86_64, which covers every CPython from 3.10 on. Elsewhere pip
+builds the sdist, which needs a Rust toolchain.
+
 ```python
 import minimage
 
@@ -59,7 +64,7 @@ As a wrap, Meson exposes `minimage_dep`:
 ```
 [wrap-git]
 url = https://github.com/lode-org/minimage.git
-revision = v0.2.0
+revision = v0.2.1
 depth = 1
 
 [provide]
@@ -79,7 +84,7 @@ cmake --install build
 ```
 
 ```cmake
-find_package(minimage 0.1 REQUIRED)
+find_package(minimage 0.2 REQUIRED)
 target_link_libraries(app PRIVATE minimage::minimage)
 ```
 

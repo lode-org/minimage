@@ -97,7 +97,7 @@ so a wrap consumer can find =-lminimage=.
 The version is written by hand in one place, =[workspace.package].version= in =Cargo.toml=.
 Meson and CMake read it through =scripts/crate_version.py=, and maturin reads it from the crate.
 =scripts/sync-version.py= rewrites the other copies.
-Those are =CITATION.cff=, =burn/Cargo.toml=, =Cargo.lock= and the four Meson wrap snippets.
+Those are =CITATION.cff=, =burn/Cargo.toml=, =Cargo.lock=, the four Meson wrap snippets and the README's =find_package(minimage X.Y)= line.
 
 Install cocogitto, which provides =cog bump=, and the two Python packages its hooks import.
 
@@ -119,7 +119,7 @@ git push origin main v0.3.0
 The =pre_bump_hooks= in =cog.toml= run in this order:
 
 1. =scripts/crate_version.py --set 0.3.0= writes the version into =[workspace.package]=.
-2. =scripts/sync-version.py --release= sets =[workspace.metadata.release].tag= to =v0.3.0= and rewrites every copy.
+2. =scripts/sync-version.py --release= sets =[workspace.metadata.release].tag= to =v0.3.0= and the =CITATION.cff= =date-released= to today (UTC), then rewrites every copy.
 3. =towncrier build= moves the newsfragments into =CHANGELOG.md=.
 4. =scripts/check_version_lockstep.py --tag v0.3.0= reads every copy back and checks the tag.
 

@@ -4,7 +4,8 @@
 
 [[allow]]
 symbol = ".*::avx512::.*"
-features = ["avx512f", "avx512dq"]
+features = ["avx512f", "avx512dq", "avx2", "avx"]
+reason = "avx512f implies avx2 and avx, so these kernels also take VEX moves."
 
 [[allow]]
 symbol = ".*::avx2::.*"
@@ -13,6 +14,16 @@ features = ["avx", "avx2"]
 [[allow]]
 symbol = ".*::avx::.*"
 features = ["avx"]
+
+[[allow]]
+symbol = 'minimage::simd::(ortho|shifted)_avx'
+features = ["avx"]
+reason = "Orthorhombic and shifted batch kernels, behind the Avx, Avx2 and Avx512 paths."
+
+[[allow]]
+symbol = 'core::core_arch::x86::xsave::_xgetbv'
+features = ["xsave"]
+reason = "std::is_x86_feature_detected reads XCR0 before any wide kernel."
 
 [[allow]]
 symbol = ".*::neon::.*"

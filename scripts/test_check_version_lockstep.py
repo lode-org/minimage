@@ -71,6 +71,12 @@ class Drift(unittest.TestCase):
         self.edit("README.md", line, "  revision=v0.1.3\n")
         self.assertFails("README.md")
 
+    def test_reformatted_readme_find_package(self):
+        minor = ".".join(self.tag.removeprefix("v").split(".")[:2])
+        old = f"find_package(minimage {minor} REQUIRED)"
+        self.edit("README.md", old, "find_package( minimage 0.1 REQUIRED)")
+        self.assertFails("README.md")
+
     def test_reformatted_cargo_lock(self):
         entry = f'name = "minimage"\nversion = "{self.v}"'
         self.edit("Cargo.lock", entry, "name = 'minimage'\nversion = '9.9.9'")
@@ -107,6 +113,10 @@ class Drift(unittest.TestCase):
         self.run_sync("--release")
         for rel in [lockstep.WRAP, *lockstep.SNIPPETS]:
             self.assertIn(f"revision = v{self.v}\n", self.text(rel))
+        minor = ".".join(self.v.split(".")[:2])
+        self.assertIn(f"find_package(minimage {minor} REQUIRED)", self.text("README.md"))
+        today = sync.datetime.datetime.now(sync.datetime.timezone.utc).date()
+        self.assertIn(f'date-released: "{today.isoformat()}"\n', self.text("CITATION.cff"))
         self.assertEqual(lockstep.check(self.root, pushed_tag=f"v{self.v}"), [])
 
     @unittest.skipIf(sync is None, "needs cogapp")

@@ -5,12 +5,15 @@ CITATION.cff and burn/Cargo.toml, which sits outside the workspace, carry
 cog blocks. Cargo.lock keeps no markers, so an anchored pattern replaces any
 version there. The Meson wrap snippets name a git tag, which has to exist
 before a wrap can fetch it, so they take [workspace.metadata.release].tag
-instead of the version. `--release` first sets that tag to v<version>, for
-the release commit. CI runs this and then `git diff --exit-code`.
+instead of the version, and the README's `find_package(minimage X.Y` takes
+that tag's major.minor. `--release` first sets that tag to v<version> and
+the CITATION.cff date-released to today (UTC), for the release commit. CI
+runs this and then `git diff --exit-code`.
 
 Needs cogapp: python -m pip install cogapp
 """
 
+import datetime
 import re
 import sys
 from pathlib import Path
@@ -31,7 +34,9 @@ WRAPS = [
     "website/getting-started.html",
 ]
 REVISION = rf"^revision = (?P<v>v{V})$"
+FIND_PACKAGE = r"find_package\(minimage (?P<v>\d+\.\d+) "
 RELEASE_TAG = r'^(\[workspace\.metadata\.release\]\ntag = ")[^"]*(")'
+RELEASED = r'^(date-released: ")[^"]*(")$'
 
 
 def substitute(pattern, text, value):
@@ -62,6 +67,18 @@ def set_release_tag(version):
     rewrite("Cargo.toml", change)
 
 
+def set_release_date():
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+    def change(text):
+        new, count = re.subn(RELEASED, rf"\g<1>{today}\g<2>", text, flags=re.MULTILINE)
+        if count != 1:
+            sys.exit('CITATION.cff: no date-released: "YYYY-MM-DD" line')
+        return new
+
+    rewrite("CITATION.cff", change)
+
+
 def release_tag():
     cargo = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
     return cargo["workspace"]["metadata"]["release"]["tag"]
@@ -71,6 +88,7 @@ def main(argv=()):
     version = crate_version(ROOT / "Cargo.toml")
     if "--release" in argv:
         set_release_tag(version)
+        set_release_date()
     status = Cog().main(
         ["cog", "-r", "-D", f"VERSION={version}", *(str(ROOT / f) for f in COG_FILES)]
     )
@@ -80,6 +98,8 @@ def main(argv=()):
     tag = release_tag()
     for rel in WRAPS:
         rewrite(rel, lambda text: substitute(REVISION, text, tag))
+    minor = ".".join(tag.removeprefix("v").split(".")[:2])
+    rewrite("README.md", lambda text: substitute(FIND_PACKAGE, text, minor))
     return 0
 
 
