@@ -115,6 +115,8 @@ class Drift(unittest.TestCase):
             self.assertIn(f"revision = v{self.v}\n", self.text(rel))
         minor = ".".join(self.v.split(".")[:2])
         self.assertIn(f"find_package(minimage {minor} REQUIRED)", self.text("README.md"))
+        today = sync.datetime.datetime.now(sync.datetime.timezone.utc).date()
+        self.assertIn(f'date-released: "{today.isoformat()}"\n', self.text("CITATION.cff"))
         self.assertEqual(lockstep.check(self.root, pushed_tag=f"v{self.v}"), [])
 
     @unittest.skipIf(sync is None, "needs cogapp")
