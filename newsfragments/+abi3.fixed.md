@@ -1,0 +1,1 @@
+The Python module builds against the stable ABI for CPython 3.10 and newer. `pip install minimage` from the 0.2.0 sdist failed on Python 3.14, which PyO3 0.23 rejects outside the stable ABI. The `test` extra now names numpy, which three of the four Python test files import.

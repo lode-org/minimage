@@ -17,7 +17,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
+test = ["pytest>=8.0", "numpy>=1.26"]
 
 [project.urls]
 Homepage = "https://github.com/lode-org/minimage"
@@ -28,7 +28,9 @@ Documentation = "https://docs.rs/minimage"
 manifest-path = "python/Cargo.toml"
 module-name = "minimage._lib"
 python-source = "."
-features = ["pyo3/extension-module"]
+# The stable ABI: one wheel per platform for CPython 3.10 and newer, and
+# an sdist that also builds on interpreters newer than PyO3 0.23 knows.
+features = ["pyo3/extension-module", "pyo3/abi3-py310"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
