@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Workflow actions are pinned by commit with a `# vX.Y.Z` comment, which
+  # Dependabot keeps in step.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+  # The workspace root covers the Python crate.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      cargo:
+        patterns: ["*"]
