@@ -43,5 +43,29 @@ int main(void) {
     fprintf(stderr, "reduce_pairs failed\n");
     return 1;
   }
+
+  /* Upper face of an edge of length 8. The engine maps +4 onto -4.
+   * The face band keeps +4. */
+  const mi_cell face_box = mi_cell_ortho(8.0, 8.0, 8.0);
+  const double face[3] = {4.0, 0.0, 0.0};
+  double folded[3];
+  double stayed[3];
+  double defolded[3];
+  mi_wrap_config policy = mi_wrap_config_default();
+  if (mi_wrap_many(&face_box, face, 1, folded) != 0 || folded[0] != -4.0) {
+    fprintf(stderr, "engine face fold failed\n");
+    return 1;
+  }
+  if (mi_wrap_many_with(&face_box, face, 1, defolded, NULL) != 0 ||
+      defolded[0] != folded[0]) {
+    fprintf(stderr, "null wrap config changed the engine wrap\n");
+    return 1;
+  }
+  policy.keep_near_face = 1;
+  if (mi_wrap_many_with(&face_box, face, 1, stayed, &policy) != 0 ||
+      stayed[0] != 4.0) {
+    fprintf(stderr, "face band did not keep the upper face\n");
+    return 1;
+  }
   return 0;
 }

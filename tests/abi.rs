@@ -3,7 +3,10 @@
 
 use std::os::raw::c_int;
 
-use minimage::{mi_cell, Cell};
+use minimage::{
+    mi_cell, mi_wrap_config, mi_wrap_config_default, mi_wrap_face_slack, mi_wrap_face_tolerance,
+    mi_wrap_many, mi_wrap_many_with, wrap_many_with, Cell, WrapConfig,
+};
 
 extern "C" {
     fn mi_dist2(simbox: *const mi_cell, p: *const f64, q: *const f64, out: *mut f64) -> c_int;
@@ -657,4 +660,107 @@ fn pbc_abi_refuses_bad_input_and_reports_it() {
         0
     );
     assert!((d2 - (0.25 + 0.25 + 1600.0)).abs() < 1e-9);
+}
+
+#[test]
+fn wrap_face_band_abi_matches_rust() {
+    let raw = mi_cell {
+        ax: 8.0,
+        ay: 0.0,
+        az: 0.0,
+        bx: 1.0,
+        by: 8.0,
+        bz: 0.0,
+        cx: 0.5,
+        cy: 0.25,
+        cz: 8.0,
+        ox: 0.0,
+        oy: 0.0,
+        oz: 0.0,
+    };
+    let cell = Cell::from_vectors(
+        [raw.ax, raw.ay, raw.az],
+        [raw.bx, raw.by, raw.bz],
+        [raw.cx, raw.cy, raw.cz],
+        [raw.ox, raw.oy, raw.oz],
+    )
+    .unwrap();
+    let slack = mi_wrap_face_slack();
+    assert_eq!(slack.to_bits(), WrapConfig::face_slack().to_bits());
+    let width = cell.widths()[0];
+    let tol = mi_wrap_face_tolerance(width);
+    assert_eq!(tol.to_bits(), WrapConfig::face_tolerance(width).to_bits());
+
+    let on_face = cell.cartesian([0.5, 0.2, -0.1]);
+    let outside = cell.cartesian([0.5 + slack / 2.0, 0.0, 0.0]);
+    let past = cell.cartesian([0.5 + slack + slack, -0.3, 0.4]);
+    let rows = [on_face, outside, past];
+    let mut c_engine = rows;
+    let mut c_keep = rows;
+    let mut c_null = rows;
+    assert_eq!(
+        unsafe {
+            mi_wrap_many(
+                &raw,
+                rows.as_ptr().cast(),
+                rows.len(),
+                c_engine.as_mut_ptr().cast(),
+            )
+        },
+        0
+    );
+    assert_eq!(
+        unsafe {
+            mi_wrap_many_with(
+                &raw,
+                rows.as_ptr().cast(),
+                rows.len(),
+                c_null.as_mut_ptr().cast(),
+                std::ptr::null(),
+            )
+        },
+        0
+    );
+    let mut policy = mi_wrap_config::default();
+    assert_eq!(
+        mi_wrap_config_default().keep_near_face,
+        policy.keep_near_face
+    );
+    policy.keep_near_face = 1;
+    assert_eq!(
+        unsafe {
+            mi_wrap_many_with(
+                &raw,
+                rows.as_ptr().cast(),
+                rows.len(),
+                c_keep.as_mut_ptr().cast(),
+                &policy,
+            )
+        },
+        0
+    );
+    let mut rust_engine = [[0.0; 3]; 3];
+    let mut rust_keep = [[0.0; 3]; 3];
+    wrap_many_with(&cell, &rows, &mut rust_engine, WrapConfig::default()).unwrap();
+    wrap_many_with(
+        &cell,
+        &rows,
+        &mut rust_keep,
+        WrapConfig::default().with_keep_near_face(true),
+    )
+    .unwrap();
+    for i in 0..3 {
+        assert_eq!(
+            c_engine[i].map(f64::to_bits),
+            rust_engine[i].map(f64::to_bits)
+        );
+        assert_eq!(
+            c_null[i].map(f64::to_bits),
+            rust_engine[i].map(f64::to_bits)
+        );
+        assert_eq!(c_keep[i].map(f64::to_bits), rust_keep[i].map(f64::to_bits));
+    }
+    assert_eq!(c_keep[0].map(f64::to_bits), on_face.map(f64::to_bits));
+    assert_ne!(c_engine[0].map(f64::to_bits), on_face.map(f64::to_bits));
+    assert_eq!(c_keep[2].map(f64::to_bits), c_engine[2].map(f64::to_bits));
 }

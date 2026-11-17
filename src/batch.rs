@@ -14,12 +14,33 @@ use crate::{Cell, Error};
 /// Minimum-image wrap of packed difference vectors.
 ///
 /// `diffs` and `out` are row-major `n` triples. Each row is `q - p`
-/// (the cell origin does not enter).
+/// (the cell origin does not enter). This is the engine wrap:
+/// [`wrap_many_with`] with [`crate::WrapConfig::default`].
 pub fn wrap_many(cell: &Cell, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) -> Result<(), Error> {
+    wrap_many_with(cell, diffs, out, crate::WrapConfig::default())
+}
+
+/// [`wrap_many`] with a [`crate::WrapConfig`].
+///
+/// [`crate::WrapConfig::default`] matches [`wrap_many`] bit for bit.
+/// [`crate::WrapConfig::with_keep_near_face`]`(true)` keeps an input
+/// row that already lies within [`crate::WrapConfig::face_tolerance`]
+/// of a box face, instead of folding that face onto the opposite one.
+/// The tolerance is [`crate::WrapConfig::face_slack`] (`128 ε`, from
+/// 256 units of roundoff) times the perpendicular face width.
+pub fn wrap_many_with(
+    cell: &Cell,
+    diffs: &[[f64; 3]],
+    out: &mut [[f64; 3]],
+    config: crate::WrapConfig,
+) -> Result<(), Error> {
     if out.len() != diffs.len() {
         return Err(Error::BufferSize);
     }
     crate::fused::wrap_many(cell.frame(), diffs, out);
+    if config.keep_near_face() {
+        crate::wrap::restore_near_faces(cell, diffs, out);
+    }
     Ok(())
 }
 

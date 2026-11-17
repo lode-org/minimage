@@ -51,6 +51,10 @@ failure; read =mi_last_error()= on the same thread.
 | =mi_displacement_euclidean_pbc= | Nearest image over the periodic axes only |
 | =mi_dist2_euclidean_pbc= | Its squared length |
 | =mi_reduce_pairs= | Drop self images, unique pairs |
+| =mi_wrap_many= | Engine wrap of packed differences |
+| =mi_wrap_config= / =mi_wrap_many_with= | Same wrap; nonzero =keep_near_face= keeps a row already within the face band |
+| =mi_wrap_face_slack= | Fractional half-width of that band, =128 ε= |
+| =mi_wrap_face_tolerance= | Cartesian half-width, =128 ε= times the face width |
 | =mi_last_error= | Thread-local error string |
 | =mi_version= | Process-static version |
 
@@ -62,6 +66,9 @@ The C++ header =minimage.hpp= is a RAII wrap of this ABI.
 | Item | Role |
 |------+------|
 | =simd_path()= | Name of the path the next batch will use: =scalar=, =avx=, =avx2=, =avx512=, or =neon= |
+| =WrapConfig= / =wrap_many_with= | Engine wrap, or keep a difference already within the face band |
+| =WrapConfig::face_slack= | Fractional half-width =128 ε=, from 256 units of roundoff (=ε/2=) |
+| =WrapConfig::face_tolerance= | That slack times the perpendicular face width |
 | =PartialCell::from_ase(rows, pbc)= | Periodic along the axes of =pbc= only: slabs, wires, open systems |
 | =PartialCell::displacement_euclidean= | Nearest image over the periodic lattice; open axes take no image |
 
@@ -84,7 +91,7 @@ The selection is cached. Details are on [[file:simd.org][SIMD paths and dispatch
 | =dist2_pairs(ps, qs)= | Paired rows |
 | =dist2_euclidean_many(p, qs)=, =dist2_euclidean_pairs(ps, qs)= | Euclidean nearest image |
 | =dist2_euclidean_pairs_warm(ps, qs, images)= | Distances and updated shifts across frames |
-| =wrap_many(diffs)= | Engine wrap of each row |
+| =wrap_many(diffs)= | Engine wrap of each row. The face band is the Rust and C API |
 | =fixed(r)=, =fixed_many(rs)= | Fixed-point fractions, uint64 |
 | =dist2_fixed(a, b)= | Two fixed-point positions |
 | =dist2_many_fixed(p, qs)= | One fixed-point source, rows |

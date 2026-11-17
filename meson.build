@@ -58,6 +58,7 @@ minimage_cargo = custom_target(
     'src/error.rs',
     'src/batch.rs',
     'src/pairs.rs',
+    'src/wrap.rs',
     'src/capi.rs',
   ),
   depend_files: files('Cargo.lock') + files(_rust_sources),

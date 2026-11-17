@@ -24,6 +24,10 @@
 //! a vesin image pair list into one minimum-image pair and drops the
 //! self image. [`PartialCell`] is periodic along some axes only: a slab,
 //! a wire, or an open system, with no image along an open axis.
+//! [`WrapConfig`] is the opt-in face band on [`wrap_many_with`]: a
+//! difference already within `128 ε` times the face width of a box face
+//! keeps its original coordinate instead of folding onto the opposite
+//! face. The default wrap does not.
 //!
 //! It is a LODE library. The Rust crate is the implementation. The C
 //! ABI (`mi_*`) is the hourglass waist, the same shape as
@@ -58,6 +62,7 @@ mod pairs;
 mod partial;
 mod selling;
 mod simd;
+mod wrap;
 
 #[cfg(test)]
 mod isa_golden;
@@ -65,7 +70,7 @@ mod isa_golden;
 pub use batch::{
     dist2_euclidean_many, dist2_euclidean_pairs, dist2_euclidean_pairs_warm, dist2_many,
     dist2_many_fixed, dist2_many_fixed32, dist2_ortho_diffs, dist2_pairs, dist2_pairs_fixed,
-    dist2_pairs_fixed32, fixed32_many, fixed_many, wrap_many,
+    dist2_pairs_fixed32, fixed32_many, fixed_many, wrap_many, wrap_many_with,
 };
 pub use cell::{dump_bounds_to_h, Cell};
 pub use error::Error;
@@ -74,6 +79,7 @@ pub use minkowski::{is_minkowski_reduced, minkowski_reduce};
 pub use pairs::{reduce_pairs, reduce_pairs_packed};
 pub use partial::PartialCell;
 pub use simd::simd_path;
+pub use wrap::WrapConfig;
 
 #[cfg(feature = "capi")]
 mod capi;

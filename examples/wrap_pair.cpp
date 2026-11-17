@@ -26,6 +26,18 @@ int main() {
       std::cerr << "reduce_pairs size " << kept.size() << "\n";
       return 1;
     }
+    const minimage::Cell face = minimage::Cell::ortho(8.0, 8.0, 8.0);
+    const double on_face[3] = {4.0, 0.0, 0.0};
+    double folded[3] = {};
+    double stayed[3] = {};
+    minimage::wrap_many(face, on_face, 1, folded);
+    minimage::wrap_many(face, on_face, 1, stayed,
+                        minimage::WrapConfig{}.with_keep_near_face(true));
+    if (folded[0] != -4.0 || stayed[0] != 4.0) {
+      std::cerr << "face band fold " << folded[0] << " keep " << stayed[0]
+                << "\n";
+      return 1;
+    }
     std::cout << "ortho " << d2 << "\n";
     std::cout << "sheared " << s2 << "\n";
   } catch (const std::exception &e) {

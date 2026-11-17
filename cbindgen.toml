@@ -20,8 +20,12 @@ header = """
  * Memory ownership
  *   - Constructor calls write one mi_cell into a caller-owned out.
  *   - mi_displacement / mi_displacement_euclidean / mi_wrap_many /
- *     mi_dist2 / mi_dist2_many / mi_dist2_pairs / mi_dist2_ortho_diffs
- *     write into caller-owned buffers.
+ *     mi_wrap_many_with / mi_dist2 / mi_dist2_many / mi_dist2_pairs /
+ *     mi_dist2_ortho_diffs write into caller-owned buffers.
+ *   - mi_wrap_config_default returns the engine-wrap policy by value.
+ *     mi_wrap_face_slack and mi_wrap_face_tolerance return the face
+ *     band (128 machine eps, times the face width for the Cartesian
+ *     half-width). A null mi_wrap_config pointer is that default.
  *   - mi_reduce_pairs writes kept (i, j) pairs into caller-owned out
  *     and the count into out_n.
  *   - mi_last_error returns a thread-local pointer. Do not free. The
@@ -111,7 +115,12 @@ include = [
     "mi_last_error",
     "mi_reduce_pairs",
     "mi_version",
+    "mi_wrap_config",
+    "mi_wrap_config_default",
+    "mi_wrap_face_slack",
+    "mi_wrap_face_tolerance",
     "mi_wrap_many",
+    "mi_wrap_many_with",
 ]
 exclude = ["mi_cell_ortho", "Cell", "Error"]
 item_types = ["enums", "structs", "unions", "typedefs", "opaque", "functions", "constants"]

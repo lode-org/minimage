@@ -54,7 +54,13 @@ staging buffer (map fusion in the sense of DaCe and Futhark). An
 orthorhombic wrap is per element and does not transpose at all. Each
 lane runs the per-pair operations in the per-pair order, so a batch
 squared distance equals the per-pair call bit for bit and a wrapped
-vector equals it up to the sign of a zero. =dist2_ortho_diffs= keeps
+vector equals it up to the sign of a zero. That engine wrap is
+half-open, so a coordinate on the upper face comes back on the
+opposite face. =WrapConfig::with_keep_near_face= leaves the input in
+place when it already lies within =128 ε W= of a face, on either
+side. =W= is the perpendicular face width. =128 ε= is 256 units of
+roundoff, =u = ε/2=. The default policy does not apply that band, and
+its bits match the engine wrap. =dist2_ortho_diffs= keeps
 the Highway =BatchPeriodicDistSq= shape: precomputed differences, one
 reciprocal per axis, =abs=, then =round=.
 
