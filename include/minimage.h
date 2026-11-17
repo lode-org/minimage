@@ -6,8 +6,12 @@
  * Memory ownership
  *   - Constructor calls write one mi_cell into a caller-owned out.
  *   - mi_displacement / mi_displacement_euclidean / mi_wrap_many /
- *     mi_dist2 / mi_dist2_many / mi_dist2_pairs / mi_dist2_ortho_diffs
- *     write into caller-owned buffers.
+ *     mi_wrap_many_with / mi_dist2 / mi_dist2_many / mi_dist2_pairs /
+ *     mi_dist2_ortho_diffs write into caller-owned buffers.
+ *   - mi_wrap_config_default returns the engine-wrap policy by value.
+ *     mi_wrap_face_slack and mi_wrap_face_tolerance return the face
+ *     band (128 machine eps, times the face width for the Cartesian
+ *     half-width). A null mi_wrap_config pointer is that default.
  *   - mi_reduce_pairs writes kept (i, j) pairs into caller-owned out
  *     and the count into out_n.
  *   - mi_last_error returns a thread-local pointer. Do not free. The
@@ -113,6 +117,30 @@ typedef struct mi_pbc_cell {
      */
     int pbc_c;
 } mi_pbc_cell;
+
+/**
+ * Opt-in policy for [`mi_wrap_many_with`].
+ *
+ * Zero the struct, or call [`mi_wrap_config_default`], then set
+ * fields. `keep_near_face` nonzero keeps a difference that already
+ * lies within the face band instead of folding it onto the opposite
+ * face.
+ *
+ * The band is 256 units of roundoff. Unit roundoff is `ε/2`, so the
+ * fractional half-width is `128 ε` ([`mi_wrap_face_slack`]). The
+ * Cartesian half-width on a face of perpendicular length `W` is
+ * `128 ε W` ([`mi_wrap_face_tolerance`]). `W` is the orthorhombic box
+ * length, and the matching perpendicular face width on a triclinic
+ * cell. A real image step is one face width, so it still wraps.
+ * [`mi_wrap_many`] and a zero `keep_near_face` are the engine wrap,
+ * bit for bit.
+ */
+typedef struct mi_wrap_config {
+    /**
+     * Nonzero: keep coordinates already inside the face band.
+     */
+    int keep_near_face;
+} mi_wrap_config;
 
 #ifdef __cplusplus
 extern "C" {
@@ -568,6 +596,27 @@ int mi_ring_centroid(const struct mi_cell *simbox,
 const char *mi_version(void);
 
 /**
+ * Engine wrap, the zero [`mi_wrap_config`].
+ */
+struct mi_wrap_config mi_wrap_config_default(void);
+
+/**
+ * Fractional half-width of the face band, `128 ε`.
+ *
+ * `256 * (ε/2)`. A fractional coordinate within this distance of a
+ * half-integer lies on a box face. See [`mi_wrap_config`].
+ */
+double mi_wrap_face_slack(void);
+
+/**
+ * Cartesian half-width of the face band on one face.
+ *
+ * [`mi_wrap_face_slack`] times `box_length`, the perpendicular width
+ * of that face.
+ */
+double mi_wrap_face_tolerance(double box_length);
+
+/**
  * Engine wrap of `n` packed difference vectors into `out`.
  *
  * # Safety
@@ -578,6 +627,24 @@ int mi_wrap_many(const struct mi_cell *simbox,
                  const double *diffs,
                  size_t n,
                  double *out);
+
+/**
+ * [`mi_wrap_many`] with a [`mi_wrap_config`].
+ *
+ * A null `config` is the engine wrap, the same bits as
+ * [`mi_wrap_many`]. `keep_near_face` nonzero keeps an input row that
+ * already lies within [`mi_wrap_face_tolerance`] of a box face.
+ *
+ * # Safety
+ *
+ * `diffs` and `out` are `n * 3` doubles. `config` is null or one
+ * readable [`mi_wrap_config`].
+ */
+int mi_wrap_many_with(const struct mi_cell *simbox,
+                      const double *diffs,
+                      size_t n,
+                      double *out,
+                      const struct mi_wrap_config *config);
 
 #ifdef __cplusplus
 }  // extern "C"

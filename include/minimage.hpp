@@ -201,6 +201,46 @@ inline void dist2_ortho_diffs(const double *dx, const double *dy,
         "minimage: dist2_ortho_diffs failed");
 }
 
+/// Fractional half-width of the face band, `128 ε`.
+///
+/// 256 units of roundoff (`ε/2` each). A fractional coordinate within
+/// this distance of a half-integer lies on a box face.
+[[nodiscard]] inline double wrap_face_slack() { return mi_wrap_face_slack(); }
+
+/// Cartesian half-width of the face band on a face of length `box_length`.
+///
+/// [`wrap_face_slack()`] times the perpendicular face width.
+[[nodiscard]] inline double wrap_face_tolerance(double box_length) {
+  return mi_wrap_face_tolerance(box_length);
+}
+
+/// Opt-in policy for [`wrap_many`]. The default is the engine wrap.
+///
+/// `with_keep_near_face(true)` keeps a difference that already lies
+/// within [`wrap_face_tolerance`] of a box face, on either side,
+/// instead of folding it onto the opposite face. The half-width is
+/// `128 ε` times the perpendicular face width.
+struct WrapConfig {
+  bool keep_near_face = false;
+
+  [[nodiscard]] WrapConfig with_keep_near_face(bool keep) const {
+    WrapConfig next = *this;
+    next.keep_near_face = keep;
+    return next;
+  }
+};
+
+/// Engine wrap of `n` packed difference rows. A default `config` matches
+/// `mi_wrap_many` bit for bit.
+inline void wrap_many(const Cell &cell, const double *diffs, std::size_t n,
+                      double *out, WrapConfig config = {}) {
+  mi_wrap_config raw = mi_wrap_config_default();
+  raw.keep_near_face = config.keep_near_face ? 1 : 0;
+  const mi_cell box = cell.raw();
+  check(mi_wrap_many_with(&box, diffs, n, out, &raw),
+        "minimage: wrap_many failed");
+}
+
 /// Drop self images and collapse duplicate `(i, j)` rows.
 inline std::vector<std::array<int, 2>>
 reduce_pairs(const int *pairs, std::size_t n) {

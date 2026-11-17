@@ -8,7 +8,9 @@ use std::ptr;
 use std::slice;
 
 use crate::fused;
-use crate::{dist2_ortho_diffs, reduce_pairs_packed, Cell, Error, PartialCell};
+use crate::{
+    dist2_ortho_diffs, reduce_pairs_packed, wrap_many_with, Cell, Error, PartialCell, WrapConfig,
+};
 
 /// Periodic parallelepiped. Lattice vectors are a, b, c (same as vesin rows).
 #[repr(C)]
@@ -450,6 +452,85 @@ pub unsafe extern "C" fn mi_wrap_many(
     n: usize,
     out: *mut f64,
 ) -> c_int {
+    // SAFETY: the caller upholds the `mi_wrap_many` pointer contract, and
+    // a null policy selects the engine wrap.
+    unsafe { mi_wrap_many_with(simbox, diffs, n, out, ptr::null()) }
+}
+
+/// Opt-in policy for [`mi_wrap_many_with`].
+///
+/// Zero the struct, or call [`mi_wrap_config_default`], then set
+/// fields. `keep_near_face` nonzero keeps a difference that already
+/// lies within the face band instead of folding it onto the opposite
+/// face.
+///
+/// The band is 256 units of roundoff. Unit roundoff is `ε/2`, so the
+/// fractional half-width is `128 ε` ([`mi_wrap_face_slack`]). The
+/// Cartesian half-width on a face of perpendicular length `W` is
+/// `128 ε W` ([`mi_wrap_face_tolerance`]). `W` is the orthorhombic box
+/// length, and the matching perpendicular face width on a triclinic
+/// cell. A real image step is one face width, so it still wraps.
+/// [`mi_wrap_many`] and a zero `keep_near_face` are the engine wrap,
+/// bit for bit.
+#[repr(C)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct mi_wrap_config {
+    /// Nonzero: keep coordinates already inside the face band.
+    pub keep_near_face: c_int,
+}
+
+impl mi_wrap_config {
+    /// Set whether face-band coordinates keep their input value.
+    #[must_use]
+    pub const fn with_keep_near_face(mut self, keep: bool) -> Self {
+        self.keep_near_face = if keep { 1 } else { 0 };
+        self
+    }
+}
+
+/// Engine wrap, the zero [`mi_wrap_config`].
+#[no_mangle]
+pub extern "C" fn mi_wrap_config_default() -> mi_wrap_config {
+    mi_wrap_config::default()
+}
+
+/// Fractional half-width of the face band, `128 ε`.
+///
+/// `256 * (ε/2)`. A fractional coordinate within this distance of a
+/// half-integer lies on a box face. See [`mi_wrap_config`].
+#[no_mangle]
+pub extern "C" fn mi_wrap_face_slack() -> f64 {
+    WrapConfig::face_slack()
+}
+
+/// Cartesian half-width of the face band on one face.
+///
+/// [`mi_wrap_face_slack`] times `box_length`, the perpendicular width
+/// of that face.
+#[no_mangle]
+pub extern "C" fn mi_wrap_face_tolerance(box_length: f64) -> f64 {
+    WrapConfig::face_tolerance(box_length)
+}
+
+/// [`mi_wrap_many`] with a [`mi_wrap_config`].
+///
+/// A null `config` is the engine wrap, the same bits as
+/// [`mi_wrap_many`]. `keep_near_face` nonzero keeps an input row that
+/// already lies within [`mi_wrap_face_tolerance`] of a box face.
+///
+/// # Safety
+///
+/// `diffs` and `out` are `n * 3` doubles. `config` is null or one
+/// readable [`mi_wrap_config`].
+#[no_mangle]
+pub unsafe extern "C" fn mi_wrap_many_with(
+    simbox: *const mi_cell,
+    diffs: *const f64,
+    n: usize,
+    out: *mut f64,
+    config: *const mi_wrap_config,
+) -> c_int {
     let diffs = match packed_triples(diffs, n, "null diffs") {
         Ok(v) => v,
         Err(e) => return e,
@@ -462,8 +543,16 @@ pub unsafe extern "C" fn mi_wrap_many(
     } else {
         unsafe { slice::from_raw_parts_mut(out as *mut [f64; 3], n) }
     };
-    match with_cell(simbox, |cell| fused::wrap_many(cell.frame(), diffs, out)) {
-        Ok(()) => 0,
+    let config = if config.is_null() {
+        WrapConfig::default()
+    } else {
+        // SAFETY: `config` is a readable `mi_wrap_config`.
+        let raw = unsafe { &*config };
+        WrapConfig::default().with_keep_near_face(raw.keep_near_face != 0)
+    };
+    match with_cell(simbox, |cell| wrap_many_with(cell, diffs, out, config)) {
+        Ok(Ok(())) => 0,
+        Ok(Err(err)) => fail(err),
         Err(e) => e,
     }
 }

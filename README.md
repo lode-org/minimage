@@ -124,6 +124,15 @@ is the wrapped vector from `p` to `q`.
 Batch kernels select AVX-512, AVX2, AVX, NEON, or scalar at run time.
 `MINIMAGE_SIMD` overrides that choice. `simd_path()` returns the name.
 
+`wrap_many` folds a difference onto the half-open engine image, so a
+point on the upper face comes back on the opposite face.
+`WrapConfig::default().with_keep_near_face(true)` keeps a coordinate
+that already lies within `128 ε` times the face width of that face,
+on either side. `128 ε` is 256 units of roundoff (`ε/2`). The default
+config is the engine wrap, bit for bit. C takes the same policy as
+`mi_wrap_config` on `mi_wrap_many_with`. C++ takes `minimage::WrapConfig`
+on `wrap_many`.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
