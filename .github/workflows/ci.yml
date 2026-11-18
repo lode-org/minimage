@@ -99,6 +99,8 @@ jobs:
             flags: ""
           - name: serial
             flags: --no-default-features --features capi
+          - name: capi-compat-names
+            flags: --features capi-compat-names
     name: cargo (${{ matrix.os }}, ${{ matrix.crate.name }})
     runs-on: ${{ matrix.os }}
     steps:
