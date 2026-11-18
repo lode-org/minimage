@@ -3,23 +3,29 @@
 /*
  * minimage C API.
  *
+ * Conventions and units
+ *   - All coordinates, lattice vectors, origins, and displacements share
+ *     one caller-chosen Cartesian length unit; squared distances and
+ *     cutoffs use that unit squared. minimage_cell_from_con_box takes
+ *     angles in degrees.
+ *   - Displacement is the wrapped vector from p to q: wrap(q - p).
+ *
  * Memory ownership
- *   - Constructor calls write one mi_cell into a caller-owned out.
- *   - minimage_displacement / minimage_displacement_euclidean /
- *     minimage_wrap_many / minimage_dist2 / minimage_dist2_many /
- *     minimage_dist2_pairs / minimage_dist2_ortho_diffs
- *     write into caller-owned buffers.
- *   - minimage_reduce_pairs writes kept pairs into caller-owned out
- *     and the count into out_n.
+ *   - Constructor calls write one mi_cell or mi_pbc_cell into a
+ *     caller-owned out.
+ *   - Distance, displacement, wrap, fixed-point, filter, centroid, and
+ *     pair-reduction calls write into caller-owned buffers.
  *   - minimage_last_error returns a thread-local pointer. Do not free.
  *     The pointer is invalid after the next minimage_* call on the same
  *     thread. minimage_version does not read or write the slot.
  *   - minimage_version returns a process-static pointer. Do not free.
  *
- * Thread safety
+ * Errors and thread safety
+ *   - Every int-returning function returns 0 on success and 1 on failure.
  *   - Distinct cells and distance calls may run concurrently.
- *   - minimage_last_error is a thread-local slot. Read it on the same thread
- *     that received a nonzero return.
+ *   - minimage_last_error is a thread-local slot, cleared on the next
+ *     successful call on that thread. Read it on the same thread that
+ *     received a nonzero return.
  */
 
 
@@ -39,7 +45,10 @@
 #include <stdlib.h>
 
 /**
- * Periodic parallelepiped. Lattice vectors are a, b, c (same as vesin rows).
+ * Periodic parallelepiped.
+ *
+ * Stores lattice vectors `a`, `b`, `c` (columns of `H`) and origin
+ * `(ox, oy, oz)` in consistent Cartesian length units.
  */
 typedef struct mi_cell {
     /**
@@ -120,8 +129,11 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Fill `out` from an ASE-style row-major 3x3 cell. `origin` may be NULL
- * (then zero).
+ * Fill `out` from an ASE-style row-major 3x3 cell (`[a, b, c]`) in
+ * consistent length units. `origin` defaults to zero when `NULL`.
+ *
+ * Returns `0` on success, or `1` on failure (null `rows`/`out` or
+ * singular / non-finite cell).
  *
  * # Safety
  *
@@ -133,16 +145,24 @@ int minimage_cell_from_ase(const double *rows,
                            struct mi_cell *out);
 
 /**
- * Fill `out` from a CON 3x3 lattice (rows a, b, c).
+ * Fill `out` from a CON 3x3 lattice (rows `a`, `b`, `c`) with origin
+ * defaulting to zero.
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
- * Same contract as [`minimage_cell_from_ase`] with a null origin.
+ * Same contract as `minimage_cell_from_ase` with a null origin.
  */
 int minimage_cell_from_con(const double *rows, struct mi_cell *out);
 
 /**
- * Fill `out` from CON lengths and angles in degrees.
+ * Fill `out` from CON lengths (`boxl` in length units) and
+ * crystallographic angles (`angles_deg` `[alpha, beta, gamma]` in
+ * degrees). Origin defaults to zero.
+ *
+ * Returns `0` on success, or `1` on failure (null pointer, non-positive
+ * length, or degenerate angles).
  *
  * # Safety
  *
@@ -154,7 +174,12 @@ int minimage_cell_from_con_box(const double *boxl,
                                struct mi_cell *out);
 
 /**
- * Fill `out` from LAMMPS `xlo xhi ylo yhi zlo zhi` and tilts.
+ * Fill `out` from LAMMPS dump-bound coordinates `xlo xhi ylo yhi zlo zhi`
+ * and tilt factors `xy, xz, yz` in consistent length units.
+ *
+ * Expects tilt-padded dump bounds (`xlo_bound, xhi_bound, ...`).
+ * Returns `0` on success, or `1` on failure (`out == NULL` or singular
+ * / non-finite cell; inspect `minimage_last_error()` on this thread).
  */
 int minimage_cell_from_lammps(double xlo,
                               double xhi,
@@ -168,7 +193,11 @@ int minimage_cell_from_lammps(double xlo,
                               struct mi_cell *out);
 
 /**
- * Fill `out` from dump bound spans, tilts, and bound lo.
+ * Fill `out` from LAMMPS dump bound spans, tilts, and bound origins,
+ * all in consistent length units.
+ *
+ * Returns `0` on success, or `1` on failure (`out == NULL` or singular
+ * / non-finite cell; inspect `minimage_last_error()` on this thread).
  */
 int minimage_cell_from_lammps_bounds(double xspan,
                                      double yspan,
@@ -182,7 +211,11 @@ int minimage_cell_from_lammps_bounds(double xspan,
                                      struct mi_cell *out);
 
 /**
- * Fill `out` from lattice vectors a, b, c and an origin.
+ * Fill `out` from lattice vectors `a`, `b`, `c` and `origin`, all in
+ * consistent length units.
+ *
+ * Returns `0` on success, or `1` on failure (null pointer or singular
+ * / non-finite cell; inspect `minimage_last_error()` on this thread).
  *
  * # Safety
  *
@@ -196,16 +229,23 @@ int minimage_cell_from_vectors(const double *a,
                                struct mi_cell *out);
 
 /**
- * Fill `out` from a vesin 3x3 box (rows a, b, c).
+ * Fill `out` from a vesin 3x3 box (rows `a`, `b`, `c`) with origin
+ * defaulting to zero.
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
- * Same contract as [`minimage_cell_from_con`].
+ * Same contract as `minimage_cell_from_con`.
  */
 int minimage_cell_from_vesin(const double *box_rows, struct mi_cell *out);
 
 /**
- * Minimum-image displacement from `p` to `q` into `dr`.
+ * Engine minimum-image displacement from `p` to `q` (`wrap(q - p)`)
+ * into `dr`, in the cell's length units.
+ *
+ * Returns `0` on success, or `1` on failure (null pointer or invalid
+ * `simbox`; inspect `minimage_last_error()` on this thread).
  *
  * # Safety
  *
@@ -217,12 +257,17 @@ int minimage_displacement(const struct mi_cell *simbox,
                           double *dr);
 
 /**
- * Euclidean MIC: Smith half-altitude test, else the slicer on the
- * Selling superbasis, into `dr`.
+ * Euclidean MIC displacement from `p` to `q` into `dr`, in the cell's
+ * length units: Smith half-altitude test, else the slicer on the
+ * Selling superbasis cached on the calling thread. A tie keeps the
+ * engine vector.
+ *
+ * Returns `0` on success, or `1` on failure (null pointer or invalid
+ * `simbox`; inspect `minimage_last_error()` on this thread).
  *
  * # Safety
  *
- * Same contract as [`minimage_displacement`].
+ * Same contract as `minimage_displacement`.
  */
 int minimage_displacement_euclidean(const struct mi_cell *simbox,
                                     const double *p,
@@ -231,7 +276,9 @@ int minimage_displacement_euclidean(const struct mi_cell *simbox,
 
 /**
  * Nearest-image displacement from `p` to `q` over the periodic axes of
- * `simbox`, into `dr`. Open axes take no image.
+ * `simbox` into `dr`, in cell length units. Open axes take no image.
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
@@ -243,7 +290,10 @@ int minimage_displacement_euclidean_pbc(const struct mi_pbc_cell *simbox,
                                         double *dr);
 
 /**
- * Squared minimum-image distance from `p` to `q`.
+ * Squared minimum-image distance from `p` to `q` into `out`, in the
+ * cell's squared length units.
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
@@ -303,7 +353,10 @@ int minimage_dist2_euclidean_pairs_warm(const struct mi_cell *simbox,
                                         double *out);
 
 /**
- * Squared length of `minimage_displacement_euclidean_pbc` into `out`.
+ * Squared length of `minimage_displacement_euclidean_pbc` into `out`,
+ * in squared cell length units.
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
@@ -340,11 +393,15 @@ int minimage_dist2_fixed32(const struct mi_cell *simbox,
                            double *out);
 
 /**
- * Squared MIC distances from `p` to `n` packed candidates in `qs`.
+ * Squared MIC distances from `p` to `n` packed candidates in `qs`, in
+ * squared cell length units. When `n == 0`, returns `0` after
+ * validating `simbox` and `p`.
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
- * `qs` is `n * 3` doubles. `out` is `n` doubles.
+ * `qs` is `n * 3` doubles. `out` is `n` doubles when `n > 0`.
  */
 int minimage_dist2_many(const struct mi_cell *simbox,
                         const double *p,
@@ -385,9 +442,15 @@ int minimage_dist2_many_fixed32(const struct mi_cell *simbox,
 /**
  * Orthorhombic wrap of precomputed differences (Highway kernel).
  *
+ * `dx`, `dy`, `dz`, and box lengths `bx`, `by`, `bz` use consistent
+ * length units; `out` receives squared lengths in that unit squared.
+ * When `n == 0`, returns `0` without inspecting box lengths or pointers.
+ * Returns `1` if `n > 0` and any pointer is null or any box length is
+ * not strictly positive (or `NaN`).
+ *
  * # Safety
  *
- * `dx`, `dy`, `dz`, and `out` are `n` doubles.
+ * `dx`, `dy`, `dz`, and `out` are `n` doubles when `n > 0`.
  */
 int minimage_dist2_ortho_diffs(const double *dx,
                                const double *dy,
@@ -399,11 +462,15 @@ int minimage_dist2_ortho_diffs(const double *dx,
                                size_t n);
 
 /**
- * Squared MIC distances for `n` packed pairs `(ps[k], qs[k])`.
+ * Squared MIC distances for `n` packed pairs `(ps[k], qs[k])`, in
+ * squared cell length units. When `n == 0`, returns `0` after
+ * validating `simbox`.
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
- * `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles.
+ * `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles when `n > 0`.
  */
 int minimage_dist2_pairs(const struct mi_cell *simbox,
                          const double *ps,
@@ -439,11 +506,16 @@ int minimage_dist2_pairs_fixed32(const struct mi_cell *simbox,
 
 /**
  * Squared distances from `p` to `n` points in `qs`, plus one lattice
- * shift `(sx, sy, sz)` on every candidate. Rapaport's bin pair.
+ * shift `(sx, sy, sz)` on every candidate, in squared length units.
+ * Rapaport's bin pair. When `n == 0`, returns `0` after validating `p`
+ * and `shift`.
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
- * `p` is three doubles. `qs` is `n * 3` doubles. `out` is `n` doubles.
+ * `p` and `shift` are three doubles. `qs` is `n * 3` doubles. `out`
+ * is `n` doubles when `n > 0`.
  */
 int minimage_dist2_shifted_many(const double *p,
                                 const double *qs,
@@ -454,9 +526,14 @@ int minimage_dist2_shifted_many(const double *p,
 /**
  * Squared-distance filter of candidate pairs `(ii[k], jj[k], shift[k])`.
  *
- * Writes the kept rows into caller buffers. `kept` receives the number
- * of rows. Each output buffer holds at least `n` entries. `vectors`
- * may be null; when it is not, it receives `q + H S - p`.
+ * `xyz` uses the cell's length units and `cut2` is the squared cutoff
+ * in those units squared. Keeps rows with squared distance strictly
+ * below `cut2` into caller buffers and writes the count to `kept`. Each
+ * output buffer holds at least `n` entries. `out_vector` may be `NULL`;
+ * when non-null, it receives `q + H S - p` in cell length units.
+ *
+ * Returns `0` on success, or `1` on failure (null required pointer,
+ * invalid `simbox`, or an atom index `>= n_atoms`).
  *
  * # Safety
  *
@@ -520,10 +597,14 @@ const char *minimage_last_error(void);
 
 /**
  * Fill `out` from ASE-style rows, a periodicity mask and an origin.
- * `pbc` holds three ints, nonzero for a periodic axis; `origin` may be
- * NULL (then zero). The rows of periodic axes must be finite and
- * linearly independent; rows of open axes may be zero. All three
- * periodic is the cell of `minimage_cell_from_ase`.
+ * `pbc` holds three ints (`0` open, nonzero periodic); `origin`
+ * defaults to zero when `NULL`. Rows use consistent length units;
+ * rows of periodic axes must be finite and linearly independent, while
+ * rows of open axes may be zero. All three periodic matches
+ * `minimage_cell_from_ase`.
+ *
+ * Returns `0` on success, or `1` on failure (null pointer or invalid
+ * periodic rows; inspect `minimage_last_error()` on this thread).
  *
  * # Safety
  *
@@ -536,21 +617,28 @@ int minimage_pbc_cell_from_ase(const double *rows,
                                struct mi_pbc_cell *out);
 
 /**
- * Drop self images and collapse duplicate `(i, j)` rows.
+ * Drop self images (`i == j`) and collapse duplicate `(i, j)` rows.
  *
  * `pairs` is `n * 2` ints. `out` has room for `n * 2` ints. `out_n`
- * receives the kept pair count.
+ * receives the kept pair count (0 when `n == 0`). Ordered pairs
+ * `(i, j)` and `(j, i)` are distinct.
+ *
+ * Returns `0` on success, or `1` on failure (null pointer).
  *
  * # Safety
  *
- * `pairs` is `2 * n` readable ints. `out` is `2 * n` writable ints.
- * `out_n` is one writable `size_t`.
+ * `pairs` is `2 * n` readable ints and `out` is `2 * n` writable ints
+ * when `n > 0`. `out_n` is one writable `size_t`.
  */
 int minimage_reduce_pairs(const int *pairs, size_t n, int *out, size_t *out_n);
 
 /**
- * Ring-polymer centroid. `xyz` is bead-major `(beads * atoms, 3)`.
- * `out` receives `atoms` positions.
+ * Ring-polymer centroid in the cell's length units.
+ *
+ * `xyz` is bead-major `(beads * atoms, 3)`; `out` receives `atoms`
+ * positions wrapped into the primary cell. Returns `0` on success, or
+ * `1` on failure (`beads == 0`, `atoms == 0`, null pointer, integer
+ * overflow in `beads * atoms`, or invalid `simbox`).
  *
  * # Safety
  *
@@ -569,11 +657,15 @@ int minimage_ring_centroid(const struct mi_cell *simbox,
 const char *minimage_version(void);
 
 /**
- * Engine wrap of `n` packed difference vectors into `out`.
+ * Engine wrap of `n` packed difference vectors (`q - p`) into `out`,
+ * in the cell's length units. When `n == 0`, returns `0` without
+ * dereferencing `diffs` or `out` (after validating `simbox`).
+ *
+ * Returns `0` on success, or `1` on failure.
  *
  * # Safety
  *
- * `diffs` and `out` are `n * 3` doubles.
+ * `diffs` and `out` are `n * 3` doubles when `n > 0`.
  */
 int minimage_wrap_many(const struct mi_cell *simbox,
                        const double *diffs,

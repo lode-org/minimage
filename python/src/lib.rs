@@ -168,7 +168,12 @@ fn out_rows_u64(py: Python<'_>, rows: Vec<[u64; 3]>) -> PyResult<PyObject> {
     }
 }
 
-/// Periodic parallelepiped: lattice vectors a, b, c and origin.
+/// Periodic parallelepiped: lattice vectors `a`, `b`, `c` and origin.
+///
+/// Coordinates, lattice vectors, origins, and displacements share one
+/// caller-chosen Cartesian length unit; squared distances use that unit
+/// squared. Constructors validate the box and raise `ValueError` on a
+/// singular or non-finite cell.
 #[pyclass(name = "Cell", module = "minimage")]
 struct PyCell {
     inner: RustCell,
@@ -176,6 +181,11 @@ struct PyCell {
 
 #[pymethods]
 impl PyCell {
+    /// Construct an orthorhombic cell with side lengths `(lx, ly, lz)` and
+    /// zero origin.
+    ///
+    /// Raises `ValueError` if `lx * ly * lz` is non-finite or smaller than
+    /// `1e-18` in magnitude.
     #[staticmethod]
     fn ortho(lx: f64, ly: f64, lz: f64) -> PyResult<Self> {
         Ok(Self {
@@ -183,6 +193,11 @@ impl PyCell {
         })
     }
 
+    /// Construct a cell from lattice vectors `a`, `b`, `c` (columns of `H`)
+    /// and optional `origin` (defaults to `[0.0, 0.0, 0.0]`).
+    ///
+    /// Raises `ValueError` if any vector has length != 3 or `H` is singular
+    /// or non-finite.
     #[staticmethod]
     #[pyo3(signature = (a, b, c, origin=None))]
     fn from_vectors(
@@ -206,6 +221,11 @@ impl PyCell {
         })
     }
 
+    /// Construct a restricted-triclinic cell from LAMMPS dump bound spans
+    /// `(xspan, yspan, zspan)`, tilts `(xy, xz, yz)`, and bound origins
+    /// `(xlo_b, ylo_b, zlo_b)`.
+    ///
+    /// Raises `ValueError` if the recovered cell is singular or non-finite.
     #[staticmethod]
     fn from_lammps_bounds(
         xspan: f64,
@@ -226,6 +246,10 @@ impl PyCell {
         })
     }
 
+    /// Construct from an ASE-style `(3, 3)` row-major cell (`[a, b, c]`),
+    /// with origin `[0.0, 0.0, 0.0]`.
+    ///
+    /// Raises `ValueError` if `cell` is not 3x3 or is singular / non-finite.
     #[staticmethod]
     fn from_ase(cell: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(Self {
@@ -233,6 +257,9 @@ impl PyCell {
         })
     }
 
+    /// Construct from a CON `(3, 3)` row-major lattice, zero origin.
+    ///
+    /// Raises `ValueError` if `cell` is not 3x3 or is singular / non-finite.
     #[staticmethod]
     fn from_con(cell: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(Self {
@@ -240,6 +267,9 @@ impl PyCell {
         })
     }
 
+    /// Construct from a vesin `(3, 3)` row-major box, zero origin.
+    ///
+    /// Raises `ValueError` if `cell` is not 3x3 or is singular / non-finite.
     #[staticmethod]
     fn from_vesin(cell: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(Self {
@@ -247,17 +277,29 @@ impl PyCell {
         })
     }
 
+    /// Squared engine minimum-image distance between length-3 vectors `p`
+    /// and `q`, in squared cell length units. Raises `ValueError` if `p`
+    /// or `q` does not have length 3.
     fn dist2(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<f64> {
         Ok(self.inner.dist2(triple(p, "p")?, triple(q, "q")?))
     }
 
+    /// Engine minimum-image displacement from `p` to `q` (`wrap(q - p)`) as
+    /// `[dx, dy, dz]` in cell length units. Raises `ValueError` if `p` or
+    /// `q` does not have length 3.
     fn displacement(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
         Ok(self.inner.displacement(triple(p, "p")?, triple(q, "q")?))
     }
 
-    /// Squared distances from `p` to each row of `qs`. An array in (any
-    /// DLPack producer) is read in place and a numpy array comes back; a
-    /// list in gives a list.
+    /// Squared engine MIC distances from `p` (length 3) to each row of
+    /// `qs` (`(N, 3)`).
+    ///
+    /// Accepts any host CPU DLPack producer (`float64` or `float32`) or
+    /// nested Python sequences. Returns a `float64` NumPy array of shape
+    /// `(N,)` for array inputs (when NumPy is importable), or a Python list
+    /// for list inputs. Raises `ValueError` on shape mismatch, `TypeError`
+    /// on unsupported dtype or non-CPU device, and `BufferError` on
+    /// unsupported DLPack capsule versions.
     fn dist2_many(
         &self,
         py: Python<'_>,
@@ -560,36 +602,52 @@ impl PyCell {
         }
     }
 
+    /// Engine wrap of a single difference vector `diff` (`q - p`) in cell
+    /// length units. Equivalent to `displacement([0, 0, 0], diff)`.
+    /// Raises `ValueError` if `diff` does not have length 3.
     fn wrap(&self, diff: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
         Ok(self
             .inner
             .displacement([0.0, 0.0, 0.0], triple(diff, "diff")?))
     }
 
+    /// True when `a` lies along +x/-x and `b` lies in the xy plane
+    /// (LAMMPS / HOOMD / GROMACS restricted-triclinic frame).
     fn is_restricted(&self) -> bool {
         self.inner.is_restricted()
     }
 
+    /// True when the cell is restricted and `|xy| <= |lx|/2`,
+    /// `|xz| <= |lx|/2`, and `|yz| <= |ly|/2`.
     fn tilts_reduced(&self) -> bool {
         self.inner.tilts_reduced()
     }
 
+    /// True when the columns of `H` satisfy the 3D Minkowski inequalities.
     fn is_minkowski_reduced(&self) -> bool {
         minimage::is_minkowski_reduced(&self.inner)
     }
 
+    /// Return a new `Cell` with unimodular tilt reduction (GROMACS
+    /// `correct_box`), rotating into the restricted frame first if needed.
+    /// Raises `ValueError` if reduction fails.
     fn reduce_tilts(&self) -> PyResult<Self> {
         Ok(Self {
             inner: self.inner.reduce_tilts().map_err(map_err)?,
         })
     }
 
+    /// Rotate a general parallelepiped onto the restricted-triclinic frame.
+    /// Identity when already restricted. Raises `ValueError` on failure.
     fn to_restricted(&self) -> PyResult<Self> {
         Ok(Self {
             inner: self.inner.to_restricted().map_err(map_err)?,
         })
     }
 
+    /// Euclidean nearest-image displacement from `p` to `q` in cell length
+    /// units (Smith test, else the Selling superbasis slicer; ties keep the
+    /// engine vector). Raises `ValueError` if `p` or `q` lacks length 3.
     fn displacement_euclidean(
         &self,
         p: &Bound<'_, PyAny>,
@@ -600,10 +658,16 @@ impl PyCell {
             .displacement_euclidean(triple(p, "p")?, triple(q, "q")?))
     }
 
+    /// Squared Euclidean nearest-image distance between `p` and `q`, in
+    /// squared cell length units. Raises `ValueError` if `p` or `q` lacks
+    /// length 3.
     fn dist2_euclidean(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<f64> {
         Ok(self.inner.dist2_euclidean(triple(p, "p")?, triple(q, "q")?))
     }
 
+    /// Cartesian nearest-image displacement from `p` to `q` by checking
+    /// the 27 nearest lattice shifts on the caller's `H`. Raises
+    /// `ValueError` if `p` or `q` lacks length 3.
     fn displacement_cartesian(
         &self,
         p: &Bound<'_, PyAny>,
@@ -614,11 +678,17 @@ impl PyCell {
             .displacement_cartesian(triple(p, "p")?, triple(q, "q")?))
     }
 
+    /// True when fractional wrap matches the 27-image Cartesian check on a
+    /// grid of short cutoff-scale probes.
     fn fractional_matches_cartesian(&self) -> bool {
         self.inner.fractional_matches_cartesian()
     }
 
-    /// Engine wrap of each difference row. Array in, numpy array out.
+    /// Engine wrap of each difference row in `diffs` (`(N, 3)`).
+    ///
+    /// Accepts any host CPU DLPack producer (`float64` or `float32`) or
+    /// nested Python sequences. Returns an `(N, 3)` `float64` NumPy array
+    /// for array inputs, or a Python list otherwise.
     fn wrap_many(&self, py: Python<'_>, diffs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         if let Some(b) = dlpack::borrow(diffs)? {
             let rows = b.rows_f64("diffs")?;
@@ -632,11 +702,16 @@ impl PyCell {
         out.into_py_any(py)
     }
 
+    /// True when `H` is diagonal within numerical tolerance.
     fn is_ortho(&self) -> bool {
         self.inner.is_ortho()
     }
 }
 
+/// Drop self images (`i == j`) and collapse duplicate `(i, j)` pairs.
+///
+/// Takes a sequence of `(i, j)` integer pairs and returns sorted unique
+/// pairs with `i != j`. Ordered pairs `(i, j)` and `(j, i)` are distinct.
 #[pyfunction]
 fn reduce_image_pairs(pairs: Vec<(i32, i32)>) -> PyResult<Vec<(i32, i32)>> {
     let rows: Vec<[i32; 2]> = pairs.into_iter().map(|(i, j)| [i, j]).collect();

@@ -19,23 +19,32 @@ extern "C" {
 
 namespace minimage {
 
-/// Failure from a cell or a distance call. `status()` is the C ABI
-/// return (0 success, nonzero failure).
+/// Failure from a cell or a distance call.
+///
+/// `status()` holds the nonzero C ABI return code, and `what()` holds the
+/// thread-local `minimage_last_error()` string when available.
 class Error : public std::runtime_error {
 public:
+  /// Construct an error with a C ABI status code and message.
   Error(int status, std::string message)
       : std::runtime_error(message.empty() ? "minimage: call failed"
                                            : std::move(message)),
         status_(status) {}
 
+  /// Construct an error with default status code `1`.
   explicit Error(std::string message) : Error(1, std::move(message)) {}
 
+  /// Nonzero C ABI return code from the failing `minimage_*` call.
   [[nodiscard]] int status() const noexcept { return status_; }
 
 private:
   int status_;
 };
 
+/// Throw `minimage::Error` when a C ABI call returns a nonzero status.
+///
+/// Reads `minimage_last_error()` on the current thread and falls back to
+/// `what` if the error slot is null.
 inline void check(int status, const char *what) {
   if (status != 0) {
     const char *msg = minimage_last_error();
@@ -43,24 +52,44 @@ inline void check(int status, const char *what) {
   }
 }
 
-/// Periodic parallelepiped. Fields match `mi_cell` (lattice vectors
-/// a, b, c and dump-cell origin).
+/// Periodic parallelepiped.
+///
+/// Fields match `mi_cell`: lattice vectors `a`, `b`, `c` (columns of
+/// `H`) and dump-cell `origin`, all in consistent Cartesian length
+/// units. Origin defaults to `{0.0, 0.0, 0.0}` on constructors that omit
+/// it.
 struct Cell {
+  /// Lattice vector `a` (first column of `H`).
   std::array<double, 3> a{};
+  /// Lattice vector `b` (second column of `H`).
   std::array<double, 3> b{};
+  /// Lattice vector `c` (third column of `H`).
   std::array<double, 3> c{};
+  /// Dump-cell origin.
   std::array<double, 3> origin{};
 
+  /// Default-construct an uninitialized zero cell (not valid until populated).
   Cell() = default;
 
+  /// Wrap an existing C `mi_cell` without validating it.
   explicit Cell(const mi_cell &raw) noexcept
       : a{raw.ax, raw.ay, raw.az}, b{raw.bx, raw.by, raw.bz},
         c{raw.cx, raw.cy, raw.cz}, origin{raw.ox, raw.oy, raw.oz} {}
 
+  /// Orthorhombic box with side lengths `(lx, ly, lz)` and zero origin.
+  ///
+  /// Does not validate the lengths at construction (`noexcept`); an
+  /// invalid box throws `minimage::Error` on the first distance or
+  /// displacement call.
   static Cell ortho(double lx, double ly, double lz) noexcept {
     return Cell(mi_cell_ortho(lx, ly, lz));
   }
 
+  /// Parallelepiped from lattice vectors `a`, `b`, `c` and optional `origin`
+  /// (defaults to `{0.0, 0.0, 0.0}`).
+  ///
+  /// Vectors are columns of `H`. Throws `minimage::Error` if `H` is
+  /// singular or non-finite.
   static Cell from_vectors(std::array<double, 3> a, std::array<double, 3> b,
                            std::array<double, 3> c,
                            std::array<double, 3> origin = {}) {
@@ -71,6 +100,12 @@ struct Cell {
     return Cell(raw);
   }
 
+  /// LAMMPS restricted-triclinic box from dump-bound coordinates
+  /// `xlo, xhi, ylo, yhi, zlo, zhi` and tilts `xy, xz, yz`.
+  ///
+  /// Expects tilt-padded dump bounds (`xlo_bound, xhi_bound, ...`).
+  /// Throws `minimage::Error` if the recovered cell is singular or
+  /// non-finite.
   static Cell from_lammps(double xlo, double xhi, double ylo, double yhi,
                           double zlo, double zhi, double xy, double xz,
                           double yz) {
@@ -81,6 +116,11 @@ struct Cell {
     return Cell(raw);
   }
 
+  /// LAMMPS dump bound spans `(xspan, yspan, zspan)`, tilts `(xy, xz, yz)`,
+  /// and bound origins `(xlo_b, ylo_b, zlo_b)`.
+  ///
+  /// Throws `minimage::Error` if the recovered cell is singular or
+  /// non-finite.
   static Cell from_lammps_bounds(double xspan, double yspan, double zspan,
                                  double xy, double xz, double yz, double xlo_b,
                                  double ylo_b, double zlo_b) {
@@ -91,6 +131,11 @@ struct Cell {
     return Cell(raw);
   }
 
+  /// Construct from an ASE-style row-major 3x3 array (`rows[0..9]`).
+  ///
+  /// `origin` defaults to `nullptr` (zero origin). Throws
+  /// `minimage::Error` if `rows` is null or the cell is singular or
+  /// non-finite.
   static Cell from_ase(const double rows[9],
                        const double *origin = nullptr) {
     mi_cell raw;
@@ -99,12 +144,21 @@ struct Cell {
     return Cell(raw);
   }
 
+  /// Construct from a CON row-major 3x3 lattice (`rows[0..9]`), zero origin.
+  ///
+  /// Throws `minimage::Error` if `rows` is null or the cell is singular or
+  /// non-finite.
   static Cell from_con(const double rows[9]) {
     mi_cell raw;
     check(minimage_cell_from_con(rows, &raw), "minimage: from_con failed");
     return Cell(raw);
   }
 
+  /// Construct from CON lengths `boxl` (length units) and crystallographic
+  /// angles `angles_deg` `[alpha, beta, gamma]` (degrees), zero origin.
+  ///
+  /// Throws `minimage::Error` if lengths are non-positive or angles give a
+  /// degenerate cell.
   static Cell from_con_box(std::array<double, 3> boxl,
                            std::array<double, 3> angles_deg) {
     mi_cell raw;
@@ -113,20 +167,28 @@ struct Cell {
     return Cell(raw);
   }
 
+  /// Construct from a vesin row-major 3x3 box (`rows[0..9]`), zero origin.
+  ///
+  /// Throws `minimage::Error` if `rows` is null or the cell is singular or
+  /// non-finite.
   static Cell from_vesin(const double rows[9]) {
     mi_cell raw;
     check(minimage_cell_from_vesin(rows, &raw), "minimage: from_vesin failed");
     return Cell(raw);
   }
 
+  /// Convert to the underlying C `mi_cell` struct.
   [[nodiscard]] mi_cell raw() const noexcept {
     return mi_cell{a[0],      a[1],      a[2],      b[0],      b[1],
                    b[2],      c[0],      c[1],      c[2],      origin[0],
                    origin[1], origin[2]};
   }
 
+  /// Explicit conversion to `mi_cell`.
   [[nodiscard]] explicit operator mi_cell() const noexcept { return raw(); }
 
+  /// Engine minimum-image displacement from `p` to `q`: `wrap(q - p)` in
+  /// cell length units. Throws `minimage::Error` on an invalid cell.
   [[nodiscard]] std::array<double, 3>
   displacement(std::array<double, 3> p, std::array<double, 3> q) const {
     const mi_cell box = raw();
@@ -136,6 +198,9 @@ struct Cell {
     return dr;
   }
 
+  /// Euclidean nearest-image displacement from `p` to `q` in cell length
+  /// units (Smith test, else the Selling superbasis slicer; ties keep the
+  /// engine vector). Throws `minimage::Error` on an invalid cell.
   [[nodiscard]] std::array<double, 3>
   displacement_euclidean(std::array<double, 3> p,
                          std::array<double, 3> q) const {
@@ -146,6 +211,8 @@ struct Cell {
     return dr;
   }
 
+  /// Squared engine minimum-image distance between `p` and `q` in squared
+  /// cell length units. Throws `minimage::Error` on an invalid cell.
   [[nodiscard]] double dist2(std::array<double, 3> p,
                              std::array<double, 3> q) const {
     const mi_cell box = raw();
@@ -155,7 +222,9 @@ struct Cell {
     return out;
   }
 
-  /// Rapaport's bin pair: `|q + shift - p|^2` for `n` candidates.
+  /// Rapaport's bin pair: `|q + shift - p|^2` for `n` packed candidates in
+  /// `qs` (`n * 3` doubles) into `out` (`n` doubles), in squared length
+  /// units. Throws `minimage::Error` on null pointers when `n > 0`.
   void dist2_shifted_many(std::array<double, 3> p, const double *qs,
                           std::array<double, 3> shift, std::size_t n,
                           double *out) const {
@@ -163,6 +232,9 @@ struct Cell {
           "minimage: dist2_shifted_many failed");
   }
 
+  /// Squared engine MIC distances from `p` to `n` packed candidates in
+  /// `qs` (`n * 3` doubles) into `out` (`n` doubles). Throws
+  /// `minimage::Error` on invalid cell or null pointers when `n > 0`.
   void dist2_many(std::array<double, 3> p, const double *qs, std::size_t n,
                   double *out) const {
     const mi_cell box = raw();
@@ -170,8 +242,10 @@ struct Cell {
           "minimage: dist2_many failed");
   }
 
-  /// Euclidean nearest-image squared distances, one superbasis lookup per
-  /// call.
+  /// Euclidean nearest-image squared distances from `p` to `n` packed
+  /// candidates in `qs` (`n * 3` doubles) into `out` (`n` doubles), with
+  /// one superbasis lookup per call. Throws `minimage::Error` on invalid
+  /// cell or null pointers when `n > 0`.
   void dist2_euclidean_many(std::array<double, 3> p, const double *qs,
                             std::size_t n, double *out) const {
     const mi_cell box = raw();
@@ -179,6 +253,9 @@ struct Cell {
           "minimage: dist2_euclidean_many failed");
   }
 
+  /// Euclidean nearest-image squared distances for `n` packed pairs
+  /// `(ps[k], qs[k])` (`n * 3` doubles each) into `out` (`n` doubles).
+  /// Throws `minimage::Error` on invalid cell or null pointers when `n > 0`.
   void dist2_euclidean_pairs(const double *ps, const double *qs,
                              std::size_t n, double *out) const {
     const mi_cell box = raw();
@@ -186,8 +263,10 @@ struct Cell {
           "minimage: dist2_euclidean_pairs failed");
   }
 
-  /// Pairs that persist across frames: `images` holds each pair's lattice
-  /// shift from the previous call (zeros to start) and is updated.
+  /// Pairs that persist across frames: `images` (`n * 3` `int32_t`, zeros
+  /// to start) holds each pair's lattice shift from the previous call and
+  /// is updated in place; `out` receives `n` squared distances. Throws
+  /// `minimage::Error` on invalid cell or null pointers when `n > 0`.
   void dist2_euclidean_pairs_warm(const double *ps, const double *qs,
                                   std::size_t n, std::int32_t *images,
                                   double *out) const {
@@ -197,6 +276,10 @@ struct Cell {
   }
 };
 
+/// Orthorhombic wrap of `n` precomputed SoA differences `(dx, dy, dz)`
+/// with box lengths `(bx, by, bz)` into `out` (`n` squared distances).
+/// Throws `minimage::Error` if `n > 0` and any pointer is null or any box
+/// length is not strictly positive.
 inline void dist2_ortho_diffs(const double *dx, const double *dy,
                               const double *dz, double bx, double by, double bz,
                               double *out, std::size_t n) {
@@ -204,7 +287,10 @@ inline void dist2_ortho_diffs(const double *dx, const double *dy,
         "minimage: dist2_ortho_diffs failed");
 }
 
-/// Drop self images and collapse duplicate `(i, j)` rows.
+/// Drop self images (`i == j`) and collapse duplicate `(i, j)` rows from
+/// `n` packed integer pairs (`2 * n` ints). Returns sorted unique pairs;
+/// returns `{}` when `n == 0`. Throws `minimage::Error` if `n > 0` and
+/// `pairs` is null.
 inline std::vector<std::array<int, 2>>
 reduce_pairs(const int *pairs, std::size_t n) {
   if (n == 0) {
