@@ -182,6 +182,8 @@ scalar digest. A path the runner cannot execute is not treated as a
 pass.
 
 The lane layout follows the cluster-pair approach of Páll and Hess,
-Comput. Phys. Commun. 184, 2641 (2013), doi:10.1016/j.cpc.2013.06.003.
+Comput. Phys. Commun. 184, 2641 (2013),
+[[https://doi.org/10.1016/j.cpc.2013.06.003][doi:10.1016/j.cpc.2013.06.003]].
 Per-architecture checks of the same bits are the EESSI model of
-Dröge et al., Softw. Pract. Exp. 53, 176 (2023), doi:10.1002/spe.3075.
+Dröge et al., Softw. Pract. Exp. 53, 176 (2023),
+[[https://doi.org/10.1002/spe.3075][doi:10.1002/spe.3075]].

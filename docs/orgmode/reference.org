@@ -1,6 +1,6 @@
-#+title: C API
+#+title: Reference
 #+setupfile: setup.org
-#+description: minimage_* C ABI. Caller owns every buffer.
+#+description: minimage_* C ABI, C++, Rust, Python, and Burn APIs.
 
 #+begin_export html
 <nav class="top" aria-label="minimage">
@@ -16,60 +16,106 @@
 <div class="rule" aria-hidden="true"></div>
 #+end_export
 
-Function symbols use the =minimage_= prefix. Every buffer is caller-owned.
-A nonzero return means failure; read =minimage_last_error()= on the same
-thread.
+* C ABI (=minimage_*=)
+
+Function symbols use the =minimage_= prefix. Every buffer is
+caller-owned. Coordinates, lattice vectors, and origins share one
+consistent length unit; =minimage_cell_from_con_box= takes angles in
+degrees. Displacements compute =wrap(q - p)=.
+
+Every =int=-returning function returns =0= on success and =1= on failure
+(null pointer, invalid cell, buffer/index mismatch, or overflow). Read
+=minimage_last_error()= on the same thread immediately after a nonzero
+return; do not free the returned pointer. The next successful
+=minimage_*= call on that thread clears the slot so
+=minimage_last_error()= returns =NULL=. =minimage_version()= returns a
+process-static string and neither reads nor modifies the error slot.
 
 | Symbol | Role |
 |--------+------|
-| =mi_cell= | Lattice vectors a, b, c and origin |
-| =mi_cell_ortho= | Header-only diagonal box |
-| =minimage_cell_from_vectors= | Columns a, b, c |
-| =minimage_cell_from_lammps= | =xlo xhi ylo yhi zlo zhi= plus tilts |
-| =minimage_cell_from_lammps_bounds= | Dump bound spans plus tilts |
-| =minimage_cell_from_ase= | Row-major 3x3 |
-| =minimage_cell_from_con= | CON 3x3 |
-| =minimage_cell_from_con_box= | Lengths and angles in degrees |
-| =minimage_cell_from_vesin= | vesin 3x3 |
-| =minimage_displacement= | Wrapped =q - p= |
-| =minimage_displacement_euclidean= | Smith test, else the Selling slicer |
+| =mi_cell= | Lattice vectors a, b, c (columns of H) and origin |
+| =mi_cell_ortho= | Header-only diagonal box with zero origin |
+| =minimage_cell_from_vectors= | Columns a, b, c and origin |
+| =minimage_cell_from_lammps= | Dump-bound =xlo xhi ylo yhi zlo zhi= plus tilts |
+| =minimage_cell_from_lammps_bounds= | Dump bound spans, tilts, and bound lo |
+| =minimage_cell_from_ase= | Row-major 3x3 plus optional origin (=NULL= -> zero) |
+| =minimage_cell_from_con= | CON 3x3 (zero origin) |
+| =minimage_cell_from_con_box= | Lengths and angles in degrees (zero origin) |
+| =minimage_cell_from_vesin= | vesin 3x3 (zero origin) |
+| =minimage_displacement= | Engine wrapped =q - p= |
+| =minimage_displacement_euclidean= | Smith test, else the Selling slicer (exact Voronoi MIC) |
+| =minimage_wrap_many= | Engine wrap of =n= packed difference vectors |
 | =minimage_dist2= | Squared minimum-image distance |
-| =minimage_dist2_many= | One source, packed candidates |
-| =minimage_dist2_pairs= | Packed pair lists |
+| =minimage_dist2_many= | One source, =n= packed candidates |
+| =minimage_dist2_pairs= | =n= packed pair rows |
 | =minimage_dist2_euclidean_many= | Euclidean nearest image, one source, packed candidates |
 | =minimage_dist2_euclidean_pairs= | Euclidean nearest image, packed pair lists |
-| =minimage_dist2_euclidean_pairs_warm= | Euclidean pairs from the previous frame's shifts |
-| =minimage_dist2_ortho_diffs= | Highway-shaped ortho wrap, AVX when present |
+| =minimage_dist2_euclidean_pairs_warm= | Euclidean pairs from previous frame's =int32_t= shifts |
+| =minimage_dist2_ortho_diffs= | Highway-shaped ortho wrap, AVX/NEON when present |
 | =minimage_dist2_shifted_many= | One lattice shift, many candidates |
 | =minimage_fixed_many= | Positions to 64-bit fixed-point fractions |
-| =minimage_dist2_fixed= | Squared distance between two fixed-point positions |
-| =minimage_dist2_many_fixed= | One fixed-point source, packed candidates |
-| =minimage_dist2_pairs_fixed= | Packed fixed-point pair lists |
+| =minimage_dist2_fixed= | Squared distance between two 64-bit fixed-point positions |
+| =minimage_dist2_many_fixed= | One 64-bit fixed-point source, packed candidates |
+| =minimage_dist2_pairs_fixed= | Packed 64-bit fixed-point pair lists |
 | =minimage_fixed32_many=, =minimage_dist2_fixed32= | 32-bit fixed-point fractions and distance |
 | =minimage_dist2_many_fixed32=, =minimage_dist2_pairs_fixed32= | 32-bit fixed-point batches |
-| =mi_pbc_cell= | An =mi_cell= with a periodicity flag per axis |
-| =minimage_pbc_cell_from_ase= | Row-major 3x3 and a mask of three ints; open rows may be zero |
+| =mi_pbc_cell= | An =mi_cell= with three periodicity flags (=pbc_a=, =pbc_b=, =pbc_c=) |
+| =minimage_pbc_cell_from_ase= | Row-major 3x3, mask of three ints, optional origin (=NULL= -> zero) |
 | =minimage_displacement_euclidean_pbc= | Nearest image over the periodic axes only |
-| =minimage_dist2_euclidean_pbc= | Its squared length |
-| =minimage_reduce_pairs= | Drop self images, unique pairs |
-| =minimage_last_error= | Thread-local error string |
-| =minimage_version= | Process-static version |
+| =minimage_dist2_euclidean_pbc= | Squared length of =minimage_displacement_euclidean_pbc= |
+| =minimage_filter_shifted= | Filter =(ii, jj, shift)= pairs below =cut2=; =out_vector= may be =NULL= |
+| =minimage_ring_centroid= | Bead-major ring-polymer centroids wrapped into primary cell |
+| =minimage_reduce_pairs= | Drop self images, sort and deduplicate =(i, j)= pairs |
+| =minimage_last_error= | Thread-local error string (=NULL= after success) |
+| =minimage_version= | Process-static version string |
 
-Function symbols use =minimage_=, the full crate name, to avoid mimalloc's
-=mi_= namespace. The non-default =capi-compat-names= Cargo feature exports
-deprecated thin =mi_= aliases for migration and must not be linked with
-mimalloc.
+Function symbols use =minimage_=, the full crate name, to avoid
+mimalloc's =mi_= namespace. The non-default =capi-compat-names= Cargo
+feature exports deprecated thin =mi_= aliases for migration and must
+not be linked with mimalloc.
 
-The C++ header =minimage.hpp= is a RAII wrap of this ABI.
-=docs.rs/minimage= is the Rust reference.
+* C++ (=include/minimage.hpp=)
+
+Requires C++17 or later. Wraps =minimage.h= in namespace =minimage= and
+throws =minimage::Error= (with =status()= and =what()=) on failure.
+
+| Symbol | Role |
+|--------+------|
+| =minimage::Error= | Exception carrying C ABI =status()= and =what()= |
+| =minimage::check= | Throws =minimage::Error= when a C ABI status is nonzero |
+| =minimage::Cell::ortho= | =noexcept= diagonal box (validated on first query) |
+| =minimage::Cell::from_vectors=, =from_lammps=, =from_lammps_bounds= | Column / LAMMPS dump-bound constructors |
+| =minimage::Cell::from_ase=, =from_con=, =from_con_box=, =from_vesin= | Row-major / crystallographic constructors |
+| =minimage::Cell::raw=, =operator mi_cell= | Convert back to C =mi_cell= |
+| =minimage::Cell::displacement=, =dist2= | Single-pair engine MIC displacement and squared distance |
+| =minimage::Cell::displacement_euclidean= | Single-pair Euclidean nearest-image displacement |
+| =minimage::Cell::dist2_many=, =dist2_shifted_many= | Packed candidate batches (engine MIC and shifted) |
+| =minimage::Cell::dist2_euclidean_many=, =dist2_euclidean_pairs=, =dist2_euclidean_pairs_warm= | Batched and warm-started Euclidean nearest-image distances |
+| =minimage::dist2_ortho_diffs= | SoA orthorhombic batch wrap |
+| =minimage::reduce_pairs= | Sorted unique pairs with self images dropped |
 
 * Rust
 
+Full API docs build with =cargo doc= and are hosted at =docs.rs/minimage=.
+Fallible functions return =Result<_, Error>= with variants
+=Error::BadBox=, =Error::BufferSize=, and =Error::Empty=.
+
 | Item | Role |
 |------+------|
-| =simd_path()= | Name of the path the next batch will use: =scalar=, =avx=, =avx2=, =avx512=, or =neon= |
-| =PartialCell::from_ase(rows, pbc)= | Periodic along the axes of =pbc= only: slabs, wires, open systems |
-| =PartialCell::displacement_euclidean= | Nearest image over the periodic lattice; open axes take no image |
+| =Cell::ortho=, =ortho_origin=, =from_vectors=, =from_lammps=, =from_lammps_bounds=, =from_ase=, =from_con=, =from_con_box=, =from_vesin= | Periodic cell constructors |
+| =Cell::a=, =b=, =c=, =origin=, =widths=, =h=, =hinv=, =is_ortho=, =is_restricted=, =tilts_reduced= | Cell geometry and basis queries |
+| =Cell::fractional=, =cartesian=, =lattice_shift=, =displacement=, =dist2=, =dist2_shifted=, =dist2_shifted_many=, =dist2_shifted_indexed= | Engine wrap, coordinate conversion, and linked-cell shifts |
+| =Cell::displacement_cartesian=, =fractional_matches_cartesian=, =displacement_euclidean=, =dist2_euclidean= | 27-image check and exact Selling-superbasis Euclidean MIC |
+| =Cell::reduce_tilts=, =to_restricted=, =minkowski_reduce=, =is_minkowski_reduced= | Unimodular tilt reduction, frame rotation, and Minkowski reduction |
+| =Cell::fixed=, =displacement_fixed=, =dist2_fixed=, =fixed32=, =displacement_fixed32=, =dist2_fixed32= | 64-bit and 32-bit fixed-point fractional wraps |
+| =wrap_many=, =dist2_many=, =dist2_pairs=, =dist2_ortho_diffs= | Batched engine MIC wraps and squared distances |
+| =dist2_euclidean_many=, =dist2_euclidean_pairs=, =dist2_euclidean_pairs_warm= | Batched and warm-started Euclidean nearest-image distances |
+| =fixed_many=, =dist2_many_fixed=, =dist2_pairs_fixed=, =fixed32_many=, =dist2_many_fixed32=, =dist2_pairs_fixed32= | Batched fixed-point conversions and distances |
+| =PartialCell::from_ase=, =periodic_count=, =full=, =displacement_euclidean=, =dist2_euclidean= | Slabs (2D), wires (1D), open (0D), and full (3D) cells |
+| =filter_shifted=, =FilterOut=, =ring_centroid= | Verlet-skin candidate filter and ring-polymer bead centroids |
+| =reduce_pairs=, =reduce_pairs_packed=, =dump_bounds_to_h= | vesin pair deduplication and LAMMPS dump bound conversion |
+| =simd_path()= | Active SIMD path: =scalar=, =avx=, =avx2=, =avx512=, or =neon= |
+| =Error= | =BadBox=, =BufferSize=, =Empty= |
 
 A slab rounds its in-plane coordinates and tries the nine neighbouring
 images on a Lagrange-reduced basis of its two vectors; a wire rounds
@@ -78,37 +124,40 @@ half-box tie keeps the engine wrap =s - floor(s + 1/2)=, as
 =Cell::displacement_euclidean= does. With all three axes periodic a
 =PartialCell= is a =Cell= and returns its displacement bit for bit.
 
-=MINIMAGE_SIMD= overrides the choice. An unknown name is ignored.
-A name this CPU cannot run selects =scalar=.
-The selection is cached. Details are on [[file:simd.org][SIMD paths and dispatch]].
+=MINIMAGE_SIMD= overrides the SIMD path choice. An unknown name is
+ignored. A name this CPU cannot run selects =scalar=. The selection is
+cached. Details are on [[file:simd.org][SIMD paths and dispatch]].
 
 * Python
 
-| Method | Role |
-|--------+------|
-| =dist2_many(p, qs)= | One source, rows of candidates |
-| =dist2_pairs(ps, qs)= | Paired rows |
-| =dist2_euclidean_many(p, qs)=, =dist2_euclidean_pairs(ps, qs)= | Euclidean nearest image |
-| =dist2_euclidean_pairs_warm(ps, qs, images)= | Distances and updated shifts across frames |
-| =wrap_many(diffs)= | Engine wrap of each row |
-| =fixed(r)=, =fixed_many(rs)= | Fixed-point fractions, uint64 |
-| =dist2_fixed(a, b)= | Two fixed-point positions |
-| =dist2_many_fixed(p, qs)= | One fixed-point source, rows |
-| =dist2_pairs_fixed(ps, qs)= | Paired fixed-point rows |
-| =fixed32(r)=, =fixed32_many(rs)=, =dist2_fixed32(a, b)= | 32-bit fixed point, uint32 |
-| =dist2_many_fixed32(p, qs)=, =dist2_pairs_fixed32(ps, qs)= | 32-bit fixed-point batches |
+Exported module items: =Cell=, =reduce_image_pairs=, and =__version__=.
+Array arguments accept any host CPU DLPack producer, read in place when
+contiguous and aligned; array results return a NumPy array (or a list
+when NumPy is absent). Invalid inputs raise =ValueError=, =TypeError=,
+or =BufferError=.
 
-An array argument is any DLPack producer on the host, read in place;
-an array result is a numpy array. A list in gives a list out.
+| Method / function | Role |
+|-------------------+------|
+| =Cell.ortho=, =from_vectors=, =from_lammps_bounds=, =from_ase=, =from_con=, =from_vesin= | Construct a periodic cell |
+| =is_ortho=, =is_restricted=, =tilts_reduced=, =is_minkowski_reduced=, =fractional_matches_cartesian= | Basis predicates |
+| =reduce_tilts()=, =to_restricted()= | Return a tilt-reduced or restricted-frame =Cell= |
+| =dist2(p, q)=, =displacement(p, q)=, =wrap(diff)= | Single-pair engine wrap |
+| =displacement_euclidean(p, q)=, =dist2_euclidean(p, q)=, =displacement_cartesian(p, q)= | Single-pair Euclidean and 27-image MIC |
+| =dist2_many(p, qs)=, =dist2_pairs(ps, qs)=, =wrap_many(diffs)= | Batched engine MIC |
+| =dist2_euclidean_many(p, qs)=, =dist2_euclidean_pairs(ps, qs)= | Batched Euclidean nearest image |
+| =dist2_euclidean_pairs_warm(ps, qs, images=None)= | Distances and updated =int32= shifts across frames |
+| =fixed(r)=, =fixed_many(rs)=, =dist2_fixed(a, b)=, =dist2_many_fixed(p, qs)=, =dist2_pairs_fixed(ps, qs)= | 64-bit fixed-point (=uint64=) |
+| =fixed32(r)=, =fixed32_many(rs)=, =dist2_fixed32(a, b)=, =dist2_many_fixed32(p, qs)=, =dist2_pairs_fixed32(ps, qs)= | 32-bit fixed-point (=uint32=) |
+| =reduce_image_pairs(pairs)= | Drop self images, sort and deduplicate =(i, j)= pairs |
 
-* Burn
+* Burn (=minimage-burn=)
 
 | Item | Role |
 |------+------|
-| =Lattice::new(cell, device, dtype)= | =H= and =Hinv= on a device |
+| =Lattice::new(cell, device, dtype)= | =H= and =Hinv= on a Burn device |
 | =Lattice::rows= | Packed rows to an =(n, 3)= tensor |
 | =Lattice::fractions= | Fold on the CPU in double precision, upload |
 | =Lattice::fractional= | Fold on the device |
 | =Lattice::wrap=, =dist2_pairs=, =dist2_many= | Cartesian rows |
 | =Lattice::displacement_fractional=, =dist2_pairs_fractional=, =dist2_many_fractional= | Fraction rows, exact wrap |
-| =to_vec= | A rank-one tensor back as doubles |
+| =rows_tensor=, =to_vec= | Convert row slices and read back rank-one =f64= tensors |

@@ -20,7 +20,7 @@
   <img class="logo" src="assets/minimage-icon.svg" width="64" height="64" alt="" />
   <div>
     <h1 class="wordmark">minimage</h1>
-    <p class="lede">Minimum-image convention on a general parallelepiped. Rust core, C ABI waist, C++ and Python on the other side.</p>
+    <p class="lede">Minimum-image convention on a general parallelepiped. Rust core, minimage_* C ABI waist, C++ and Python on the other side.</p>
   </div>
 </div>
 <p class="cta">
@@ -42,17 +42,19 @@ self image. This crate is that wrap.
 
 =Cell= holds the 3x3 lattice and a dump-cell origin. Constructors
 accept LAMMPS bounds plus =xy, xz, yz= tilts, a CON lattice or
-length-angle box, an ASE-style 3x3 cell, and a vesin box.
+length-angle box, an ASE-style 3x3 cell, and a vesin box. =PartialCell=
+handles slabs, wires, and open systems where only some axes are periodic.
 
 * Diataxis
 
+- [[file:getting-started.org][Getting started]] :: install from Cargo, pip, Meson, CMake, or pkg-config.
 - [[file:tutorial.org][Tutorial]] :: a wrapped pair (0.64 on a 10-wide box, 0.25 on the
-  sheared LAMMPS dump).
-- [[file:howto.org][How-to]] :: embed from C, C++, Python; pkg-config.
-- [[file:explanation.org][Explanation]] :: MIC and H, dump bounds, vesin reduction.
+  sheared LAMMPS dump, and Euclidean nearest image on a hex prism).
+- [[file:howto.org][How-to]] :: embed from C (=minimage_*=), C++, Python, and Burn; cut a release.
+- [[file:explanation.org][Explanation]] :: MIC and H, triclinic conventions, Selling reduction, error behaviour, dump bounds, and vesin reduction.
 - [[file:simd.org][SIMD paths and dispatch]] :: runtime path selection,
   =MINIMAGE_SIMD=, and bit-identical batches.
-- [[file:reference.org][Reference]] :: =mi_*= C API.
+- [[file:reference.org][Reference]] :: =minimage_*= C ABI, C++, Rust, Python, and Burn APIs.
 
 * Install
 
@@ -61,6 +63,6 @@ cargo add minimage
 pip install minimage
 #+end_src
 
-C and C++ take the =staticlib= plus =include/minimage.h= or
-=include/minimage.hpp=. Meson exposes =minimage_dep=. CMake exposes
-=minimage::minimage=.
+C and C++ take the =staticlib= or shared library plus
+=include/minimage.h= or =include/minimage.hpp=. Meson exposes
+=minimage_dep=. CMake exposes =minimage::minimage=.

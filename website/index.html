@@ -35,7 +35,7 @@
   <img class="logo" src="assets/minimage-icon.svg" width="64" height="64" alt="" />
   <div>
     <h1 class="wordmark">minimage</h1>
-    <p class="lede">Minimum-image convention on a general parallelepiped. Rust core, C ABI waist, C++ and Python on the other side.</p>
+    <p class="lede">Minimum-image convention on a general parallelepiped. Rust core, minimage_* C ABI waist, C++ and Python on the other side.</p>
   </div>
 </div>
 <p class="cta">
@@ -57,29 +57,31 @@ self image. This crate is that wrap.
 <p>
 <code>Cell</code> holds the 3x3 lattice and a dump-cell origin. Constructors
 accept LAMMPS bounds plus <code>xy, xz, yz</code> tilts, a CON lattice or
-length-angle box, an ASE-style 3x3 cell, and a vesin box.
+length-angle box, an ASE-style 3x3 cell, and a vesin box. <code>PartialCell</code>
+handles slabs, wires, and open systems where only some axes are periodic.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org6c7ae73" class="outline-2">
-<h2 id="org6c7ae73">Diataxis</h2>
-<div class="outline-text-2" id="text-org6c7ae73">
+<section id="outline-container-org8a61101" class="outline-2">
+<h2 id="org8a61101">Diataxis</h2>
+<div class="outline-text-2" id="text-org8a61101">
 <dl class="org-dl">
+<dt><a href="getting-started.html">Getting started</a></dt><dd>install from Cargo, pip, Meson, CMake, or pkg-config.</dd>
 <dt><a href="tutorial.html">Tutorial</a></dt><dd>a wrapped pair (0.64 on a 10-wide box, 0.25 on the
-sheared LAMMPS dump).</dd>
-<dt><a href="howto.html">How-to</a></dt><dd>embed from C, C++, Python; pkg-config.</dd>
-<dt><a href="explanation.html">Explanation</a></dt><dd>MIC and H, dump bounds, vesin reduction.</dd>
+sheared LAMMPS dump, and Euclidean nearest image on a hex prism).</dd>
+<dt><a href="howto.html">How-to</a></dt><dd>embed from C (<code>minimage_*</code>), C++, Python, and Burn; cut a release.</dd>
+<dt><a href="explanation.html">Explanation</a></dt><dd>MIC and H, triclinic conventions, Selling reduction, error behaviour, dump bounds, and vesin reduction.</dd>
 <dt><a href="simd.html">SIMD paths and dispatch</a></dt><dd>runtime path selection,
 <code>MINIMAGE_SIMD</code>, and bit-identical batches.</dd>
-<dt><a href="reference.html">Reference</a></dt><dd><code>mi_*</code> C API.</dd>
+<dt><a href="reference.html">Reference</a></dt><dd><code>minimage_*</code> C ABI, C++, Rust, Python, and Burn APIs.</dd>
 </dl>
 </div>
 </section>
 
-<section id="outline-container-org2d5d3c9" class="outline-2">
-<h2 id="org2d5d3c9">Install</h2>
-<div class="outline-text-2" id="text-org2d5d3c9">
+<section id="outline-container-org7dff718" class="outline-2">
+<h2 id="org7dff718">Install</h2>
+<div class="outline-text-2" id="text-org7dff718">
 <div class="org-src-container">
 <pre class="src src-text">cargo add minimage
 pip install minimage
@@ -87,9 +89,9 @@ pip install minimage
 </div>
 
 <p>
-C and C++ take the <code>staticlib</code> plus <code>include/minimage.h</code> or
-<code>include/minimage.hpp</code>. Meson exposes <code>minimage_dep</code>. CMake exposes
-<code>minimage::minimage</code>.
+C and C++ take the <code>staticlib</code> or shared library plus
+<code>include/minimage.h</code> or <code>include/minimage.hpp</code>. Meson exposes
+<code>minimage_dep</code>. CMake exposes <code>minimage::minimage</code>.
 </p>
 </div>
 </section>

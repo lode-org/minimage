@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>How-to</title>
-<meta name="description" content="Embed minimage from C, C++, and Python. pkg-config. Cut a release." />
+<meta name="description" content="Embed minimage from C, C++, Python, and Burn. pkg-config. Cut a release." />
 <meta name="generator" content="Org Mode" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
@@ -25,15 +25,24 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
 
-<section id="outline-container-orga8bed64" class="outline-2">
-<h2 id="orga8bed64">Embed from C</h2>
-<div class="outline-text-2" id="text-orga8bed64">
+<section id="outline-container-orgef8148e" class="outline-2">
+<h2 id="orgef8148e">Embed from C</h2>
+<div class="outline-text-2" id="text-orgef8148e">
+<p>
+Every exported C function uses the <code>minimage_</code> prefix. Functions return
+<code>0</code> on success and <code>1</code> on failure; on failure, call
+<code>minimage_last_error()</code> on the same thread before any other
+<code>minimage_*</code> call.
+</p>
+
 <div class="org-src-container">
 <pre class="src src-c">#include "minimage.h"
+#include &lt;stdio.h&gt;
 
 mi_cell box = mi_cell_ortho(10.0, 10.0, 10.0);
 const double p[3] = {0.2, 0.0, 0.0};
@@ -42,42 +51,71 @@ double d2 = 0.0;
 if (minimage_dist2(&amp;box, p, q, &amp;d2) != 0) {
     fprintf(stderr, "%s\n", minimage_last_error());
 }
+
+/* Triclinic cell and Euclidean nearest-image displacement. */
+mi_cell hex;
+if (minimage_cell_from_lammps_bounds(
+        15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, &amp;hex) != 0) {
+    fprintf(stderr, "%s\n", minimage_last_error());
+}
+const double origin[3] = {0.0, 0.0, 0.0};
+const double diag[3] = {7.35, 4.243524478543749, 4.9};
+double dr[3] = {0.0, 0.0, 0.0};
+if (minimage_displacement_euclidean(&amp;hex, origin, diag, dr) != 0) {
+    fprintf(stderr, "%s\n", minimage_last_error());
+}
 </pre>
 </div>
 
 <p>
+For slabs or wires in C, build an <code>mi_pbc_cell</code> with
+<code>minimage_pbc_cell_from_ase</code> and query
+<code>minimage_displacement_euclidean_pbc</code> or <code>minimage_dist2_euclidean_pbc</code>.
 Link <code>libminimage</code> and add <code>include/</code> to the include path. Meson
 exposes <code>minimage_dep</code>. CMake exposes <code>minimage::minimage</code>.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org5e3a44a" class="outline-2">
-<h2 id="org5e3a44a">Embed from C++</h2>
-<div class="outline-text-2" id="text-org5e3a44a">
+<section id="outline-container-org1ced763" class="outline-2">
+<h2 id="org1ced763">Embed from C++</h2>
+<div class="outline-text-2" id="text-org1ced763">
 <div class="org-src-container">
 <pre class="src src-cpp">#include "minimage.hpp"
 
 const minimage::Cell box = minimage::Cell::ortho(10.0, 10.0, 10.0);
 const double d2 = box.dist2({0.2, 0.0, 0.0}, {9.4, 0.0, 0.0});
+
+const minimage::Cell hex = minimage::Cell::from_lammps_bounds(
+    15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+const auto dr = hex.displacement_euclidean({0.0, 0.0, 0.0}, {7.35, 4.243524478543749, 4.9});
 </pre>
 </div>
 
 <p>
 The header is a RAII wrap of <code>minimage.h</code>. Failures throw
-<code>minimage::Error</code>.
+<code>minimage::Error</code>, whose <code>status()</code> carries the C ABI return code and
+whose <code>what()</code> carries <code>minimage_last_error()</code>. <code>Cell::ortho</code> is
+<code>noexcept</code> and does not validate lengths until a distance or
+displacement method is called; the other constructors validate
+immediately.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org3f80c0f" class="outline-2">
-<h2 id="org3f80c0f">Embed from Python</h2>
-<div class="outline-text-2" id="text-org3f80c0f">
+<section id="outline-container-org4d1ef9e" class="outline-2">
+<h2 id="org4d1ef9e">Embed from Python</h2>
+<div class="outline-text-2" id="text-org4d1ef9e">
 <div class="org-src-container">
 <pre class="src src-python">import minimage
 
 cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
 print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
+
+hex_cell = minimage.Cell.from_lammps_bounds(
+    15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0
+)
+dr = hex_cell.displacement_euclidean([0.0, 0.0, 0.0], [7.35, 4.243524478543749, 4.9])
 
 d2 = cell.dist2_pairs(ps, qs)        # (n, 3) arrays in, numpy out
 f = cell.fixed_many(positions)       # uint64 (n, 3)
@@ -88,15 +126,17 @@ d2 = cell.dist2_pairs_fixed(f[i], f[j])
 <p>
 Array arguments go through DLPack: numpy, PyTorch, JAX, and CuPy host
 arrays are read in place, and the result is a numpy array that owns
-its buffer. A list in gives a list out. A device array raises; move it
-to the host, or run the wrap on the device with <code>minimage-burn</code>.
+its buffer. A list in gives a list out. A device array raises
+<code>TypeError</code>; move it to the host, or run the wrap on the device with
+<code>minimage-burn</code>. Bad cells, shape mismatches, and wrong dtypes raise
+<code>ValueError</code>, <code>TypeError</code>, or <code>BufferError</code>.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org9dcbfea" class="outline-2">
-<h2 id="org9dcbfea">Run on a GPU with Burn</h2>
-<div class="outline-text-2" id="text-org9dcbfea">
+<section id="outline-container-org2aacd88" class="outline-2">
+<h2 id="org2aacd88">Run on a GPU with Burn</h2>
+<div class="outline-text-2" id="text-org2aacd88">
 <p>
 <code>burn/</code> is the <code>minimage-burn</code> crate, outside the workspace because
 Burn needs Rust 1.95. Enable the backend features you need (<code>wgpu</code>,
@@ -123,9 +163,9 @@ on the device is then exact in single or half precision.
 </div>
 </section>
 
-<section id="outline-container-org49c22ae" class="outline-2">
-<h2 id="org49c22ae">pkg-config</h2>
-<div class="outline-text-2" id="text-org49c22ae">
+<section id="outline-container-org1cecbc7" class="outline-2">
+<h2 id="org1cecbc7">pkg-config</h2>
+<div class="outline-text-2" id="text-org1cecbc7">
 <div class="org-src-container">
 <pre class="src src-text">pkg-config --cflags --libs minimage
 </pre>
@@ -138,9 +178,9 @@ so a wrap consumer can find <code>-lminimage</code>.
 </div>
 </section>
 
-<section id="outline-container-orgf56f3b3" class="outline-2">
-<h2 id="orgf56f3b3">Cut a release</h2>
-<div class="outline-text-2" id="text-orgf56f3b3">
+<section id="outline-container-org2b2ae7a" class="outline-2">
+<h2 id="org2b2ae7a">Cut a release</h2>
+<div class="outline-text-2" id="text-org2b2ae7a">
 <p>
 The version is written by hand in one place, <code>[workspace.package].version</code> in <code>Cargo.toml</code>.
 Meson and CMake read it through <code>scripts/crate_version.py</code>, and maturin reads it from the crate.
@@ -190,9 +230,9 @@ A failed hook stops it before the commit.
 </p>
 </div>
 
-<div id="outline-container-org59a15b4" class="outline-3">
-<h3 id="org59a15b4">The wrap tag rule</h3>
-<div class="outline-text-3" id="text-org59a15b4">
+<div id="outline-container-org191470f" class="outline-3">
+<h3 id="org191470f">The wrap tag rule</h3>
+<div class="outline-text-3" id="text-org191470f">
 <p>
 A wrap snippet can only name a tag that exists, since Meson fetches each wrap at a git tag.
 The snippets sit in <code>README.md</code>, <code>packaging/wrapdb/minimage.wrap</code>, <code>getting-started.org</code> and its HTML page.
@@ -203,9 +243,9 @@ Only the release commit moves the tag to <code>v&lt;version&gt;</code>, and the 
 </div>
 </div>
 
-<div id="outline-container-orge02d1a5" class="outline-3">
-<h3 id="orge02d1a5">The tag check</h3>
-<div class="outline-text-3" id="text-orge02d1a5">
+<div id="outline-container-org94d353f" class="outline-3">
+<h3 id="org94d353f">The tag check</h3>
+<div class="outline-text-3" id="text-org94d353f">
 <p>
 On a tag push, CI, the crates.io job and the wheels job run the tag check.
 They pass the pushed tag name to <code>scripts/check_version_lockstep.py --tag</code>.

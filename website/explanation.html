@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Minimum image and H</title>
-<meta name="description" content="Fractional wrap, LAMMPS dump bounds, vesin pair reduction." />
+<meta name="description" content="Fractional wrap, triclinic cells, conventions, error behaviour, and nearest-image search." />
 <meta name="generator" content="Org Mode" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
@@ -30,22 +30,65 @@
 </nav>
 <div class="rule" aria-hidden="true"></div>
 
+<section id="outline-container-orgcab1a29" class="outline-2">
+<h2 id="orgcab1a29">Conventions and units</h2>
+<div class="outline-text-2" id="text-orgcab1a29">
 <p>
-A periodic dump is a parallelepiped whose edges are the columns of H.
-Cartesian coordinates fold to fractional coordinates <code>s = Hinv (r -
-origin)</code>, wrap each component into the central image, then map back
-<code>r = H s</code>. Squared distance is <code>|H wrap(Hinv (q - p))|^2</code>.
+minimage is unit-agnostic: coordinates, lattice vectors, origins, and
+displacements share one caller-chosen Cartesian length unit, and
+squared distances and cutoffs use that unit squared. The single
+exception is <code>from_con_box</code> (<code>minimage_cell_from_con_box</code>), which takes
+the three cell angles <code>alpha</code>, <code>beta</code>, and <code>gamma</code> in degrees.
+Fractional coordinates from <code>Cell::fractional</code> are dimensionless in
+<code>[0, 1)</code>.
 </p>
 
 <p>
-Orthorhombic boxes are the diagonal case (Allen and Tildesley;
-Frenkel and Smit). Each axis is <code>d - L floor(d/L + 1/2)</code>, every
-image, not one subtraction. The tie keeps <code>-L/2</code> and maps <code>+L/2</code>
-onto <code>-L/2</code>, matching dump <code>relDist</code>. Two positions folded into the
-box are less than one length apart on every axis, so the wrap is two
-selects and the floor runs only past that. A squared distance needs
-no sign: for <code>|d| &lt; L</code> the wrapped length is <code>min(|d|, L - |d|)</code>, the
-same square bit for bit with a third of the selects.
+Internally, <code>Cell</code> stores the three lattice vectors <code>a</code>, <code>b</code>, and <code>c</code>
+as the <strong>columns</strong> of the 3x3 matrix <code>H</code>, so Cartesian coordinates are
+<code>r = H s + origin</code> and fractional coordinates fold via
+<code>s = Hinv (r - origin)</code>. Constructors that take three separate vectors
+(<code>Cell::from_vectors</code>, <code>minimage_cell_from_vectors</code>) pass columns,
+whereas ASE, CON, and vesin constructors (<code>from_ase</code>, <code>from_con</code>,
+<code>from_vesin</code>, <code>PartialCell::from_ase</code>, and their <code>minimage_*</code> C
+equivalents) accept row-major 3x3 arrays <code>[a, b, c]</code>.
+</p>
+
+<p>
+Every displacement function computes the wrapped vector from <code>p</code> to
+<code>q</code>, meaning <code>wrap(q - p)</code>. The cell origin cancels in every
+displacement and squared distance call.
+</p>
+</div>
+</section>
+
+<section id="outline-container-org64cacb0" class="outline-2">
+<h2 id="org64cacb0">Fractional wrap and triclinic cells</h2>
+<div class="outline-text-2" id="text-org64cacb0">
+<p>
+A periodic cell is a parallelepiped whose edges are the columns of <code>H</code>.
+Cartesian coordinates fold to fractional coordinates
+<code>s = Hinv (r - origin)</code>, wrap each component into the central image,
+then map back <code>r = H s</code>. Squared engine distance is
+<code>|H wrap(Hinv (q - p))|^2</code>.
+</p>
+</div>
+
+<div id="outline-container-org9c6aa7a" class="outline-3">
+<h3 id="org9c6aa7a">Orthorhombic cells</h3>
+<div class="outline-text-3" id="text-org9c6aa7a">
+<p>
+Orthorhombic boxes are the diagonal case (Allen and Tildesley; Frenkel
+and Smit). Each axis is <code>d - L floor(d/L + 1/2)</code> for every image, not
+a single subtraction. The half-box tie keeps <code>-L/2</code> and maps <code>+L/2</code>
+onto <code>-L/2</code>, matching LAMMPS dump <code>relDist</code> in d-SEAMS (Goswami et al.,
+<strong>J. Chem. Inf. Model.</strong> 60, 2169, 2020,
+<a href="https://doi.org/10.1021/acs.jcim.0c00031">doi:10.1021/acs.jcim.0c00031</a>).
+Two positions folded into the box are less than one length apart on
+every axis, so the wrap is two selects and the floor runs only past
+that. A squared distance needs no sign: for <code>|d| &lt; L</code> the wrapped
+length is <code>min(|d|, L - |d|)</code>, the same square bit for bit with a third
+of the selects.
 </p>
 
 <p>
@@ -59,18 +102,40 @@ so <code>floor_fast(-0.0)</code> is <code>+0.0</code> and the fractional part of
 <code>-0.0</code>. <code>f64::floor(-0.0)</code> keeps the minus sign and is not used.
 See <a href="simd.html">SIMD paths and dispatch</a>.
 </p>
+</div>
+</div>
 
+<div id="outline-container-org8082f63" class="outline-3">
+<h3 id="org8082f63">Restricted and general triclinic cells</h3>
+<div class="outline-text-3" id="text-org8082f63">
 <p>
-A restricted triclinic box (<code>a</code> along x, <code>b</code> in the xy plane) uses
-the triangular lamda step of LAMMPS <code>Domain::minimum_image</code>, HOOMD
-<code>BoxDim::minImage</code>, and GROMACS <code>pbc_dx</code> (Tuckerman; Wassenaar). A
-general orientation is two products with <code>Hinv</code>. <code>Cell::reduce_tilts</code>
-is GROMACS <code>correct_box</code>. <code>Cell::to_restricted</code> is the LAMMPS
-general-to-restricted rotation.
+A restricted triclinic box (<code>a</code> along x, <code>b</code> in the xy plane, with
+upper-triangular tilts <code>xy</code>, <code>xz</code>, <code>yz</code>) uses the triangular <code>lamda</code>
+step of LAMMPS <code>Domain::minimum_image</code>, HOOMD <code>BoxDim::minImage</code>,
+OpenMM <code>applyPeriodic</code>, and GROMACS <code>pbc_dx</code> (Tuckerman, <strong>Statistical
+Mechanics: Theory and Molecular Simulation</strong>,
+<a href="https://doi.org/10.1093/oso/9780198825562.001.0001">doi:10.1093/oso/9780198825562.001.0001</a>; Wassenaar). It wraps <code>sz</code>,
+then <code>sy</code>, then <code>sx</code> using half-away-from-zero rounding (<code>round_away</code>),
+avoiding a general 3x3 inverse multiply.
 </p>
 
 <p>
-<code>dist2_many</code>, <code>dist2_pairs</code>, and <code>wrap_many</code> are one AVX pass over
+A general triclinic orientation (<code>is_restricted() =</code> false=) computes
+two 3x3 products with <code>Hinv</code> and <code>H</code>. <code>Cell::reduce_tilts</code> applies
+unimodular GROMACS <code>correct_box</code> reduction so that <code>|xy| &lt;</code> |lx|/2=,
+<code>|xz| &lt;</code> |lx|/2=, and <code>|yz| &lt;</code> |ly|/2= (tested by <code>tilts_reduced()</code>),
+preserving the Cartesian lattice. <code>Cell::to_restricted</code> rotates a
+general parallelepiped into the restricted-triclinic frame (LAMMPS
+<code>define_general_triclinic</code>).
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd3cf259" class="outline-3">
+<h3 id="orgd3cf259">Batch fusion</h3>
+<div class="outline-text-3" id="text-orgd3cf259">
+<p>
+<code>dist2_many</code>, <code>dist2_pairs</code>, and <code>wrap_many</code> are one SIMD pass over
 the packed rows for every cell shape: four rows load as three vectors,
 subtract while still packed, and transpose once in registers, with no
 staging buffer (map fusion in the sense of DaCe and Futhark). An
@@ -91,36 +156,63 @@ keeps the AVX path. The orthorhombic wrap stays at four rows. It
 stores as much as it loads, and a 64-byte store splits a cache line
 on all but one alignment in eight.
 </p>
+</div>
+</div>
+</section>
 
-<section id="outline-container-orgabcdabf" class="outline-2">
-<h2 id="orgabcdabf">Nearest image</h2>
-<div class="outline-text-2" id="text-orgabcdabf">
+<section id="outline-container-org16a4c27" class="outline-2">
+<h2 id="org16a4c27">Euclidean nearest image and Selling reduction</h2>
+<div class="outline-text-2" id="text-org16a4c27">
 <p>
-Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
+Smith, <strong>CCP5 Newsletter</strong> 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
 face altitude. That is the cutoff regime. Linkcell k-NN has no
 cutoff. A hex-prism body diagonal is an engine wrap that is longer
-than another image.
+than another image, even when the cell is already tilt-reduced and
+Minkowski-reduced.
 </p>
 
 <p>
-Past that test the closest point comes from the obtuse superbasis
-every three-dimensional lattice has (Selling, 1874; Conway and
-Sloane, Proc. R. Soc. Lond. A 436, 55, 1992). A near-parallel basis
-makes the one-vector Delone step linear in the reciprocal of the
-angle, so Lagrange's size reduction (1773; Gauss, 1801) shortens
-the edges first. The superbasis is cached on the calling thread and built on the first query that fails the Smith test.
+Past that test, <code>displacement_euclidean</code> (<code>minimage_displacement_euclidean</code>
+in C) finds the closest lattice image from the obtuse superbasis every
+three-dimensional lattice has (Selling, <strong>J. Math. Pures Appl.</strong> 1874;
+Conway and Sloane, <strong>Proc. R. Soc. Lond. A</strong> 436, 55, 1992,
+<a href="https://doi.org/10.1098/rspa.1992.0004">doi:10.1098/rspa.1992.0004</a>).
+A near-parallel basis makes the one-vector Delone step linear in the
+reciprocal of the angle, so Lagrange's size reduction (1773; Gauss,
+</p>
+<ol class="org-ol">
+<li>shortens the edges first, keeping the Delone loop within the</li>
+</ol>
+<p>
+1000-step bound used by spglib and Andrews, Bernstein, and Sauter
+(<strong>Acta Cryst.</strong> A 75, 115, 2019,
+<a href="https://doi.org/10.1107/s2053273318015413">doi:10.1107/s2053273318015413</a>).
+The superbasis is cached on the calling thread, keyed by <code>H</code>, and is
+built on the first query that fails the Smith test. Constructors do
+not build it.
+</p>
+
+<p>
 The query rounds in three of the four superbasis vectors (Babai,
-Combinatorica 6, 1, 1986), then runs the iterative slicer of Sommer,
-Feder, and Shalvi, SIAM J. Discrete Math. 23, 715 (2009): while some
-relevant vector <code>r</code> has <code>2 |x · r| &gt; |r|^2</code>, step by <code>r</code>. Every
+<strong>Combinatorica</strong> 6, 1, 1986,
+<a href="https://doi.org/10.1007/bf02579403">doi:10.1007/bf02579403</a>), then
+runs the iterative slicer of Sommer, Feder, and Shalvi (<strong>SIAM J.
+Discrete Math.</strong> 23, 715, 2009,
+<a href="https://doi.org/10.1137/060676362">doi:10.1137/060676362</a>): while
+some relevant vector <code>r</code> has <code>2 |x . r| &gt; |r|^2</code>, step by <code>r</code>. Every
 Voronoi-relevant vector of an obtuse superbasis is one of seven
-classes <code>±v_S</code> (Conway and Sloane), so where the walk stops <code>x</code> is the
-shortest vector of its coset. A restricted cell with its tilts inside
-half an edge starts from the engine wrap instead of Babai's point.
-McKilliam, Grant, and Clarkson, SIAM J. Discrete Math. 28, 1405
-(2014), search the same subset sums in three rounds of fifteen.
-A tie keeps the engine vector.
+classes <code>+/- v_S</code> (Conway and Sloane, 1992), so where the walk stops
+<code>x</code> is the shortest vector of its coset. A restricted cell with its
+tilts inside half an edge starts from the engine wrap instead of
+Babai's point. McKilliam, Grant, and Clarkson (<strong>SIAM J. Discrete Math.</strong>
+28, 1405, 2014,
+<a href="https://doi.org/10.1137/140952806">doi:10.1137/140952806</a>) search
+the same subset sums in three rounds of fifteen. A tie keeps the
+engine vector.
+</p>
+
+<p>
 <code>dist2_euclidean_many</code> and <code>dist2_euclidean_pairs</code> look the superbasis
 up once per call and run the slicer on eight rows per AVX-512 pass: a
 row's seven dot products are one lane of eight vectors, the select
@@ -128,9 +220,8 @@ tree runs lane by lane, and a lane's Gram row is one <code>vpermpd</code> of the
 stored rows. The Smith test becomes a lane mask, so the branch that a
 single query mispredicts is gone, and a group whose lanes all pass it
 skips the slicer. Each lane keeps the scalar order, its step choice,
-and its step count, so a batch equals the per-pair call bit for bit, 6
-to 11 times faster. Without AVX-512 the batch runs the per-pair code
-with the one lookup.
+and its step count, so a batch equals the per-pair call bit for bit.
+Without AVX-512 the batch runs the per-pair code with the one lookup.
 </p>
 
 <p>
@@ -145,22 +236,44 @@ memory, where the shifts are one more stream, 1.15 times. The image is
 the one the search finds, and the distance equals it to rounding,
 since <code>H n</code> is subtracted directly rather than through the engine
 wrap.
-Nguyen and Stehlé, ACM Trans. Algorithms 5, 46 (2009), still
-Minkowski-reduces a basis; that reduction is not the closest-vector
-certificate. The linked-cell pair itself is Rapaport's shift,
-<code>|q + shift - p|^2</code>, exposed as <code>dist2_shifted_many</code>. A bin that
-is an index list rather than a contiguous slice is
-<code>dist2_shifted_indexed</code>: it gathers a chunk of those positions into
-the same kernel. The gather copies every point first. On a long
-index list that copy was slower than the inlined subtract, so the
-production walk keeps the subtract.
+</p>
+
+<p>
+Nguyen and Stehle (<strong>ACM Trans. Algorithms</strong> 5, 46, 2009,
+<a href="https://doi.org/10.1145/1597036.1597050">doi:10.1145/1597036.1597050</a>)
+Minkowski-reduce a basis (<code>minkowski_reduce</code> and <code>is_minkowski_reduced</code>,
+supporting the 27-image check <code>displacement_cartesian</code>), though
+Minkowski reduction alone does not eliminate the hex-prism body
+diagonal check without searching all 27 combinations. The linked-cell
+pair itself is Rapaport's shift, <code>|q + shift - p|^2</code>, exposed as
+<code>dist2_shifted_many</code>. A bin that is an index list rather than a
+contiguous slice is <code>dist2_shifted_indexed</code>: it gathers a chunk of
+those positions into the same kernel. The gather copies every point
+first. On a long index list that copy was slower than the inlined
+subtract, so the production walk keeps the subtract.
 </p>
 </div>
 </section>
 
-<section id="outline-container-orgb53bc9c" class="outline-2">
-<h2 id="orgb53bc9c">Fixed-point fractions</h2>
-<div class="outline-text-2" id="text-orgb53bc9c">
+<section id="outline-container-org1b77fe6" class="outline-2">
+<h2 id="org1b77fe6">Partial periodicity</h2>
+<div class="outline-text-2" id="text-org1b77fe6">
+<p>
+<code>PartialCell</code> (<code>mi_pbc_cell</code> in C) handles systems periodic along zero,
+one, two, or three axes. An open system (zero periodic axes) returns
+<code>q - p</code>. A wire (one periodic vector <code>a</code>) projects onto <code>a</code> and wraps
+with <code>s - floor(s + 1/2)</code>. A slab (two periodic vectors) Lagrange-reduces
+its 2D basis and checks the nine neighbouring lattice combinations
+around the rounded reduced coordinates, preserving the component normal
+to the periodic plane. With all three axes periodic, <code>PartialCell</code>
+delegates to <code>Cell</code> and returns the exact same bits.
+</p>
+</div>
+</section>
+
+<section id="outline-container-org099e7d5" class="outline-2">
+<h2 id="org099e7d5">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-org099e7d5">
 <p>
 <code>Cell::fixed</code> stores a position folded into the cell as three
 fractions on 64 bits, <code>round(s * 2^52) * 2^12</code>: the low 52 bits of
@@ -172,63 +285,52 @@ wrapped fraction in <code>[-1/2, 1/2)</code>, exactly. The top 52 bits of that
 difference convert to a double exactly, and one product with <code>H</code> gives
 the Cartesian vector, for any cell shape, with no <code>Hinv</code> and no
 rounding step. That is the exact integer split of the Ozaki scheme
-(Ozaki, Ogita, Oishi, and Rump, Numer. Algorithms 59, 95, 2012) applied
-to the periodic wrap, and the fixed-point positions of Anton (Shaw et
-al., Commun. ACM 51, 91, 2008). The wrap is the symmetric residue
-<code>a - m floor(a/m + 1/2)</code> of Ozaki Scheme II (Ozaki, Uchino, and
-Imamura, arXiv:2504.08009, 2025) with the one modulus <code>m = 2^64</code>;
-two's complement computes it, so no Chinese remainder step is needed.
-The orthorhombic wrap above is the same residue with <code>m = L</code>.
-Scheme II splits a product over several small moduli so that INT8
-units compute each part exactly, then rebuilds it by the Chinese
-remainder theorem; that pays when many products share one rebuild,
-as along the inner dimension of a matrix product. A wrap has one
-subtraction per axis and the product with <code>H</code> has three terms, so on
-a CPU the double-precision units are already the fast path.
-Convert positions once per frame; a
-pair list over them then costs a subtraction, a conversion, and a
-matrix product per pair. A fraction exactly one half apart wraps to
-<code>-1/2</code>, and the distance agrees with <code>dist2</code> to a few units in the
-last place.
+(Ozaki, Ogita, Oishi, and Rump, <strong>Numer. Algorithms</strong> 59, 95, 2012,
+<a href="https://doi.org/10.1007/s11075-011-9478-1">doi:10.1007/s11075-011-9478-1</a>)
+applied to the periodic wrap, and the fixed-point positions of Anton
+(Shaw et al., <strong>Commun. ACM</strong> 51, 91, 2008,
+<a href="https://doi.org/10.1145/1364782.1364802">doi:10.1145/1364782.1364802</a>).
+The wrap is the symmetric residue <code>a - m floor(a/m + 1/2)</code> of Ozaki
+Scheme II (Ozaki, Uchino, and Imamura,
+<a href="https://arxiv.org/abs/2504.08009">arXiv:2504.08009</a>, 2025) with
+the one modulus <code>m = 2^64</code>; two's complement computes it, so no Chinese
+remainder step is needed. The orthorhombic wrap above is the same
+residue with <code>m = L</code>. Scheme II splits a product over several small
+moduli so that INT8 units compute each part exactly, then rebuilds it
+by the Chinese remainder theorem; that pays when many products share
+one rebuild, as along the inner dimension of a matrix product. A wrap
+has one subtraction per axis and the product with <code>H</code> has three terms,
+so on a CPU the double-precision units are already the fast path.
+Convert positions once per frame; a pair list over them then costs a
+subtraction, a conversion, and a matrix product per pair. A fraction
+exactly one half apart wraps to <code>-1/2</code>, and the distance agrees with
+<code>dist2</code> to a few units in the last place.
 </p>
 
 <p>
 <code>Cell::fixed32</code> and the <code>_fixed32</code> batches round each fraction to its
 top 32 bits: 12 bytes a position instead of 24. Past the second-level
 cache a batch moves more bytes than it computes on, about 56 a pair,
-so the bytes set the time. On this host the 32-bit batches are 2.7 to
-3.5 times faster than the double batches at 64K pairs, 1.8 to 2.0
-times at 16M, and 2 times in cache. The wrap is still exact, modulo
-<code>2^32</code>, and a displacement is within <code>2^-32 (|a| + |b| + |c|)</code> of the
-engine wrap, about <code>7e-9</code> in a cell 10 long: a tier for neighbour
-searches and histograms, beside the double contract. Two other ways
-to stream less did not pay: non-temporal stores gained 5 to 9 percent
-only once the output left the cache, and evict output a caller is
-about to read; structure-of-arrays input gained at most 11 percent.
-</p>
-
-<p>
-A low-rank formulation does not help either. Before the wrap, the
-squared distances to one image are a rank-five product, <code>|p|^2 + |q +
-nH|^2 - 2 p . (q + nH)</code>, the Gram trick behind matrix-product
-nearest-neighbour search, and the displacement tensor has multilinear
-rank <code>(2, 2, 3)</code>. The wrap is a nonlinear choice of image per pair, so
-the product has to be paid for every candidate image, 27 for a general
-cell, and the expansion cancels: 11.7 ns a pair against 1.0 for the
-wrap, with relative errors of <code>1.5e-11</code>.
+so the bytes set the time. On the measured Xeon host the 32-bit batches
+are 2.7 to 3.5 times faster than the double batches at 64K pairs, 1.8
+to 2.0 times at 16M, and 2 times in cache. The wrap is still exact,
+modulo <code>2^32</code>, and a displacement is within <code>2^-32 (|a| + |b| + |c|)</code>
+of the engine wrap, about <code>7e-9</code> in a cell 10 long: a tier for
+neighbour searches and histograms, beside the double contract.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org071b402" class="outline-2">
-<h2 id="org071b402">Arrays and devices</h2>
-<div class="outline-text-2" id="text-org071b402">
+<section id="outline-container-org5a3b833" class="outline-2">
+<h2 id="org5a3b833">Arrays and devices</h2>
+<div class="outline-text-2" id="text-org5a3b833">
 <p>
-The Python methods take any DLPack producer, numpy, PyTorch, JAX, or
-CuPy host memory, and read contiguous rows where they lie; the result
-is a numpy array that owns its buffer through a DLPack 1.0 capsule,
-so <code>torch.from_dlpack</code> shares it too. A batch of 100 000 rows from
-numpy is 150 to 250 times faster than through lists.
+The Python methods take any host DLPack producer (numpy, PyTorch, JAX,
+or CuPy host memory; see also metatensor and metatomic,
+<a href="https://doi.org/10.1063/5.0304911">doi:10.1063/5.0304911</a>) and read
+contiguous rows where they lie; the result is a numpy array that owns
+its buffer through a DLPack 1.0 capsule, so <code>torch.from_dlpack</code> shares
+it too.
 </p>
 
 <p>
@@ -249,9 +351,44 @@ the CPU.
 </div>
 </section>
 
-<section id="outline-container-org1b2c39d" class="outline-2">
-<h2 id="org1b2c39d">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-org1b2c39d">
+<section id="outline-container-orge7c360d" class="outline-2">
+<h2 id="orge7c360d">Error behaviour</h2>
+<div class="outline-text-2" id="text-orge7c360d">
+<ul class="org-ul">
+<li><strong><strong>Rust</strong></strong>: constructors and slice-validated functions return
+<code>Result&lt;_, Error&gt;</code>. <code>Error::BadBox</code> covers singular (<code>|det(H)| &lt; 1e-18</code>),
+non-finite, or zero-width cells, non-positive lengths in
+<code>from_con_box</code> or <code>dist2_ortho_diffs</code>, and collinear or non-finite
+periodic basis vectors in <code>PartialCell::from_ase</code>. <code>Error::BufferSize</code>
+covers mismatched slice lengths or out-of-range atom indices in
+<code>filter_shifted</code>. <code>Error::Empty</code> covers zero beads, empty coordinates,
+or misaligned bead lengths in <code>ring_centroid</code>. Once constructed,
+per-pair methods on <code>Cell</code> and <code>PartialCell</code> are infallible
+(<code>dist2_shifted_indexed</code> panics on an out-of-bounds index).</li>
+<li><strong><strong>C ABI (<code>minimage_*</code>)</strong></strong>: every <code>int</code>-returning function returns <code>0</code> on
+success and <code>1</code> on failure (null pointer, invalid cell, length/index
+error, or integer overflow). On failure, a thread-local NUL-terminated
+UTF-8 error string is stored and returned by <code>minimage_last_error()</code>.
+The next successful <code>minimage_*</code> call on that thread clears the slot,
+and <code>minimage_last_error()</code> then returns <code>NULL</code>. <code>minimage_version()</code>
+neither reads nor modifies the slot.</li>
+<li><strong><strong>C++ (<code>minimage.hpp</code>)</strong></strong>: wraps C ABI status codes and throws
+<code>minimage::Error</code> (carrying <code>status()</code> and <code>what()</code> from
+<code>minimage_last_error()</code>). <code>Cell::ortho</code> is <code>noexcept</code> and defers
+validation until a query runs; the other constructors validate
+immediately.</li>
+<li><strong><strong>Python</strong></strong>: raises <code>ValueError</code> on invalid cells, length-3 / 3x3 /
+<code>(N, 3)</code> shape errors, or length mismatches; <code>TypeError</code> on unsupported
+dtypes, non-CPU DLPack devices, or invalid DLPack objects; and
+<code>BufferError</code> on unsupported DLPack capsule versions or re-exported
+buffers.</li>
+</ul>
+</div>
+</section>
+
+<section id="outline-container-org6d38ce3" class="outline-2">
+<h2 id="org6d38ce3">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-org6d38ce3">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -264,16 +401,17 @@ origin:
 </div>
 
 <p>
-A CON header may already hold the 3x3 lattice, or lengths and angles
-in the crystallographic convention. ASE and vesin pass rows <code>(a, b,
-c)</code>.
+A CON header may already hold the 3x3 lattice (<code>readcon-core</code>,
+<a href="https://doi.org/10.5281/zenodo.22019397">doi:10.5281/zenodo.22019397</a>),
+or lengths and angles in the crystallographic convention. ASE and vesin
+pass rows <code>(a, b, c)</code>.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org5e12fd6" class="outline-2">
-<h2 id="org5e12fd6">vesin images</h2>
-<div class="outline-text-2" id="text-org5e12fd6">
+<section id="outline-container-org84d1e03" class="outline-2">
+<h2 id="org84d1e03">vesin images</h2>
+<div class="outline-text-2" id="text-org84d1e03">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -283,14 +421,14 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-org7ff297d" class="outline-2">
-<h2 id="org7ff297d">Consumers</h2>
-<div class="outline-text-2" id="text-org7ff297d">
+<section id="outline-container-org63d4993" class="outline-2">
+<h2 id="org63d4993">Consumers</h2>
+<div class="outline-text-2" id="text-org63d4993">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
-shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
-<code>periodicDistSq</code> / <code>relDist</code>, the ortho batch kernel, and the vesin
-pair collapse.
+shift. d-SEAMS (<a href="https://doi.org/10.1021/acs.jcim.0c00031">doi:10.1021/acs.jcim.0c00031</a>)
+calls the C ABI from <code>lammpsBoxToLcCell</code>, <code>periodicDistSq</code> / <code>relDist</code>,
+the ortho batch kernel, and the vesin pair collapse.
 </p>
 </div>
 </section>

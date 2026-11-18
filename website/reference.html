@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>C API</title>
-<meta name="description" content="minimage_* C ABI. Caller owns every buffer." />
+<title>Reference</title>
+<meta name="description" content="minimage_* C ABI, C++, Rust, Python, and Burn APIs." />
 <meta name="generator" content="Org Mode" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
@@ -30,10 +30,24 @@
 </nav>
 <div class="rule" aria-hidden="true"></div>
 
+<section id="outline-container-orgfdcab77" class="outline-2">
+<h2 id="orgfdcab77">C ABI (<code>minimage_*</code>)</h2>
+<div class="outline-text-2" id="text-orgfdcab77">
 <p>
-Function symbols use the <code>minimage_</code> prefix. Every buffer is caller-owned.
-A nonzero return means failure; read <code>minimage_last_error()</code> on the same
-thread.
+Function symbols use the <code>minimage_</code> prefix. Every buffer is
+caller-owned. Coordinates, lattice vectors, and origins share one
+consistent length unit; <code>minimage_cell_from_con_box</code> takes angles in
+degrees. Displacements compute <code>wrap(q - p)</code>.
+</p>
+
+<p>
+Every <code>int</code>-returning function returns <code>0</code> on success and <code>1</code> on failure
+(null pointer, invalid cell, buffer/index mismatch, or overflow). Read
+<code>minimage_last_error()</code> on the same thread immediately after a nonzero
+return; do not free the returned pointer. The next successful
+<code>minimage_*</code> call on that thread clears the slot so
+<code>minimage_last_error()</code> returns <code>NULL</code>. <code>minimage_version()</code> returns a
+process-static string and neither reads nor modifies the error slot.
 </p>
 
 <table>
@@ -53,57 +67,62 @@ thread.
 <tbody>
 <tr>
 <td class="org-left"><code>mi_cell</code></td>
-<td class="org-left">Lattice vectors a, b, c and origin</td>
+<td class="org-left">Lattice vectors a, b, c (columns of H) and origin</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>mi_cell_ortho</code></td>
-<td class="org-left">Header-only diagonal box</td>
+<td class="org-left">Header-only diagonal box with zero origin</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_cell_from_vectors</code></td>
-<td class="org-left">Columns a, b, c</td>
+<td class="org-left">Columns a, b, c and origin</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_cell_from_lammps</code></td>
-<td class="org-left"><code>xlo xhi ylo yhi zlo zhi</code> plus tilts</td>
+<td class="org-left">Dump-bound <code>xlo xhi ylo yhi zlo zhi</code> plus tilts</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_cell_from_lammps_bounds</code></td>
-<td class="org-left">Dump bound spans plus tilts</td>
+<td class="org-left">Dump bound spans, tilts, and bound lo</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_cell_from_ase</code></td>
-<td class="org-left">Row-major 3x3</td>
+<td class="org-left">Row-major 3x3 plus optional origin (<code>NULL</code> -&gt; zero)</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_cell_from_con</code></td>
-<td class="org-left">CON 3x3</td>
+<td class="org-left">CON 3x3 (zero origin)</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_cell_from_con_box</code></td>
-<td class="org-left">Lengths and angles in degrees</td>
+<td class="org-left">Lengths and angles in degrees (zero origin)</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_cell_from_vesin</code></td>
-<td class="org-left">vesin 3x3</td>
+<td class="org-left">vesin 3x3 (zero origin)</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_displacement</code></td>
-<td class="org-left">Wrapped <code>q - p</code></td>
+<td class="org-left">Engine wrapped <code>q - p</code></td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_displacement_euclidean</code></td>
-<td class="org-left">Smith test, else the Selling slicer</td>
+<td class="org-left">Smith test, else the Selling slicer (exact Voronoi MIC)</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_wrap_many</code></td>
+<td class="org-left">Engine wrap of <code>n</code> packed difference vectors</td>
 </tr>
 
 <tr>
@@ -113,12 +132,12 @@ thread.
 
 <tr>
 <td class="org-left"><code>minimage_dist2_many</code></td>
-<td class="org-left">One source, packed candidates</td>
+<td class="org-left">One source, <code>n</code> packed candidates</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_dist2_pairs</code></td>
-<td class="org-left">Packed pair lists</td>
+<td class="org-left"><code>n</code> packed pair rows</td>
 </tr>
 
 <tr>
@@ -133,12 +152,12 @@ thread.
 
 <tr>
 <td class="org-left"><code>minimage_dist2_euclidean_pairs_warm</code></td>
-<td class="org-left">Euclidean pairs from the previous frame's shifts</td>
+<td class="org-left">Euclidean pairs from previous frame's <code>int32_t</code> shifts</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_dist2_ortho_diffs</code></td>
-<td class="org-left">Highway-shaped ortho wrap, AVX when present</td>
+<td class="org-left">Highway-shaped ortho wrap, AVX/NEON when present</td>
 </tr>
 
 <tr>
@@ -153,17 +172,17 @@ thread.
 
 <tr>
 <td class="org-left"><code>minimage_dist2_fixed</code></td>
-<td class="org-left">Squared distance between two fixed-point positions</td>
+<td class="org-left">Squared distance between two 64-bit fixed-point positions</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_dist2_many_fixed</code></td>
-<td class="org-left">One fixed-point source, packed candidates</td>
+<td class="org-left">One 64-bit fixed-point source, packed candidates</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_dist2_pairs_fixed</code></td>
-<td class="org-left">Packed fixed-point pair lists</td>
+<td class="org-left">Packed 64-bit fixed-point pair lists</td>
 </tr>
 
 <tr>
@@ -178,12 +197,12 @@ thread.
 
 <tr>
 <td class="org-left"><code>mi_pbc_cell</code></td>
-<td class="org-left">An <code>mi_cell</code> with a periodicity flag per axis</td>
+<td class="org-left">An <code>mi_cell</code> with three periodicity flags (<code>pbc_a</code>, <code>pbc_b</code>, <code>pbc_c</code>)</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_pbc_cell_from_ase</code></td>
-<td class="org-left">Row-major 3x3 and a mask of three ints; open rows may be zero</td>
+<td class="org-left">Row-major 3x3, mask of three ints, optional origin (<code>NULL</code> -&gt; zero)</td>
 </tr>
 
 <tr>
@@ -193,41 +212,141 @@ thread.
 
 <tr>
 <td class="org-left"><code>minimage_dist2_euclidean_pbc</code></td>
-<td class="org-left">Its squared length</td>
+<td class="org-left">Squared length of <code>minimage_displacement_euclidean_pbc</code></td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_filter_shifted</code></td>
+<td class="org-left">Filter <code>(ii, jj, shift)</code> pairs below <code>cut2</code>; <code>out_vector</code> may be <code>NULL</code></td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_ring_centroid</code></td>
+<td class="org-left">Bead-major ring-polymer centroids wrapped into primary cell</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_reduce_pairs</code></td>
-<td class="org-left">Drop self images, unique pairs</td>
+<td class="org-left">Drop self images, sort and deduplicate <code>(i, j)</code> pairs</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_last_error</code></td>
-<td class="org-left">Thread-local error string</td>
+<td class="org-left">Thread-local error string (<code>NULL</code> after success)</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>minimage_version</code></td>
-<td class="org-left">Process-static version</td>
+<td class="org-left">Process-static version string</td>
 </tr>
 </tbody>
 </table>
 
 <p>
-Function symbols use <code>minimage_</code>, the full crate name, to avoid mimalloc's
-<code>mi_</code> namespace. The non-default <code>capi-compat-names</code> Cargo feature exports
-deprecated thin <code>mi_</code> aliases for migration and must not be linked with
-mimalloc.
+Function symbols use <code>minimage_</code>, the full crate name, to avoid
+mimalloc's <code>mi_</code> namespace. The non-default <code>capi-compat-names</code> Cargo
+feature exports deprecated thin <code>mi_</code> aliases for migration and must
+not be linked with mimalloc.
 </p>
+</div>
+</section>
 
+<section id="outline-container-org11922d2" class="outline-2">
+<h2 id="org11922d2">C++ (<code>include/minimage.hpp</code>)</h2>
+<div class="outline-text-2" id="text-org11922d2">
 <p>
-The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
-<code>docs.rs/minimage</code> is the Rust reference.
+Requires C++17 or later. Wraps <code>minimage.h</code> in namespace <code>minimage</code> and
+throws <code>minimage::Error</code> (with <code>status()</code> and <code>what()</code>) on failure.
 </p>
 
-<section id="outline-container-orgfbd3944" class="outline-2">
-<h2 id="orgfbd3944">Rust</h2>
-<div class="outline-text-2" id="text-orgfbd3944">
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Symbol</th>
+<th scope="col" class="org-left">Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>minimage::Error</code></td>
+<td class="org-left">Exception carrying C ABI <code>status()</code> and <code>what()</code></td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::check</code></td>
+<td class="org-left">Throws <code>minimage::Error</code> when a C ABI status is nonzero</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::Cell::ortho</code></td>
+<td class="org-left"><code>noexcept</code> diagonal box (validated on first query)</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::Cell::from_vectors</code>, <code>from_lammps</code>, <code>from_lammps_bounds</code></td>
+<td class="org-left">Column / LAMMPS dump-bound constructors</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::Cell::from_ase</code>, <code>from_con</code>, <code>from_con_box</code>, <code>from_vesin</code></td>
+<td class="org-left">Row-major / crystallographic constructors</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::Cell::raw</code>, <code>operator mi_cell</code></td>
+<td class="org-left">Convert back to C <code>mi_cell</code></td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::Cell::displacement</code>, <code>dist2</code></td>
+<td class="org-left">Single-pair engine MIC displacement and squared distance</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::Cell::displacement_euclidean</code></td>
+<td class="org-left">Single-pair Euclidean nearest-image displacement</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::Cell::dist2_many</code>, <code>dist2_shifted_many</code></td>
+<td class="org-left">Packed candidate batches (engine MIC and shifted)</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::Cell::dist2_euclidean_many</code>, <code>dist2_euclidean_pairs</code>, <code>dist2_euclidean_pairs_warm</code></td>
+<td class="org-left">Batched and warm-started Euclidean nearest-image distances</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::dist2_ortho_diffs</code></td>
+<td class="org-left">SoA orthorhombic batch wrap</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::reduce_pairs</code></td>
+<td class="org-left">Sorted unique pairs with self images dropped</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="outline-container-org76507d3" class="outline-2">
+<h2 id="org76507d3">Rust</h2>
+<div class="outline-text-2" id="text-org76507d3">
+<p>
+Full API docs build with <code>cargo doc</code> and are hosted at <code>docs.rs/minimage</code>.
+Fallible functions return <code>Result&lt;_, Error&gt;</code> with variants
+<code>Error::BadBox</code>, <code>Error::BufferSize</code>, and <code>Error::Empty</code>.
+</p>
+
 <table>
 
 
@@ -244,18 +363,73 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 </thead>
 <tbody>
 <tr>
+<td class="org-left"><code>Cell::ortho</code>, <code>ortho_origin</code>, <code>from_vectors</code>, <code>from_lammps</code>, <code>from_lammps_bounds</code>, <code>from_ase</code>, <code>from_con</code>, <code>from_con_box</code>, <code>from_vesin</code></td>
+<td class="org-left">Periodic cell constructors</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Cell::a</code>, <code>b</code>, <code>c</code>, <code>origin</code>, <code>widths</code>, <code>h</code>, <code>hinv</code>, <code>is_ortho</code>, <code>is_restricted</code>, <code>tilts_reduced</code></td>
+<td class="org-left">Cell geometry and basis queries</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Cell::fractional</code>, <code>cartesian</code>, <code>lattice_shift</code>, <code>displacement</code>, <code>dist2</code>, <code>dist2_shifted</code>, <code>dist2_shifted_many</code>, <code>dist2_shifted_indexed</code></td>
+<td class="org-left">Engine wrap, coordinate conversion, and linked-cell shifts</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Cell::displacement_cartesian</code>, <code>fractional_matches_cartesian</code>, <code>displacement_euclidean</code>, <code>dist2_euclidean</code></td>
+<td class="org-left">27-image check and exact Selling-superbasis Euclidean MIC</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Cell::reduce_tilts</code>, <code>to_restricted</code>, <code>minkowski_reduce</code>, <code>is_minkowski_reduced</code></td>
+<td class="org-left">Unimodular tilt reduction, frame rotation, and Minkowski reduction</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>Cell::fixed</code>, <code>displacement_fixed</code>, <code>dist2_fixed</code>, <code>fixed32</code>, <code>displacement_fixed32</code>, <code>dist2_fixed32</code></td>
+<td class="org-left">64-bit and 32-bit fixed-point fractional wraps</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>wrap_many</code>, <code>dist2_many</code>, <code>dist2_pairs</code>, <code>dist2_ortho_diffs</code></td>
+<td class="org-left">Batched engine MIC wraps and squared distances</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_euclidean_many</code>, <code>dist2_euclidean_pairs</code>, <code>dist2_euclidean_pairs_warm</code></td>
+<td class="org-left">Batched and warm-started Euclidean nearest-image distances</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>fixed_many</code>, <code>dist2_many_fixed</code>, <code>dist2_pairs_fixed</code>, <code>fixed32_many</code>, <code>dist2_many_fixed32</code>, <code>dist2_pairs_fixed32</code></td>
+<td class="org-left">Batched fixed-point conversions and distances</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>PartialCell::from_ase</code>, <code>periodic_count</code>, <code>full</code>, <code>displacement_euclidean</code>, <code>dist2_euclidean</code></td>
+<td class="org-left">Slabs (2D), wires (1D), open (0D), and full (3D) cells</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>filter_shifted</code>, <code>FilterOut</code>, <code>ring_centroid</code></td>
+<td class="org-left">Verlet-skin candidate filter and ring-polymer bead centroids</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>reduce_pairs</code>, <code>reduce_pairs_packed</code>, <code>dump_bounds_to_h</code></td>
+<td class="org-left">vesin pair deduplication and LAMMPS dump bound conversion</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>simd_path()</code></td>
-<td class="org-left">Name of the path the next batch will use: <code>scalar</code>, <code>avx</code>, <code>avx2</code>, <code>avx512</code>, or <code>neon</code></td>
+<td class="org-left">Active SIMD path: <code>scalar</code>, <code>avx</code>, <code>avx2</code>, <code>avx512</code>, or <code>neon</code></td>
 </tr>
 
 <tr>
-<td class="org-left"><code>PartialCell::from_ase(rows, pbc)</code></td>
-<td class="org-left">Periodic along the axes of <code>pbc</code> only: slabs, wires, open systems</td>
-</tr>
-
-<tr>
-<td class="org-left"><code>PartialCell::displacement_euclidean</code></td>
-<td class="org-left">Nearest image over the periodic lattice; open axes take no image</td>
+<td class="org-left"><code>Error</code></td>
+<td class="org-left"><code>BadBox</code>, <code>BufferSize</code>, <code>Empty</code></td>
 </tr>
 </tbody>
 </table>
@@ -270,16 +444,24 @@ half-box tie keeps the engine wrap <code>s - floor(s + 1/2)</code>, as
 </p>
 
 <p>
-<code>MINIMAGE_SIMD</code> overrides the choice. An unknown name is ignored.
-A name this CPU cannot run selects <code>scalar</code>.
-The selection is cached. Details are on <a href="simd.html">SIMD paths and dispatch</a>.
+<code>MINIMAGE_SIMD</code> overrides the SIMD path choice. An unknown name is
+ignored. A name this CPU cannot run selects <code>scalar</code>. The selection is
+cached. Details are on <a href="simd.html">SIMD paths and dispatch</a>.
 </p>
 </div>
 </section>
 
-<section id="outline-container-org599d0a1" class="outline-2">
-<h2 id="org599d0a1">Python</h2>
-<div class="outline-text-2" id="text-org599d0a1">
+<section id="outline-container-orga356c21" class="outline-2">
+<h2 id="orga356c21">Python</h2>
+<div class="outline-text-2" id="text-orga356c21">
+<p>
+Exported module items: <code>Cell</code>, <code>reduce_image_pairs</code>, and <code>__version__</code>.
+Array arguments accept any host CPU DLPack producer, read in place when
+contiguous and aligned; array results return a NumPy array (or a list
+when NumPy is absent). Invalid inputs raise <code>ValueError</code>, <code>TypeError</code>,
+or <code>BufferError</code>.
+</p>
+
 <table>
 
 
@@ -290,78 +472,73 @@ The selection is cached. Details are on <a href="simd.html">SIMD paths and dispa
 </colgroup>
 <thead>
 <tr>
-<th scope="col" class="org-left">Method</th>
+<th scope="col" class="org-left">Method / function</th>
 <th scope="col" class="org-left">Role</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="org-left"><code>dist2_many(p, qs)</code></td>
-<td class="org-left">One source, rows of candidates</td>
+<td class="org-left"><code>Cell.ortho</code>, <code>from_vectors</code>, <code>from_lammps_bounds</code>, <code>from_ase</code>, <code>from_con</code>, <code>from_vesin</code></td>
+<td class="org-left">Construct a periodic cell</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>dist2_pairs(ps, qs)</code></td>
-<td class="org-left">Paired rows</td>
+<td class="org-left"><code>is_ortho</code>, <code>is_restricted</code>, <code>tilts_reduced</code>, <code>is_minkowski_reduced</code>, <code>fractional_matches_cartesian</code></td>
+<td class="org-left">Basis predicates</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>reduce_tilts()</code>, <code>to_restricted()</code></td>
+<td class="org-left">Return a tilt-reduced or restricted-frame <code>Cell</code></td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2(p, q)</code>, <code>displacement(p, q)</code>, <code>wrap(diff)</code></td>
+<td class="org-left">Single-pair engine wrap</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>displacement_euclidean(p, q)</code>, <code>dist2_euclidean(p, q)</code>, <code>displacement_cartesian(p, q)</code></td>
+<td class="org-left">Single-pair Euclidean and 27-image MIC</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2_many(p, qs)</code>, <code>dist2_pairs(ps, qs)</code>, <code>wrap_many(diffs)</code></td>
+<td class="org-left">Batched engine MIC</td>
 </tr>
 
 <tr>
 <td class="org-left"><code>dist2_euclidean_many(p, qs)</code>, <code>dist2_euclidean_pairs(ps, qs)</code></td>
-<td class="org-left">Euclidean nearest image</td>
+<td class="org-left">Batched Euclidean nearest image</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>dist2_euclidean_pairs_warm(ps, qs, images)</code></td>
-<td class="org-left">Distances and updated shifts across frames</td>
+<td class="org-left"><code>dist2_euclidean_pairs_warm(ps, qs, images=None)</code></td>
+<td class="org-left">Distances and updated <code>int32</code> shifts across frames</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>wrap_many(diffs)</code></td>
-<td class="org-left">Engine wrap of each row</td>
+<td class="org-left"><code>fixed(r)</code>, <code>fixed_many(rs)</code>, <code>dist2_fixed(a, b)</code>, <code>dist2_many_fixed(p, qs)</code>, <code>dist2_pairs_fixed(ps, qs)</code></td>
+<td class="org-left">64-bit fixed-point (<code>uint64</code>)</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>fixed(r)</code>, <code>fixed_many(rs)</code></td>
-<td class="org-left">Fixed-point fractions, uint64</td>
+<td class="org-left"><code>fixed32(r)</code>, <code>fixed32_many(rs)</code>, <code>dist2_fixed32(a, b)</code>, <code>dist2_many_fixed32(p, qs)</code>, <code>dist2_pairs_fixed32(ps, qs)</code></td>
+<td class="org-left">32-bit fixed-point (<code>uint32</code>)</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>dist2_fixed(a, b)</code></td>
-<td class="org-left">Two fixed-point positions</td>
-</tr>
-
-<tr>
-<td class="org-left"><code>dist2_many_fixed(p, qs)</code></td>
-<td class="org-left">One fixed-point source, rows</td>
-</tr>
-
-<tr>
-<td class="org-left"><code>dist2_pairs_fixed(ps, qs)</code></td>
-<td class="org-left">Paired fixed-point rows</td>
-</tr>
-
-<tr>
-<td class="org-left"><code>fixed32(r)</code>, <code>fixed32_many(rs)</code>, <code>dist2_fixed32(a, b)</code></td>
-<td class="org-left">32-bit fixed point, uint32</td>
-</tr>
-
-<tr>
-<td class="org-left"><code>dist2_many_fixed32(p, qs)</code>, <code>dist2_pairs_fixed32(ps, qs)</code></td>
-<td class="org-left">32-bit fixed-point batches</td>
+<td class="org-left"><code>reduce_image_pairs(pairs)</code></td>
+<td class="org-left">Drop self images, sort and deduplicate <code>(i, j)</code> pairs</td>
 </tr>
 </tbody>
 </table>
-
-<p>
-An array argument is any DLPack producer on the host, read in place;
-an array result is a numpy array. A list in gives a list out.
-</p>
 </div>
 </section>
 
-<section id="outline-container-org535e39d" class="outline-2">
-<h2 id="org535e39d">Burn</h2>
-<div class="outline-text-2" id="text-org535e39d">
+<section id="outline-container-org5834399" class="outline-2">
+<h2 id="org5834399">Burn (<code>minimage-burn</code>)</h2>
+<div class="outline-text-2" id="text-org5834399">
 <table>
 
 
@@ -379,7 +556,7 @@ an array result is a numpy array. A list in gives a list out.
 <tbody>
 <tr>
 <td class="org-left"><code>Lattice::new(cell, device, dtype)</code></td>
-<td class="org-left"><code>H</code> and <code>Hinv</code> on a device</td>
+<td class="org-left"><code>H</code> and <code>Hinv</code> on a Burn device</td>
 </tr>
 
 <tr>
@@ -408,8 +585,8 @@ an array result is a numpy array. A list in gives a list out.
 </tr>
 
 <tr>
-<td class="org-left"><code>to_vec</code></td>
-<td class="org-left">A rank-one tensor back as doubles</td>
+<td class="org-left"><code>rows_tensor</code>, <code>to_vec</code></td>
+<td class="org-left">Convert row slices and read back rank-one <code>f64</code> tensors</td>
 </tr>
 </tbody>
 </table>

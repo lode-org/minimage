@@ -25,13 +25,14 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
 
-<section id="outline-container-orgdaf14ed" class="outline-2">
-<h2 id="orgdaf14ed">Install</h2>
-<div class="outline-text-2" id="text-orgdaf14ed">
+<section id="outline-container-orge8afd1c" class="outline-2">
+<h2 id="orge8afd1c">Install</h2>
+<div class="outline-text-2" id="text-orge8afd1c">
 <p>
 Pick <strong>one</strong> language.
 </p>
@@ -69,22 +70,25 @@ Pick <strong>one</strong> language.
 </table>
 </div>
 
-<div id="outline-container-org191c068" class="outline-3">
-<h3 id="org191c068">Rust</h3>
-<div class="outline-text-3" id="text-org191c068">
+<div id="outline-container-orgb3bce8b" class="outline-3">
+<h3 id="orgb3bce8b">Rust</h3>
+<div class="outline-text-3" id="text-orgb3bce8b">
 <div class="org-src-container">
-<pre class="src src-rust">use minimage::Cell;
+<pre class="src src-rust">use minimage::{Cell, Error};
 
-let sim = Cell::ortho(10.0, 10.0, 10.0)?;
-assert!((sim.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() &lt; 1e-12);
+fn main() -&gt; Result&lt;(), Error&gt; {
+    let sim = Cell::ortho(10.0, 10.0, 10.0)?;
+    assert!((sim.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() &lt; 1e-12);
+    Ok(())
+}
 </pre>
 </div>
 </div>
 </div>
 
-<div id="outline-container-org00591d4" class="outline-3">
-<h3 id="org00591d4">Python</h3>
-<div class="outline-text-3" id="text-org00591d4">
+<div id="outline-container-orgdf64aa2" class="outline-3">
+<h3 id="orgdf64aa2">Python</h3>
+<div class="outline-text-3" id="text-orgdf64aa2">
 <p>
 Python 3.10 or newer. Each release has one abi3 wheel per platform,
 for Linux x86_64 and aarch64 (manylinux_2_28), macOS arm64 and
@@ -102,9 +106,9 @@ print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
 </div>
 </div>
 
-<div id="outline-container-org2471b19" class="outline-3">
-<h3 id="org2471b19">Meson wrap</h3>
-<div class="outline-text-3" id="text-org2471b19">
+<div id="outline-container-orgc4e1640" class="outline-3">
+<h3 id="orgc4e1640">Meson wrap</h3>
+<div class="outline-text-3" id="text-orgc4e1640">
 <div class="org-src-container">
 <pre class="src src-text">[wrap-git]
 url = https://github.com/lode-org/minimage.git
@@ -113,6 +117,38 @@ depth = 1
 
 [provide]
 minimage = minimage_dep
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-meson">minimage_dep = dependency('minimage', fallback: ['minimage', 'minimage_dep'])
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org9af2ad4" class="outline-3">
+<h3 id="org9af2ad4">CMake and pkg-config</h3>
+<div class="outline-text-3" id="text-org9af2ad4">
+<div class="org-src-container">
+<pre class="src src-sh">cmake -B build -DCMAKE_INSTALL_PREFIX=$PREFIX
+cmake --build build
+cmake --install build
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-cmake">find_package(minimage 0.2 REQUIRED)
+target_link_libraries(app PRIVATE minimage::minimage)
+</pre>
+</div>
+
+<p>
+With pkg-config after installing via Meson or CMake:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-sh">pkg-config --cflags --libs minimage
 </pre>
 </div>
 
