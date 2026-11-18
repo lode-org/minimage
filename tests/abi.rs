@@ -658,3 +658,42 @@ fn pbc_abi_refuses_bad_input_and_reports_it() {
     );
     assert!((d2 - (0.25 + 0.25 + 1600.0)).abs() < 1e-9);
 }
+
+#[test]
+fn filter_shifted_abi_reports_atom_index_out_of_bounds() {
+    let raw = hex_raw();
+    let xyz = [[0.2, 0.0, 0.0], [9.4, 0.0, 0.0]];
+    let ii = [0u32];
+    let jj = [2u32];
+    let shift = [0i32, 0, 0];
+    let mut out_i = [0u32; 1];
+    let mut out_j = [0u32; 1];
+    let mut out_shift = [0i32; 3];
+    let mut out_dist2 = [0.0f64; 1];
+    let mut kept = 0usize;
+    let status = unsafe {
+        minimage::minimage_filter_shifted(
+            &raw,
+            xyz.as_ptr().cast(),
+            xyz.len(),
+            ii.as_ptr(),
+            jj.as_ptr(),
+            shift.as_ptr(),
+            1,
+            1.0,
+            out_i.as_mut_ptr(),
+            out_j.as_mut_ptr(),
+            out_shift.as_mut_ptr(),
+            out_dist2.as_mut_ptr(),
+            std::ptr::null_mut(),
+            &mut kept,
+        )
+    };
+    assert_eq!(status, 1);
+    let err_ptr = unsafe { mi_last_error() };
+    assert!(!err_ptr.is_null());
+    let msg = unsafe { std::ffi::CStr::from_ptr(err_ptr) }
+        .to_str()
+        .unwrap();
+    assert!(msg.contains("atom index >= n_atoms"), "got {msg:?}");
+}

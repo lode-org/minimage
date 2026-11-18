@@ -311,6 +311,22 @@ mod tests {
     }
 
     #[test]
+    fn filter_rejects_atom_index_out_of_bounds() {
+        let cell = Cell::ortho(10.0, 10.0, 10.0).unwrap();
+        let xyz = [[0.2, 0.0, 0.0], [9.4, 0.0, 0.0]];
+        let shift = [[0, 0, 0]];
+        let mut out = FilterOut::default();
+        let err_i = filter_shifted(&cell, &xyz, &[2], &[0], &shift, 1.0, false, &mut out)
+            .expect_err("source index >= n_atoms must fail");
+        assert_eq!(err_i, Error::BufferSize);
+        assert!(err_i.to_string().contains("atom index >= n_atoms"));
+        let err_j = filter_shifted(&cell, &xyz, &[0], &[2], &shift, 1.0, false, &mut out)
+            .expect_err("target index >= n_atoms must fail");
+        assert_eq!(err_j, Error::BufferSize);
+        assert!(err_j.to_string().contains("atom index >= n_atoms"));
+    }
+
+    #[test]
     fn centroid_of_a_wrapped_pair_sits_on_the_boundary() {
         let cell = Cell::ortho(10.0, 10.0, 10.0).unwrap();
         let xyz = [[0.2, 1.0, 2.0], [9.8, 1.0, 2.0]];
