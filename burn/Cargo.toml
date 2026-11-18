@@ -1,7 +1,7 @@
 [package]
 name = "minimage-burn"
 # [[[cog cog.outl(f'version = "{VERSION}"') ]]]
-version = "0.2.1"
+version = "0.2.2"
 # [[[end]]]
 edition = "2021"
 rust-version = "1.95"
@@ -12,7 +12,7 @@ repository = "https://github.com/lode-org/minimage"
 
 [dependencies]
 # [[[cog cog.outl(f'minimage = {{ path = "..", version = "{VERSION}", default-features = false }}') ]]]
-minimage = { path = "..", version = "0.2.1", default-features = false }
+minimage = { path = "..", version = "0.2.2", default-features = false }
 # [[[end]]]
 burn-tensor = { version = "0.22", default-features = false, features = ["std"] }
 

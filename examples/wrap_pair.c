@@ -7,8 +7,8 @@
 static int check_dist2(const char *label, const mi_cell *box, const double *p,
                        const double *q, double expect) {
   double got = -1.0;
-  if (mi_dist2(box, p, q, &got) != 0) {
-    fprintf(stderr, "%s: %s\n", label, mi_last_error());
+  if (minimage_dist2(box, p, q, &got) != 0) {
+    fprintf(stderr, "%s: %s\n", label, minimage_last_error());
     return 1;
   }
   if (fabs(got - expect) > 1e-12) {
@@ -24,9 +24,10 @@ int main(void) {
   const double right[3] = {9.4, 0.0, 0.0};
   const mi_cell ortho = mi_cell_ortho(10.0, 10.0, 10.0);
   mi_cell sheared;
-  if (mi_cell_from_lammps_bounds(15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0,
-                                 0.0, 0.0, 0.0, &sheared) != 0) {
-    fprintf(stderr, "%s\n", mi_last_error());
+  if (minimage_cell_from_lammps_bounds(15.0, 8.660254037844386, 10.0, 5.0,
+                                       0.0, 0.0, 0.0, 0.0, 0.0,
+                                       &sheared) != 0) {
+    fprintf(stderr, "%s\n", minimage_last_error());
     return 1;
   }
   const double p[3] = {0.2, 0.1, 1.0};
@@ -39,7 +40,7 @@ int main(void) {
   const int pairs[] = {0, 1, 0, 0, 0, 1, 2, 3};
   int out[8];
   size_t kept = 0;
-  if (mi_reduce_pairs(pairs, 4, out, &kept) != 0 || kept != 2) {
+  if (minimage_reduce_pairs(pairs, 4, out, &kept) != 0 || kept != 2) {
     fprintf(stderr, "reduce_pairs failed\n");
     return 1;
   }

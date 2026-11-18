@@ -1,4 +1,4 @@
-//! C ABI. Prefix `mi_`. Caller owns every buffer.
+//! C ABI. Function symbols use the crate-name prefix `minimage_`.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
@@ -78,7 +78,7 @@ impl mi_cell {
 }
 
 /// One thread's ABI state: the last error and the last cell built from
-/// an `mi_cell`. seams calls `mi_dist2` once per pair with the same
+/// an `mi_cell`. seams calls `minimage_dist2` once per pair with the same
 /// twelve doubles, so one lookup finds the inverse and the frame.
 struct State {
     error: RefCell<Option<CString>>,
@@ -174,16 +174,16 @@ fn with_cell<R>(simbox: *const mi_cell, f: impl FnOnce(&Cell) -> R) -> Result<R,
     })
 }
 
-/// Thread-local last-error string from this thread's most recent `mi_*`
+/// Thread-local last-error string from this thread's most recent `minimage_*`
 /// failure.
 ///
 /// Returns a pointer to a NUL-terminated UTF-8 C string, or `NULL` if
 /// the last call on this thread succeeded, or if none has failed yet.
-/// [`mi_version`] does not read or write the slot. Distinct threads
-/// have independent slots. The pointer is valid until the next `mi_*`
+/// [`minimage_version`] does not read or write the slot. Distinct threads
+/// have independent slots. The pointer is valid until the next `minimage_*`
 /// call on this thread. Do not free it.
 #[no_mangle]
-pub extern "C" fn mi_last_error() -> *const c_char {
+pub extern "C" fn minimage_last_error() -> *const c_char {
     STATE.with(|st| {
         st.error
             .borrow()
@@ -195,7 +195,7 @@ pub extern "C" fn mi_last_error() -> *const c_char {
 
 /// Library version string. Process-static, NUL-terminated. Do not free.
 #[no_mangle]
-pub extern "C" fn mi_version() -> *const c_char {
+pub extern "C" fn minimage_version() -> *const c_char {
     concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
 }
 
@@ -223,7 +223,7 @@ fn write_cell(cell: Result<Cell, Error>, out: *mut mi_cell) -> c_int {
 /// `a`, `b`, `c`, `origin`, and `out` are non-null and point at three
 /// doubles / one `mi_cell`.
 #[no_mangle]
-pub unsafe extern "C" fn mi_cell_from_vectors(
+pub unsafe extern "C" fn minimage_cell_from_vectors(
     a: *const f64,
     b: *const f64,
     c: *const f64,
@@ -244,7 +244,7 @@ pub unsafe extern "C" fn mi_cell_from_vectors(
 /// Fill `out` from LAMMPS `xlo xhi ylo yhi zlo zhi` and tilts.
 #[allow(clippy::too_many_arguments)]
 #[no_mangle]
-pub extern "C" fn mi_cell_from_lammps(
+pub extern "C" fn minimage_cell_from_lammps(
     xlo: f64,
     xhi: f64,
     ylo: f64,
@@ -263,7 +263,7 @@ pub extern "C" fn mi_cell_from_lammps(
 
 /// Fill `out` from dump bound spans, tilts, and bound lo.
 #[no_mangle]
-pub extern "C" fn mi_cell_from_lammps_bounds(
+pub extern "C" fn minimage_cell_from_lammps_bounds(
     xspan: f64,
     yspan: f64,
     zspan: f64,
@@ -288,7 +288,7 @@ pub extern "C" fn mi_cell_from_lammps_bounds(
 /// `rows` is nine readable doubles. `origin`, if non-null, is three
 /// readable doubles. `out` is one writable `mi_cell`.
 #[no_mangle]
-pub unsafe extern "C" fn mi_cell_from_ase(
+pub unsafe extern "C" fn minimage_cell_from_ase(
     rows: *const f64,
     origin: *const f64,
     out: *mut mi_cell,
@@ -317,10 +317,10 @@ pub unsafe extern "C" fn mi_cell_from_ase(
 ///
 /// # Safety
 ///
-/// Same contract as [`mi_cell_from_ase`] with a null origin.
+/// Same contract as [`minimage_cell_from_ase`] with a null origin.
 #[no_mangle]
-pub unsafe extern "C" fn mi_cell_from_con(rows: *const f64, out: *mut mi_cell) -> c_int {
-    unsafe { mi_cell_from_ase(rows, ptr::null(), out) }
+pub unsafe extern "C" fn minimage_cell_from_con(rows: *const f64, out: *mut mi_cell) -> c_int {
+    unsafe { minimage_cell_from_ase(rows, ptr::null(), out) }
 }
 
 /// Fill `out` from CON lengths and angles in degrees.
@@ -330,7 +330,7 @@ pub unsafe extern "C" fn mi_cell_from_con(rows: *const f64, out: *mut mi_cell) -
 /// `boxl` and `angles_deg` are three readable doubles. `out` is one
 /// writable `mi_cell`.
 #[no_mangle]
-pub unsafe extern "C" fn mi_cell_from_con_box(
+pub unsafe extern "C" fn minimage_cell_from_con_box(
     boxl: *const f64,
     angles_deg: *const f64,
     out: *mut mi_cell,
@@ -352,10 +352,13 @@ pub unsafe extern "C" fn mi_cell_from_con_box(
 ///
 /// # Safety
 ///
-/// Same contract as [`mi_cell_from_con`].
+/// Same contract as [`minimage_cell_from_con`].
 #[no_mangle]
-pub unsafe extern "C" fn mi_cell_from_vesin(box_rows: *const f64, out: *mut mi_cell) -> c_int {
-    unsafe { mi_cell_from_con(box_rows, out) }
+pub unsafe extern "C" fn minimage_cell_from_vesin(
+    box_rows: *const f64,
+    out: *mut mi_cell,
+) -> c_int {
+    unsafe { minimage_cell_from_con(box_rows, out) }
 }
 
 fn read3(p: *const f64, what: &str) -> Result<[f64; 3], c_int> {
@@ -371,7 +374,7 @@ fn read3(p: *const f64, what: &str) -> Result<[f64; 3], c_int> {
 ///
 /// `simbox` is one `mi_cell`. `p`, `q`, and `dr` are three doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_displacement(
+pub unsafe extern "C" fn minimage_displacement(
     simbox: *const mi_cell,
     p: *const f64,
     q: *const f64,
@@ -406,9 +409,9 @@ pub unsafe extern "C" fn mi_displacement(
 ///
 /// # Safety
 ///
-/// Same contract as [`mi_displacement`].
+/// Same contract as [`minimage_displacement`].
 #[no_mangle]
-pub unsafe extern "C" fn mi_displacement_euclidean(
+pub unsafe extern "C" fn minimage_displacement_euclidean(
     simbox: *const mi_cell,
     p: *const f64,
     q: *const f64,
@@ -444,7 +447,7 @@ pub unsafe extern "C" fn mi_displacement_euclidean(
 ///
 /// `diffs` and `out` are `n * 3` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_wrap_many(
+pub unsafe extern "C" fn minimage_wrap_many(
     simbox: *const mi_cell,
     diffs: *const f64,
     n: usize,
@@ -475,7 +478,7 @@ pub unsafe extern "C" fn mi_wrap_many(
 /// `simbox` is one `mi_cell`. `p` and `q` are three doubles. `out` is
 /// one writable double.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2(
+pub unsafe extern "C" fn minimage_dist2(
     simbox: *const mi_cell,
     p: *const f64,
     q: *const f64,
@@ -520,7 +523,7 @@ fn packed_triples<'a>(ptr: *const f64, n: usize, what: &str) -> Result<&'a [[f64
 ///
 /// `qs` is `n * 3` doubles. `out` is `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_many(
+pub unsafe extern "C" fn minimage_dist2_many(
     simbox: *const mi_cell,
     p: *const f64,
     qs: *const f64,
@@ -555,7 +558,7 @@ pub unsafe extern "C" fn mi_dist2_many(
 ///
 /// `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_pairs(
+pub unsafe extern "C" fn minimage_dist2_pairs(
     simbox: *const mi_cell,
     ps: *const f64,
     qs: *const f64,
@@ -585,14 +588,14 @@ pub unsafe extern "C" fn mi_dist2_pairs(
 }
 
 /// Euclidean nearest-image squared distances from `p` to `n` packed
-/// candidates: [`mi_displacement_euclidean`] per pair, bit for bit, with
+/// candidates: [`minimage_displacement_euclidean`] per pair, bit for bit, with
 /// one superbasis lookup per call and eight pairs per slicer pass.
 ///
 /// # Safety
 ///
 /// `qs` is `n * 3` doubles. `out` is `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_euclidean_many(
+pub unsafe extern "C" fn minimage_dist2_euclidean_many(
     simbox: *const mi_cell,
     p: *const f64,
     qs: *const f64,
@@ -623,13 +626,13 @@ pub unsafe extern "C" fn mi_dist2_euclidean_many(
     }
 }
 
-/// [`mi_dist2_euclidean_many`] for paired rows.
+/// [`minimage_dist2_euclidean_many`] for paired rows.
 ///
 /// # Safety
 ///
 /// `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_euclidean_pairs(
+pub unsafe extern "C" fn minimage_dist2_euclidean_pairs(
     simbox: *const mi_cell,
     ps: *const f64,
     qs: *const f64,
@@ -660,7 +663,7 @@ pub unsafe extern "C" fn mi_dist2_euclidean_pairs(
     }
 }
 
-/// [`mi_dist2_euclidean_pairs`] for pairs that persist across frames.
+/// [`minimage_dist2_euclidean_pairs`] for pairs that persist across frames.
 /// `images` is `n` rows of three `int32_t`: the cell-basis lattice shift
 /// of each pair's image from the previous call, zeros to start, updated
 /// in place. A pair whose stored image still lies in the Voronoi cell
@@ -671,7 +674,7 @@ pub unsafe extern "C" fn mi_dist2_euclidean_pairs(
 /// `ps` and `qs` are `n * 3` doubles, `images` is `n * 3` writable
 /// `int32_t`, and `out` is `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_euclidean_pairs_warm(
+pub unsafe extern "C" fn minimage_dist2_euclidean_pairs_warm(
     simbox: *const mi_cell,
     ps: *const f64,
     qs: *const f64,
@@ -737,7 +740,7 @@ fn packed_fixed<'a>(ptr: *const u64, n: usize, what: &str) -> Result<&'a [[u64; 
 ///
 /// `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint64_t`.
 #[no_mangle]
-pub unsafe extern "C" fn mi_fixed_many(
+pub unsafe extern "C" fn minimage_fixed_many(
     simbox: *const mi_cell,
     rs: *const f64,
     n: usize,
@@ -769,7 +772,7 @@ pub unsafe extern "C" fn mi_fixed_many(
 ///
 /// `a` and `b` are three `uint64_t`. `out` is one writable double.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_fixed(
+pub unsafe extern "C" fn minimage_dist2_fixed(
     simbox: *const mi_cell,
     a: *const u64,
     b: *const u64,
@@ -805,7 +808,7 @@ pub unsafe extern "C" fn mi_dist2_fixed(
 /// `p` is three `uint64_t`. `qs` is `n * 3` `uint64_t`. `out` is `n`
 /// doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_many_fixed(
+pub unsafe extern "C" fn minimage_dist2_many_fixed(
     simbox: *const mi_cell,
     p: *const u64,
     qs: *const u64,
@@ -842,7 +845,7 @@ pub unsafe extern "C" fn mi_dist2_many_fixed(
 ///
 /// `ps` and `qs` are `n * 3` `uint64_t`. `out` is `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_pairs_fixed(
+pub unsafe extern "C" fn minimage_dist2_pairs_fixed(
     simbox: *const mi_cell,
     ps: *const u64,
     qs: *const u64,
@@ -893,13 +896,13 @@ fn packed_fixed32<'a>(ptr: *const u32, n: usize, what: &str) -> Result<&'a [[u32
 
 /// 32-bit fixed-point fractional coordinates of `n` packed positions:
 /// three `uint32_t` per position, each the 64-bit fraction of
-/// [`mi_fixed_many`] rounded to its top 32 bits.
+/// [`minimage_fixed_many`] rounded to its top 32 bits.
 ///
 /// # Safety
 ///
 /// `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint32_t`.
 #[no_mangle]
-pub unsafe extern "C" fn mi_fixed32_many(
+pub unsafe extern "C" fn minimage_fixed32_many(
     simbox: *const mi_cell,
     rs: *const f64,
     n: usize,
@@ -931,7 +934,7 @@ pub unsafe extern "C" fn mi_fixed32_many(
 ///
 /// `a` and `b` are three `uint32_t`. `out` is one writable double.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_fixed32(
+pub unsafe extern "C" fn minimage_dist2_fixed32(
     simbox: *const mi_cell,
     a: *const u32,
     b: *const u32,
@@ -967,7 +970,7 @@ pub unsafe extern "C" fn mi_dist2_fixed32(
 /// `p` is three `uint32_t`. `qs` is `n * 3` `uint32_t`. `out` is `n`
 /// doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_many_fixed32(
+pub unsafe extern "C" fn minimage_dist2_many_fixed32(
     simbox: *const mi_cell,
     p: *const u32,
     qs: *const u32,
@@ -1004,7 +1007,7 @@ pub unsafe extern "C" fn mi_dist2_many_fixed32(
 ///
 /// `ps` and `qs` are `n * 3` `uint32_t`. `out` is `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_pairs_fixed32(
+pub unsafe extern "C" fn minimage_dist2_pairs_fixed32(
     simbox: *const mi_cell,
     ps: *const u32,
     qs: *const u32,
@@ -1041,7 +1044,7 @@ pub unsafe extern "C" fn mi_dist2_pairs_fixed32(
 ///
 /// `dx`, `dy`, `dz`, and `out` are `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_ortho_diffs(
+pub unsafe extern "C" fn minimage_dist2_ortho_diffs(
     dx: *const f64,
     dy: *const f64,
     dz: *const f64,
@@ -1078,7 +1081,7 @@ pub unsafe extern "C" fn mi_dist2_ortho_diffs(
 ///
 /// `p` is three doubles. `qs` is `n * 3` doubles. `out` is `n` doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_shifted_many(
+pub unsafe extern "C" fn minimage_dist2_shifted_many(
     p: *const f64,
     qs: *const f64,
     shift: *const f64,
@@ -1120,7 +1123,7 @@ pub unsafe extern "C" fn mi_dist2_shifted_many(
 /// `pairs` is `2 * n` readable ints. `out` is `2 * n` writable ints.
 /// `out_n` is one writable `size_t`.
 #[no_mangle]
-pub unsafe extern "C" fn mi_reduce_pairs(
+pub unsafe extern "C" fn minimage_reduce_pairs(
     pairs: *const c_int,
     n: usize,
     out: *mut c_int,
@@ -1226,14 +1229,14 @@ fn with_partial<R>(
 /// `pbc` holds three ints, nonzero for a periodic axis; `origin` may be
 /// NULL (then zero). The rows of periodic axes must be finite and
 /// linearly independent; rows of open axes may be zero. All three
-/// periodic is the cell of `mi_cell_from_ase`.
+/// periodic is the cell of `minimage_cell_from_ase`.
 ///
 /// # Safety
 ///
 /// `rows` is nine readable doubles, `pbc` three readable ints, `origin`
 /// NULL or three readable doubles, and `out` one writable `mi_pbc_cell`.
 #[no_mangle]
-pub unsafe extern "C" fn mi_pbc_cell_from_ase(
+pub unsafe extern "C" fn minimage_pbc_cell_from_ase(
     rows: *const f64,
     pbc: *const c_int,
     origin: *const f64,
@@ -1310,7 +1313,7 @@ pub unsafe extern "C" fn mi_pbc_cell_from_ase(
 ///
 /// `simbox` is one `mi_pbc_cell`. `p`, `q`, and `dr` are three doubles.
 #[no_mangle]
-pub unsafe extern "C" fn mi_displacement_euclidean_pbc(
+pub unsafe extern "C" fn minimage_displacement_euclidean_pbc(
     simbox: *const mi_pbc_cell,
     p: *const f64,
     q: *const f64,
@@ -1341,14 +1344,14 @@ pub unsafe extern "C" fn mi_displacement_euclidean_pbc(
     }
 }
 
-/// Squared length of `mi_displacement_euclidean_pbc` into `out`.
+/// Squared length of `minimage_displacement_euclidean_pbc` into `out`.
 ///
 /// # Safety
 ///
 /// `simbox` is one `mi_pbc_cell`. `p` and `q` are three doubles; `out` is
 /// one writable double.
 #[no_mangle]
-pub unsafe extern "C" fn mi_dist2_euclidean_pbc(
+pub unsafe extern "C" fn minimage_dist2_euclidean_pbc(
     simbox: *const mi_pbc_cell,
     p: *const f64,
     q: *const f64,
@@ -1389,7 +1392,7 @@ pub unsafe extern "C" fn mi_dist2_euclidean_pbc(
 /// and `shift` describe `n` candidates (`shift` is `n * 3` ints). The
 /// output pointers are writable for `n` rows.
 #[no_mangle]
-pub unsafe extern "C" fn mi_filter_shifted(
+pub unsafe extern "C" fn minimage_filter_shifted(
     simbox: *const mi_cell,
     xyz: *const f64,
     n_atoms: usize,
@@ -1462,7 +1465,7 @@ pub unsafe extern "C" fn mi_filter_shifted(
 /// `simbox` is one `mi_cell`. `xyz` holds `beads * atoms` points and
 /// `out` holds `atoms` points.
 #[no_mangle]
-pub unsafe extern "C" fn mi_ring_centroid(
+pub unsafe extern "C" fn minimage_ring_centroid(
     simbox: *const mi_cell,
     xyz: *const f64,
     beads: usize,
@@ -1494,4 +1497,321 @@ pub unsafe extern "C" fn mi_ring_centroid(
         }
         Err(e) => fail(e),
     }
+}
+
+#[cfg(feature = "capi-compat-names")]
+mod compat_names {
+    use super::*;
+
+    macro_rules! safe_alias {
+        ($alias:ident => $target:ident($($arg:ident: $ty:ty),*) -> $ret:ty) => {
+            #[deprecated(note = "use the corresponding minimage_* symbol")]
+            #[no_mangle]
+            extern "C" fn $alias($($arg: $ty),*) -> $ret {
+                $target($($arg),*)
+            }
+        };
+    }
+
+    macro_rules! unsafe_alias {
+        ($alias:ident => $target:ident($($arg:ident: $ty:ty),*) -> $ret:ty) => {
+            #[deprecated(note = "use the corresponding minimage_* symbol")]
+            #[no_mangle]
+            unsafe extern "C" fn $alias($($arg: $ty),*) -> $ret {
+                unsafe { $target($($arg),*) }
+            }
+        };
+    }
+
+    safe_alias!(mi_last_error => minimage_last_error() -> *const c_char);
+    safe_alias!(mi_version => minimage_version() -> *const c_char);
+    unsafe_alias!(
+        mi_cell_from_vectors => minimage_cell_from_vectors(
+            a: *const f64,
+            b: *const f64,
+            c: *const f64,
+            origin: *const f64,
+            out: *mut mi_cell
+        ) -> c_int
+    );
+    safe_alias!(
+        mi_cell_from_lammps => minimage_cell_from_lammps(
+            xlo: f64,
+            xhi: f64,
+            ylo: f64,
+            yhi: f64,
+            zlo: f64,
+            zhi: f64,
+            xy: f64,
+            xz: f64,
+            yz: f64,
+            out: *mut mi_cell
+        ) -> c_int
+    );
+    safe_alias!(
+        mi_cell_from_lammps_bounds => minimage_cell_from_lammps_bounds(
+            xspan: f64,
+            yspan: f64,
+            zspan: f64,
+            xy: f64,
+            xz: f64,
+            yz: f64,
+            xlo_b: f64,
+            ylo_b: f64,
+            zlo_b: f64,
+            out: *mut mi_cell
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_cell_from_ase => minimage_cell_from_ase(
+            rows: *const f64,
+            origin: *const f64,
+            out: *mut mi_cell
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_cell_from_con => minimage_cell_from_con(
+            rows: *const f64,
+            out: *mut mi_cell
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_cell_from_con_box => minimage_cell_from_con_box(
+            boxl: *const f64,
+            angles_deg: *const f64,
+            out: *mut mi_cell
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_cell_from_vesin => minimage_cell_from_vesin(
+            box_rows: *const f64,
+            out: *mut mi_cell
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_displacement => minimage_displacement(
+            simbox: *const mi_cell,
+            p: *const f64,
+            q: *const f64,
+            dr: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_displacement_euclidean => minimage_displacement_euclidean(
+            simbox: *const mi_cell,
+            p: *const f64,
+            q: *const f64,
+            dr: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_wrap_many => minimage_wrap_many(
+            simbox: *const mi_cell,
+            diffs: *const f64,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2 => minimage_dist2(
+            simbox: *const mi_cell,
+            p: *const f64,
+            q: *const f64,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_many => minimage_dist2_many(
+            simbox: *const mi_cell,
+            p: *const f64,
+            qs: *const f64,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_pairs => minimage_dist2_pairs(
+            simbox: *const mi_cell,
+            ps: *const f64,
+            qs: *const f64,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_euclidean_many => minimage_dist2_euclidean_many(
+            simbox: *const mi_cell,
+            p: *const f64,
+            qs: *const f64,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_euclidean_pairs => minimage_dist2_euclidean_pairs(
+            simbox: *const mi_cell,
+            ps: *const f64,
+            qs: *const f64,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_euclidean_pairs_warm => minimage_dist2_euclidean_pairs_warm(
+            simbox: *const mi_cell,
+            ps: *const f64,
+            qs: *const f64,
+            n: usize,
+            images: *mut i32,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_fixed_many => minimage_fixed_many(
+            simbox: *const mi_cell,
+            rs: *const f64,
+            n: usize,
+            out: *mut u64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_fixed => minimage_dist2_fixed(
+            simbox: *const mi_cell,
+            a: *const u64,
+            b: *const u64,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_many_fixed => minimage_dist2_many_fixed(
+            simbox: *const mi_cell,
+            p: *const u64,
+            qs: *const u64,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_pairs_fixed => minimage_dist2_pairs_fixed(
+            simbox: *const mi_cell,
+            ps: *const u64,
+            qs: *const u64,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_fixed32_many => minimage_fixed32_many(
+            simbox: *const mi_cell,
+            rs: *const f64,
+            n: usize,
+            out: *mut u32
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_fixed32 => minimage_dist2_fixed32(
+            simbox: *const mi_cell,
+            a: *const u32,
+            b: *const u32,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_many_fixed32 => minimage_dist2_many_fixed32(
+            simbox: *const mi_cell,
+            p: *const u32,
+            qs: *const u32,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_pairs_fixed32 => minimage_dist2_pairs_fixed32(
+            simbox: *const mi_cell,
+            ps: *const u32,
+            qs: *const u32,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_ortho_diffs => minimage_dist2_ortho_diffs(
+            dx: *const f64,
+            dy: *const f64,
+            dz: *const f64,
+            bx: f64,
+            by: f64,
+            bz: f64,
+            out: *mut f64,
+            n: usize
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_shifted_many => minimage_dist2_shifted_many(
+            p: *const f64,
+            qs: *const f64,
+            shift: *const f64,
+            n: usize,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_reduce_pairs => minimage_reduce_pairs(
+            pairs: *const c_int,
+            n: usize,
+            out: *mut c_int,
+            out_n: *mut usize
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_pbc_cell_from_ase => minimage_pbc_cell_from_ase(
+            rows: *const f64,
+            pbc: *const c_int,
+            origin: *const f64,
+            out: *mut mi_pbc_cell
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_displacement_euclidean_pbc => minimage_displacement_euclidean_pbc(
+            simbox: *const mi_pbc_cell,
+            p: *const f64,
+            q: *const f64,
+            dr: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_dist2_euclidean_pbc => minimage_dist2_euclidean_pbc(
+            simbox: *const mi_pbc_cell,
+            p: *const f64,
+            q: *const f64,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_filter_shifted => minimage_filter_shifted(
+            simbox: *const mi_cell,
+            xyz: *const f64,
+            n_atoms: usize,
+            ii: *const u32,
+            jj: *const u32,
+            shift: *const i32,
+            n: usize,
+            cut2: f64,
+            out_i: *mut u32,
+            out_j: *mut u32,
+            out_shift: *mut i32,
+            out_dist2: *mut f64,
+            out_vector: *mut f64,
+            kept: *mut usize
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_ring_centroid => minimage_ring_centroid(
+            simbox: *const mi_cell,
+            xyz: *const f64,
+            beads: usize,
+            atoms: usize,
+            out: *mut f64
+        ) -> c_int
+    );
 }

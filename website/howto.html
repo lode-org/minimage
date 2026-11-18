@@ -39,8 +39,8 @@ mi_cell box = mi_cell_ortho(10.0, 10.0, 10.0);
 const double p[3] = {0.2, 0.0, 0.0};
 const double q[3] = {9.4, 0.0, 0.0};
 double d2 = 0.0;
-if (mi_dist2(&amp;box, p, q, &amp;d2) != 0) {
-    fprintf(stderr, "%s\n", mi_last_error());
+if (minimage_dist2(&amp;box, p, q, &amp;d2) != 0) {
+    fprintf(stderr, "%s\n", minimage_last_error());
 }
 </pre>
 </div>

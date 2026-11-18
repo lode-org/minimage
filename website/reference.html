@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>C API</title>
-<meta name="description" content="mi_* C ABI. Caller owns every buffer." />
+<meta name="description" content="minimage_* C ABI. Caller owns every buffer." />
 <meta name="generator" content="Org Mode" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
@@ -31,8 +31,9 @@
 <div class="rule" aria-hidden="true"></div>
 
 <p>
-Prefix <code>mi_</code>. Every buffer is caller-owned. A nonzero return means
-failure; read <code>mi_last_error()</code> on the same thread.
+Function symbols use the <code>minimage_</code> prefix. Every buffer is caller-owned.
+A nonzero return means failure; read <code>minimage_last_error()</code> on the same
+thread.
 </p>
 
 <table>
@@ -61,117 +62,117 @@ failure; read <code>mi_last_error()</code> on the same thread.
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_cell_from_vectors</code></td>
+<td class="org-left"><code>minimage_cell_from_vectors</code></td>
 <td class="org-left">Columns a, b, c</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_cell_from_lammps</code></td>
+<td class="org-left"><code>minimage_cell_from_lammps</code></td>
 <td class="org-left"><code>xlo xhi ylo yhi zlo zhi</code> plus tilts</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_cell_from_lammps_bounds</code></td>
+<td class="org-left"><code>minimage_cell_from_lammps_bounds</code></td>
 <td class="org-left">Dump bound spans plus tilts</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_cell_from_ase</code></td>
+<td class="org-left"><code>minimage_cell_from_ase</code></td>
 <td class="org-left">Row-major 3x3</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_cell_from_con</code></td>
+<td class="org-left"><code>minimage_cell_from_con</code></td>
 <td class="org-left">CON 3x3</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_cell_from_con_box</code></td>
+<td class="org-left"><code>minimage_cell_from_con_box</code></td>
 <td class="org-left">Lengths and angles in degrees</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_cell_from_vesin</code></td>
+<td class="org-left"><code>minimage_cell_from_vesin</code></td>
 <td class="org-left">vesin 3x3</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_displacement</code></td>
+<td class="org-left"><code>minimage_displacement</code></td>
 <td class="org-left">Wrapped <code>q - p</code></td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_displacement_euclidean</code></td>
+<td class="org-left"><code>minimage_displacement_euclidean</code></td>
 <td class="org-left">Smith test, else the Selling slicer</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2</code></td>
+<td class="org-left"><code>minimage_dist2</code></td>
 <td class="org-left">Squared minimum-image distance</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_many</code></td>
+<td class="org-left"><code>minimage_dist2_many</code></td>
 <td class="org-left">One source, packed candidates</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_pairs</code></td>
+<td class="org-left"><code>minimage_dist2_pairs</code></td>
 <td class="org-left">Packed pair lists</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_euclidean_many</code></td>
+<td class="org-left"><code>minimage_dist2_euclidean_many</code></td>
 <td class="org-left">Euclidean nearest image, one source, packed candidates</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_euclidean_pairs</code></td>
+<td class="org-left"><code>minimage_dist2_euclidean_pairs</code></td>
 <td class="org-left">Euclidean nearest image, packed pair lists</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_euclidean_pairs_warm</code></td>
+<td class="org-left"><code>minimage_dist2_euclidean_pairs_warm</code></td>
 <td class="org-left">Euclidean pairs from the previous frame's shifts</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_ortho_diffs</code></td>
+<td class="org-left"><code>minimage_dist2_ortho_diffs</code></td>
 <td class="org-left">Highway-shaped ortho wrap, AVX when present</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_shifted_many</code></td>
+<td class="org-left"><code>minimage_dist2_shifted_many</code></td>
 <td class="org-left">One lattice shift, many candidates</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_fixed_many</code></td>
+<td class="org-left"><code>minimage_fixed_many</code></td>
 <td class="org-left">Positions to 64-bit fixed-point fractions</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_fixed</code></td>
+<td class="org-left"><code>minimage_dist2_fixed</code></td>
 <td class="org-left">Squared distance between two fixed-point positions</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_many_fixed</code></td>
+<td class="org-left"><code>minimage_dist2_many_fixed</code></td>
 <td class="org-left">One fixed-point source, packed candidates</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_pairs_fixed</code></td>
+<td class="org-left"><code>minimage_dist2_pairs_fixed</code></td>
 <td class="org-left">Packed fixed-point pair lists</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_fixed32_many</code>, <code>mi_dist2_fixed32</code></td>
+<td class="org-left"><code>minimage_fixed32_many</code>, <code>minimage_dist2_fixed32</code></td>
 <td class="org-left">32-bit fixed-point fractions and distance</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_many_fixed32</code>, <code>mi_dist2_pairs_fixed32</code></td>
+<td class="org-left"><code>minimage_dist2_many_fixed32</code>, <code>minimage_dist2_pairs_fixed32</code></td>
 <td class="org-left">32-bit fixed-point batches</td>
 </tr>
 
@@ -181,45 +182,52 @@ failure; read <code>mi_last_error()</code> on the same thread.
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_pbc_cell_from_ase</code></td>
+<td class="org-left"><code>minimage_pbc_cell_from_ase</code></td>
 <td class="org-left">Row-major 3x3 and a mask of three ints; open rows may be zero</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_displacement_euclidean_pbc</code></td>
+<td class="org-left"><code>minimage_displacement_euclidean_pbc</code></td>
 <td class="org-left">Nearest image over the periodic axes only</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_dist2_euclidean_pbc</code></td>
+<td class="org-left"><code>minimage_dist2_euclidean_pbc</code></td>
 <td class="org-left">Its squared length</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_reduce_pairs</code></td>
+<td class="org-left"><code>minimage_reduce_pairs</code></td>
 <td class="org-left">Drop self images, unique pairs</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_last_error</code></td>
+<td class="org-left"><code>minimage_last_error</code></td>
 <td class="org-left">Thread-local error string</td>
 </tr>
 
 <tr>
-<td class="org-left"><code>mi_version</code></td>
+<td class="org-left"><code>minimage_version</code></td>
 <td class="org-left">Process-static version</td>
 </tr>
 </tbody>
 </table>
 
 <p>
+Function symbols use <code>minimage_</code>, the full crate name, to avoid mimalloc's
+<code>mi_</code> namespace. The non-default <code>capi-compat-names</code> Cargo feature exports
+deprecated thin <code>mi_</code> aliases for migration and must not be linked with
+mimalloc.
+</p>
+
+<p>
 The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <code>docs.rs/minimage</code> is the Rust reference.
 </p>
 
-<section id="outline-container-org49f77ed" class="outline-2">
-<h2 id="org49f77ed">Rust</h2>
-<div class="outline-text-2" id="text-org49f77ed">
+<section id="outline-container-orgfbd3944" class="outline-2">
+<h2 id="orgfbd3944">Rust</h2>
+<div class="outline-text-2" id="text-orgfbd3944">
 <table>
 
 
@@ -269,9 +277,9 @@ The selection is cached. Details are on <a href="simd.html">SIMD paths and dispa
 </div>
 </section>
 
-<section id="outline-container-org61e5aea" class="outline-2">
-<h2 id="org61e5aea">Python</h2>
-<div class="outline-text-2" id="text-org61e5aea">
+<section id="outline-container-org599d0a1" class="outline-2">
+<h2 id="org599d0a1">Python</h2>
+<div class="outline-text-2" id="text-org599d0a1">
 <table>
 
 
@@ -351,9 +359,9 @@ an array result is a numpy array. A list in gives a list out.
 </div>
 </section>
 
-<section id="outline-container-orgf04c573" class="outline-2">
-<h2 id="orgf04c573">Burn</h2>
-<div class="outline-text-2" id="text-orgf04c573">
+<section id="outline-container-org535e39d" class="outline-2">
+<h2 id="org535e39d">Burn</h2>
+<div class="outline-text-2" id="text-org535e39d">
 <table>
 
 

@@ -18,7 +18,7 @@ exclude = ["burn"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 
 # The newest pushed release tag, which the Meson wrap snippets name. The
 # release commit sets it with `scripts/sync-version.py --release`, and the tag
@@ -33,14 +33,16 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 [features]
 default = ["capi"]
 capi = []
+capi-compat-names = ["capi"]
 
 [[test]]
 name = "abi"
-required-features = ["capi"]
+required-features = ["capi-compat-names"]
 
 [profile.release]
 lto = true
 codegen-units = 1
 
 [dev-dependencies]
+mimalloc = "0.1.52"
 sha2 = "0.10"

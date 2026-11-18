@@ -26,7 +26,7 @@
 //! a wire, or an open system, with no image along an open axis.
 //!
 //! It is a LODE library. The Rust crate is the implementation. The C
-//! ABI (`mi_*`) is the hourglass waist, the same shape as
+//! ABI (`minimage_*`) is the hourglass waist, the same shape as
 //! [linkcell](https://github.com/d-SEAMS/linkcell) and
 //! [readcon-core](https://github.com/lode-org/readcon-core). C++ is a
 //! RAII header over that ABI.

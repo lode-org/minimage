@@ -5,19 +5,20 @@
  *
  * Memory ownership
  *   - Constructor calls write one mi_cell into a caller-owned out.
- *   - mi_displacement / mi_displacement_euclidean / mi_wrap_many /
- *     mi_dist2 / mi_dist2_many / mi_dist2_pairs / mi_dist2_ortho_diffs
+ *   - minimage_displacement / minimage_displacement_euclidean /
+ *     minimage_wrap_many / minimage_dist2 / minimage_dist2_many /
+ *     minimage_dist2_pairs / minimage_dist2_ortho_diffs
  *     write into caller-owned buffers.
- *   - mi_reduce_pairs writes kept (i, j) pairs into caller-owned out
+ *   - minimage_reduce_pairs writes kept pairs into caller-owned out
  *     and the count into out_n.
- *   - mi_last_error returns a thread-local pointer. Do not free. The
- *     pointer is invalid after the next mi_* call on the same thread.
- *     mi_version does not read or write the slot.
- *   - mi_version returns a process-static pointer. Do not free.
+ *   - minimage_last_error returns a thread-local pointer. Do not free.
+ *     The pointer is invalid after the next minimage_* call on the same
+ *     thread. minimage_version does not read or write the slot.
+ *   - minimage_version returns a process-static pointer. Do not free.
  *
  * Thread safety
  *   - Distinct cells and distance calls may run concurrently.
- *   - mi_last_error is a thread-local slot. Read it on the same thread
+ *   - minimage_last_error is a thread-local slot. Read it on the same thread
  *     that received a nonzero return.
  */
 
@@ -127,18 +128,18 @@ extern "C" {
  * `rows` is nine readable doubles. `origin`, if non-null, is three
  * readable doubles. `out` is one writable `mi_cell`.
  */
-int mi_cell_from_ase(const double *rows,
-                     const double *origin,
-                     struct mi_cell *out);
+int minimage_cell_from_ase(const double *rows,
+                           const double *origin,
+                           struct mi_cell *out);
 
 /**
  * Fill `out` from a CON 3x3 lattice (rows a, b, c).
  *
  * # Safety
  *
- * Same contract as [`mi_cell_from_ase`] with a null origin.
+ * Same contract as [`minimage_cell_from_ase`] with a null origin.
  */
-int mi_cell_from_con(const double *rows, struct mi_cell *out);
+int minimage_cell_from_con(const double *rows, struct mi_cell *out);
 
 /**
  * Fill `out` from CON lengths and angles in degrees.
@@ -148,37 +149,37 @@ int mi_cell_from_con(const double *rows, struct mi_cell *out);
  * `boxl` and `angles_deg` are three readable doubles. `out` is one
  * writable `mi_cell`.
  */
-int mi_cell_from_con_box(const double *boxl,
-                         const double *angles_deg,
-                         struct mi_cell *out);
+int minimage_cell_from_con_box(const double *boxl,
+                               const double *angles_deg,
+                               struct mi_cell *out);
 
 /**
  * Fill `out` from LAMMPS `xlo xhi ylo yhi zlo zhi` and tilts.
  */
-int mi_cell_from_lammps(double xlo,
-                        double xhi,
-                        double ylo,
-                        double yhi,
-                        double zlo,
-                        double zhi,
-                        double xy,
-                        double xz,
-                        double yz,
-                        struct mi_cell *out);
+int minimage_cell_from_lammps(double xlo,
+                              double xhi,
+                              double ylo,
+                              double yhi,
+                              double zlo,
+                              double zhi,
+                              double xy,
+                              double xz,
+                              double yz,
+                              struct mi_cell *out);
 
 /**
  * Fill `out` from dump bound spans, tilts, and bound lo.
  */
-int mi_cell_from_lammps_bounds(double xspan,
-                               double yspan,
-                               double zspan,
-                               double xy,
-                               double xz,
-                               double yz,
-                               double xlo_b,
-                               double ylo_b,
-                               double zlo_b,
-                               struct mi_cell *out);
+int minimage_cell_from_lammps_bounds(double xspan,
+                                     double yspan,
+                                     double zspan,
+                                     double xy,
+                                     double xz,
+                                     double yz,
+                                     double xlo_b,
+                                     double ylo_b,
+                                     double zlo_b,
+                                     struct mi_cell *out);
 
 /**
  * Fill `out` from lattice vectors a, b, c and an origin.
@@ -188,20 +189,20 @@ int mi_cell_from_lammps_bounds(double xspan,
  * `a`, `b`, `c`, `origin`, and `out` are non-null and point at three
  * doubles / one `mi_cell`.
  */
-int mi_cell_from_vectors(const double *a,
-                         const double *b,
-                         const double *c,
-                         const double *origin,
-                         struct mi_cell *out);
+int minimage_cell_from_vectors(const double *a,
+                               const double *b,
+                               const double *c,
+                               const double *origin,
+                               struct mi_cell *out);
 
 /**
  * Fill `out` from a vesin 3x3 box (rows a, b, c).
  *
  * # Safety
  *
- * Same contract as [`mi_cell_from_con`].
+ * Same contract as [`minimage_cell_from_con`].
  */
-int mi_cell_from_vesin(const double *box_rows, struct mi_cell *out);
+int minimage_cell_from_vesin(const double *box_rows, struct mi_cell *out);
 
 /**
  * Minimum-image displacement from `p` to `q` into `dr`.
@@ -210,10 +211,10 @@ int mi_cell_from_vesin(const double *box_rows, struct mi_cell *out);
  *
  * `simbox` is one `mi_cell`. `p`, `q`, and `dr` are three doubles.
  */
-int mi_displacement(const struct mi_cell *simbox,
-                    const double *p,
-                    const double *q,
-                    double *dr);
+int minimage_displacement(const struct mi_cell *simbox,
+                          const double *p,
+                          const double *q,
+                          double *dr);
 
 /**
  * Euclidean MIC: Smith half-altitude test, else the slicer on the
@@ -221,12 +222,12 @@ int mi_displacement(const struct mi_cell *simbox,
  *
  * # Safety
  *
- * Same contract as [`mi_displacement`].
+ * Same contract as [`minimage_displacement`].
  */
-int mi_displacement_euclidean(const struct mi_cell *simbox,
-                              const double *p,
-                              const double *q,
-                              double *dr);
+int minimage_displacement_euclidean(const struct mi_cell *simbox,
+                                    const double *p,
+                                    const double *q,
+                                    double *dr);
 
 /**
  * Nearest-image displacement from `p` to `q` over the periodic axes of
@@ -236,10 +237,10 @@ int mi_displacement_euclidean(const struct mi_cell *simbox,
  *
  * `simbox` is one `mi_pbc_cell`. `p`, `q`, and `dr` are three doubles.
  */
-int mi_displacement_euclidean_pbc(const struct mi_pbc_cell *simbox,
-                                  const double *p,
-                                  const double *q,
-                                  double *dr);
+int minimage_displacement_euclidean_pbc(const struct mi_pbc_cell *simbox,
+                                        const double *p,
+                                        const double *q,
+                                        double *dr);
 
 /**
  * Squared minimum-image distance from `p` to `q`.
@@ -249,41 +250,41 @@ int mi_displacement_euclidean_pbc(const struct mi_pbc_cell *simbox,
  * `simbox` is one `mi_cell`. `p` and `q` are three doubles. `out` is
  * one writable double.
  */
-int mi_dist2(const struct mi_cell *simbox,
-             const double *p,
-             const double *q,
-             double *out);
+int minimage_dist2(const struct mi_cell *simbox,
+                   const double *p,
+                   const double *q,
+                   double *out);
 
 /**
  * Euclidean nearest-image squared distances from `p` to `n` packed
- * candidates: [`mi_displacement_euclidean`] per pair, bit for bit, with
+ * candidates: [`minimage_displacement_euclidean`] per pair, bit for bit, with
  * one superbasis lookup per call and eight pairs per slicer pass.
  *
  * # Safety
  *
  * `qs` is `n * 3` doubles. `out` is `n` doubles.
  */
-int mi_dist2_euclidean_many(const struct mi_cell *simbox,
-                            const double *p,
-                            const double *qs,
-                            size_t n,
-                            double *out);
+int minimage_dist2_euclidean_many(const struct mi_cell *simbox,
+                                  const double *p,
+                                  const double *qs,
+                                  size_t n,
+                                  double *out);
 
 /**
- * [`mi_dist2_euclidean_many`] for paired rows.
+ * [`minimage_dist2_euclidean_many`] for paired rows.
  *
  * # Safety
  *
  * `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles.
  */
-int mi_dist2_euclidean_pairs(const struct mi_cell *simbox,
-                             const double *ps,
-                             const double *qs,
-                             size_t n,
-                             double *out);
+int minimage_dist2_euclidean_pairs(const struct mi_cell *simbox,
+                                   const double *ps,
+                                   const double *qs,
+                                   size_t n,
+                                   double *out);
 
 /**
- * [`mi_dist2_euclidean_pairs`] for pairs that persist across frames.
+ * [`minimage_dist2_euclidean_pairs`] for pairs that persist across frames.
  * `images` is `n` rows of three `int32_t`: the cell-basis lattice shift
  * of each pair's image from the previous call, zeros to start, updated
  * in place. A pair whose stored image still lies in the Voronoi cell
@@ -294,25 +295,25 @@ int mi_dist2_euclidean_pairs(const struct mi_cell *simbox,
  * `ps` and `qs` are `n * 3` doubles, `images` is `n * 3` writable
  * `int32_t`, and `out` is `n` doubles.
  */
-int mi_dist2_euclidean_pairs_warm(const struct mi_cell *simbox,
-                                  const double *ps,
-                                  const double *qs,
-                                  size_t n,
-                                  int32_t *images,
-                                  double *out);
+int minimage_dist2_euclidean_pairs_warm(const struct mi_cell *simbox,
+                                        const double *ps,
+                                        const double *qs,
+                                        size_t n,
+                                        int32_t *images,
+                                        double *out);
 
 /**
- * Squared length of `mi_displacement_euclidean_pbc` into `out`.
+ * Squared length of `minimage_displacement_euclidean_pbc` into `out`.
  *
  * # Safety
  *
  * `simbox` is one `mi_pbc_cell`. `p` and `q` are three doubles; `out` is
  * one writable double.
  */
-int mi_dist2_euclidean_pbc(const struct mi_pbc_cell *simbox,
-                           const double *p,
-                           const double *q,
-                           double *out);
+int minimage_dist2_euclidean_pbc(const struct mi_pbc_cell *simbox,
+                                 const double *p,
+                                 const double *q,
+                                 double *out);
 
 /**
  * Squared engine-wrap distance between two fixed-point positions.
@@ -321,10 +322,10 @@ int mi_dist2_euclidean_pbc(const struct mi_pbc_cell *simbox,
  *
  * `a` and `b` are three `uint64_t`. `out` is one writable double.
  */
-int mi_dist2_fixed(const struct mi_cell *simbox,
-                   const uint64_t *a,
-                   const uint64_t *b,
-                   double *out);
+int minimage_dist2_fixed(const struct mi_cell *simbox,
+                         const uint64_t *a,
+                         const uint64_t *b,
+                         double *out);
 
 /**
  * Squared engine-wrap distance between two 32-bit fixed-point positions.
@@ -333,10 +334,10 @@ int mi_dist2_fixed(const struct mi_cell *simbox,
  *
  * `a` and `b` are three `uint32_t`. `out` is one writable double.
  */
-int mi_dist2_fixed32(const struct mi_cell *simbox,
-                     const uint32_t *a,
-                     const uint32_t *b,
-                     double *out);
+int minimage_dist2_fixed32(const struct mi_cell *simbox,
+                           const uint32_t *a,
+                           const uint32_t *b,
+                           double *out);
 
 /**
  * Squared MIC distances from `p` to `n` packed candidates in `qs`.
@@ -345,11 +346,11 @@ int mi_dist2_fixed32(const struct mi_cell *simbox,
  *
  * `qs` is `n * 3` doubles. `out` is `n` doubles.
  */
-int mi_dist2_many(const struct mi_cell *simbox,
-                  const double *p,
-                  const double *qs,
-                  size_t n,
-                  double *out);
+int minimage_dist2_many(const struct mi_cell *simbox,
+                        const double *p,
+                        const double *qs,
+                        size_t n,
+                        double *out);
 
 /**
  * Squared engine-wrap distances from fixed-point `p` to `n` packed
@@ -360,11 +361,11 @@ int mi_dist2_many(const struct mi_cell *simbox,
  * `p` is three `uint64_t`. `qs` is `n * 3` `uint64_t`. `out` is `n`
  * doubles.
  */
-int mi_dist2_many_fixed(const struct mi_cell *simbox,
-                        const uint64_t *p,
-                        const uint64_t *qs,
-                        size_t n,
-                        double *out);
+int minimage_dist2_many_fixed(const struct mi_cell *simbox,
+                              const uint64_t *p,
+                              const uint64_t *qs,
+                              size_t n,
+                              double *out);
 
 /**
  * Squared engine-wrap distances from 32-bit fixed-point `p` to `n` packed
@@ -375,11 +376,11 @@ int mi_dist2_many_fixed(const struct mi_cell *simbox,
  * `p` is three `uint32_t`. `qs` is `n * 3` `uint32_t`. `out` is `n`
  * doubles.
  */
-int mi_dist2_many_fixed32(const struct mi_cell *simbox,
-                          const uint32_t *p,
-                          const uint32_t *qs,
-                          size_t n,
-                          double *out);
+int minimage_dist2_many_fixed32(const struct mi_cell *simbox,
+                                const uint32_t *p,
+                                const uint32_t *qs,
+                                size_t n,
+                                double *out);
 
 /**
  * Orthorhombic wrap of precomputed differences (Highway kernel).
@@ -388,14 +389,14 @@ int mi_dist2_many_fixed32(const struct mi_cell *simbox,
  *
  * `dx`, `dy`, `dz`, and `out` are `n` doubles.
  */
-int mi_dist2_ortho_diffs(const double *dx,
-                         const double *dy,
-                         const double *dz,
-                         double bx,
-                         double by,
-                         double bz,
-                         double *out,
-                         size_t n);
+int minimage_dist2_ortho_diffs(const double *dx,
+                               const double *dy,
+                               const double *dz,
+                               double bx,
+                               double by,
+                               double bz,
+                               double *out,
+                               size_t n);
 
 /**
  * Squared MIC distances for `n` packed pairs `(ps[k], qs[k])`.
@@ -404,11 +405,11 @@ int mi_dist2_ortho_diffs(const double *dx,
  *
  * `ps` and `qs` are `n * 3` doubles. `out` is `n` doubles.
  */
-int mi_dist2_pairs(const struct mi_cell *simbox,
-                   const double *ps,
-                   const double *qs,
-                   size_t n,
-                   double *out);
+int minimage_dist2_pairs(const struct mi_cell *simbox,
+                         const double *ps,
+                         const double *qs,
+                         size_t n,
+                         double *out);
 
 /**
  * Squared engine-wrap distances for `n` packed fixed-point pairs.
@@ -417,11 +418,11 @@ int mi_dist2_pairs(const struct mi_cell *simbox,
  *
  * `ps` and `qs` are `n * 3` `uint64_t`. `out` is `n` doubles.
  */
-int mi_dist2_pairs_fixed(const struct mi_cell *simbox,
-                         const uint64_t *ps,
-                         const uint64_t *qs,
-                         size_t n,
-                         double *out);
+int minimage_dist2_pairs_fixed(const struct mi_cell *simbox,
+                               const uint64_t *ps,
+                               const uint64_t *qs,
+                               size_t n,
+                               double *out);
 
 /**
  * Squared engine-wrap distances for `n` packed 32-bit fixed-point pairs.
@@ -430,11 +431,11 @@ int mi_dist2_pairs_fixed(const struct mi_cell *simbox,
  *
  * `ps` and `qs` are `n * 3` `uint32_t`. `out` is `n` doubles.
  */
-int mi_dist2_pairs_fixed32(const struct mi_cell *simbox,
-                           const uint32_t *ps,
-                           const uint32_t *qs,
-                           size_t n,
-                           double *out);
+int minimage_dist2_pairs_fixed32(const struct mi_cell *simbox,
+                                 const uint32_t *ps,
+                                 const uint32_t *qs,
+                                 size_t n,
+                                 double *out);
 
 /**
  * Squared distances from `p` to `n` points in `qs`, plus one lattice
@@ -444,11 +445,11 @@ int mi_dist2_pairs_fixed32(const struct mi_cell *simbox,
  *
  * `p` is three doubles. `qs` is `n * 3` doubles. `out` is `n` doubles.
  */
-int mi_dist2_shifted_many(const double *p,
-                          const double *qs,
-                          const double *shift,
-                          size_t n,
-                          double *out);
+int minimage_dist2_shifted_many(const double *p,
+                                const double *qs,
+                                const double *shift,
+                                size_t n,
+                                double *out);
 
 /**
  * Squared-distance filter of candidate pairs `(ii[k], jj[k], shift[k])`.
@@ -463,34 +464,34 @@ int mi_dist2_shifted_many(const double *p,
  * and `shift` describe `n` candidates (`shift` is `n * 3` ints). The
  * output pointers are writable for `n` rows.
  */
-int mi_filter_shifted(const struct mi_cell *simbox,
-                      const double *xyz,
-                      size_t n_atoms,
-                      const uint32_t *ii,
-                      const uint32_t *jj,
-                      const int32_t *shift,
-                      size_t n,
-                      double cut2,
-                      uint32_t *out_i,
-                      uint32_t *out_j,
-                      int32_t *out_shift,
-                      double *out_dist2,
-                      double *out_vector,
-                      size_t *kept);
+int minimage_filter_shifted(const struct mi_cell *simbox,
+                            const double *xyz,
+                            size_t n_atoms,
+                            const uint32_t *ii,
+                            const uint32_t *jj,
+                            const int32_t *shift,
+                            size_t n,
+                            double cut2,
+                            uint32_t *out_i,
+                            uint32_t *out_j,
+                            int32_t *out_shift,
+                            double *out_dist2,
+                            double *out_vector,
+                            size_t *kept);
 
 /**
  * 32-bit fixed-point fractional coordinates of `n` packed positions:
  * three `uint32_t` per position, each the 64-bit fraction of
- * [`mi_fixed_many`] rounded to its top 32 bits.
+ * [`minimage_fixed_many`] rounded to its top 32 bits.
  *
  * # Safety
  *
  * `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint32_t`.
  */
-int mi_fixed32_many(const struct mi_cell *simbox,
-                    const double *rs,
-                    size_t n,
-                    uint32_t *out);
+int minimage_fixed32_many(const struct mi_cell *simbox,
+                          const double *rs,
+                          size_t n,
+                          uint32_t *out);
 
 /**
  * Fixed-point fractional coordinates of `n` packed positions: three
@@ -500,39 +501,39 @@ int mi_fixed32_many(const struct mi_cell *simbox,
  *
  * `rs` is `n * 3` doubles. `out` is `n * 3` writable `uint64_t`.
  */
-int mi_fixed_many(const struct mi_cell *simbox,
-                  const double *rs,
-                  size_t n,
-                  uint64_t *out);
+int minimage_fixed_many(const struct mi_cell *simbox,
+                        const double *rs,
+                        size_t n,
+                        uint64_t *out);
 
 /**
- * Thread-local last-error string from this thread's most recent `mi_*`
+ * Thread-local last-error string from this thread's most recent `minimage_*`
  * failure.
  *
  * Returns a pointer to a NUL-terminated UTF-8 C string, or `NULL` if
  * the last call on this thread succeeded, or if none has failed yet.
- * [`mi_version`] does not read or write the slot. Distinct threads
- * have independent slots. The pointer is valid until the next `mi_*`
+ * [`minimage_version`] does not read or write the slot. Distinct threads
+ * have independent slots. The pointer is valid until the next `minimage_*`
  * call on this thread. Do not free it.
  */
-const char *mi_last_error(void);
+const char *minimage_last_error(void);
 
 /**
  * Fill `out` from ASE-style rows, a periodicity mask and an origin.
  * `pbc` holds three ints, nonzero for a periodic axis; `origin` may be
  * NULL (then zero). The rows of periodic axes must be finite and
  * linearly independent; rows of open axes may be zero. All three
- * periodic is the cell of `mi_cell_from_ase`.
+ * periodic is the cell of `minimage_cell_from_ase`.
  *
  * # Safety
  *
  * `rows` is nine readable doubles, `pbc` three readable ints, `origin`
  * NULL or three readable doubles, and `out` one writable `mi_pbc_cell`.
  */
-int mi_pbc_cell_from_ase(const double *rows,
-                         const int *pbc,
-                         const double *origin,
-                         struct mi_pbc_cell *out);
+int minimage_pbc_cell_from_ase(const double *rows,
+                               const int *pbc,
+                               const double *origin,
+                               struct mi_pbc_cell *out);
 
 /**
  * Drop self images and collapse duplicate `(i, j)` rows.
@@ -545,7 +546,7 @@ int mi_pbc_cell_from_ase(const double *rows,
  * `pairs` is `2 * n` readable ints. `out` is `2 * n` writable ints.
  * `out_n` is one writable `size_t`.
  */
-int mi_reduce_pairs(const int *pairs, size_t n, int *out, size_t *out_n);
+int minimage_reduce_pairs(const int *pairs, size_t n, int *out, size_t *out_n);
 
 /**
  * Ring-polymer centroid. `xyz` is bead-major `(beads * atoms, 3)`.
@@ -556,16 +557,16 @@ int mi_reduce_pairs(const int *pairs, size_t n, int *out, size_t *out_n);
  * `simbox` is one `mi_cell`. `xyz` holds `beads * atoms` points and
  * `out` holds `atoms` points.
  */
-int mi_ring_centroid(const struct mi_cell *simbox,
-                     const double *xyz,
-                     size_t beads,
-                     size_t atoms,
-                     double *out);
+int minimage_ring_centroid(const struct mi_cell *simbox,
+                           const double *xyz,
+                           size_t beads,
+                           size_t atoms,
+                           double *out);
 
 /**
  * Library version string. Process-static, NUL-terminated. Do not free.
  */
-const char *mi_version(void);
+const char *minimage_version(void);
 
 /**
  * Engine wrap of `n` packed difference vectors into `out`.
@@ -574,10 +575,10 @@ const char *mi_version(void);
  *
  * `diffs` and `out` are `n * 3` doubles.
  */
-int mi_wrap_many(const struct mi_cell *simbox,
-                 const double *diffs,
-                 size_t n,
-                 double *out);
+int minimage_wrap_many(const struct mi_cell *simbox,
+                       const double *diffs,
+                       size_t n,
+                       double *out);
 
 #ifdef __cplusplus
 }  // extern "C"
