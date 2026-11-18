@@ -33,6 +33,7 @@ thread.
 | =minimage_cell_from_vesin= | vesin 3x3 |
 | =minimage_displacement= | Wrapped =q - p= |
 | =minimage_displacement_euclidean= | Smith test, else the Selling slicer |
+| =minimage_wrap_many= | Engine wrap of packed difference rows |
 | =minimage_dist2= | Squared minimum-image distance |
 | =minimage_dist2_many= | One source, packed candidates |
 | =minimage_dist2_pairs= | Packed pair lists |
@@ -51,6 +52,8 @@ thread.
 | =minimage_pbc_cell_from_ase= | Row-major 3x3 and a mask of three ints; open rows may be zero |
 | =minimage_displacement_euclidean_pbc= | Nearest image over the periodic axes only |
 | =minimage_dist2_euclidean_pbc= | Its squared length |
+| =minimage_filter_shifted= | Cutoff filter on shifted pair candidates |
+| =minimage_ring_centroid= | Ring-polymer centroid over beads |
 | =minimage_reduce_pairs= | Drop self images, unique pairs |
 | =minimage_last_error= | Thread-local error string |
 | =minimage_version= | Process-static version |

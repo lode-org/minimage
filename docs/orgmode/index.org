@@ -52,7 +52,9 @@ length-angle box, an ASE-style 3x3 cell, and a vesin box.
 - [[file:explanation.org][Explanation]] :: MIC and H, dump bounds, vesin reduction.
 - [[file:simd.org][SIMD paths and dispatch]] :: runtime path selection,
   =MINIMAGE_SIMD=, and bit-identical batches.
-- [[file:reference.org][Reference]] :: =mi_*= C API.
+- [[file:reference.org][Reference]] :: =minimage_*= C API (=mi_cell=,
+  =mi_cell_ortho=; optional =capi-compat-names= for legacy =mi_*=
+  functions).
 
 * Install
 

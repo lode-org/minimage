@@ -107,6 +107,11 @@ thread.
 </tr>
 
 <tr>
+<td class="org-left"><code>minimage_wrap_many</code></td>
+<td class="org-left">Engine wrap of packed difference rows</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>minimage_dist2</code></td>
 <td class="org-left">Squared minimum-image distance</td>
 </tr>
@@ -197,6 +202,16 @@ thread.
 </tr>
 
 <tr>
+<td class="org-left"><code>minimage_filter_shifted</code></td>
+<td class="org-left">Cutoff filter on shifted pair candidates</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_ring_centroid</code></td>
+<td class="org-left">Ring-polymer centroid over beads</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>minimage_reduce_pairs</code></td>
 <td class="org-left">Drop self images, unique pairs</td>
 </tr>
@@ -225,9 +240,9 @@ The C++ header <code>minimage.hpp</code> is a RAII wrap of this ABI.
 <code>docs.rs/minimage</code> is the Rust reference.
 </p>
 
-<section id="outline-container-orgfbd3944" class="outline-2">
-<h2 id="orgfbd3944">Rust</h2>
-<div class="outline-text-2" id="text-orgfbd3944">
+<section id="outline-container-org23bb365" class="outline-2">
+<h2 id="org23bb365">Rust</h2>
+<div class="outline-text-2" id="text-org23bb365">
 <table>
 
 
@@ -277,9 +292,9 @@ The selection is cached. Details are on <a href="simd.html">SIMD paths and dispa
 </div>
 </section>
 
-<section id="outline-container-org599d0a1" class="outline-2">
-<h2 id="org599d0a1">Python</h2>
-<div class="outline-text-2" id="text-org599d0a1">
+<section id="outline-container-org55829ed" class="outline-2">
+<h2 id="org55829ed">Python</h2>
+<div class="outline-text-2" id="text-org55829ed">
 <table>
 
 
@@ -359,9 +374,9 @@ an array result is a numpy array. A list in gives a list out.
 </div>
 </section>
 
-<section id="outline-container-org535e39d" class="outline-2">
-<h2 id="org535e39d">Burn</h2>
-<div class="outline-text-2" id="text-org535e39d">
+<section id="outline-container-org0c1f0fc" class="outline-2">
+<h2 id="org0c1f0fc">Burn</h2>
+<div class="outline-text-2" id="text-org0c1f0fc">
 <table>
 
 

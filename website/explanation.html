@@ -92,9 +92,9 @@ stores as much as it loads, and a 64-byte store splits a cache line
 on all but one alignment in eight.
 </p>
 
-<section id="outline-container-orgabcdabf" class="outline-2">
-<h2 id="orgabcdabf">Nearest image</h2>
-<div class="outline-text-2" id="text-orgabcdabf">
+<section id="outline-container-orgfd62119" class="outline-2">
+<h2 id="orgfd62119">Nearest image</h2>
+<div class="outline-text-2" id="text-orgfd62119">
 <p>
 Smith, CCP5 Newsletter 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -158,9 +158,9 @@ production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-orgb53bc9c" class="outline-2">
-<h2 id="orgb53bc9c">Fixed-point fractions</h2>
-<div class="outline-text-2" id="text-orgb53bc9c">
+<section id="outline-container-orgf220c0f" class="outline-2">
+<h2 id="orgf220c0f">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-orgf220c0f">
 <p>
 <code>Cell::fixed</code> stores a position folded into the cell as three
 fractions on 64 bits, <code>round(s * 2^52) * 2^12</code>: the low 52 bits of
@@ -220,9 +220,9 @@ wrap, with relative errors of <code>1.5e-11</code>.
 </div>
 </section>
 
-<section id="outline-container-org071b402" class="outline-2">
-<h2 id="org071b402">Arrays and devices</h2>
-<div class="outline-text-2" id="text-org071b402">
+<section id="outline-container-org819e0e1" class="outline-2">
+<h2 id="org819e0e1">Arrays and devices</h2>
+<div class="outline-text-2" id="text-org819e0e1">
 <p>
 The Python methods take any DLPack producer, numpy, PyTorch, JAX, or
 CuPy host memory, and read contiguous rows where they lie; the result
@@ -249,9 +249,9 @@ the CPU.
 </div>
 </section>
 
-<section id="outline-container-org1b2c39d" class="outline-2">
-<h2 id="org1b2c39d">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-org1b2c39d">
+<section id="outline-container-org48e18ad" class="outline-2">
+<h2 id="org48e18ad">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-org48e18ad">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -271,9 +271,9 @@ c)</code>.
 </div>
 </section>
 
-<section id="outline-container-org5e12fd6" class="outline-2">
-<h2 id="org5e12fd6">vesin images</h2>
-<div class="outline-text-2" id="text-org5e12fd6">
+<section id="outline-container-orgdc736ba" class="outline-2">
+<h2 id="orgdc736ba">vesin images</h2>
+<div class="outline-text-2" id="text-orgdc736ba">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -283,9 +283,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-org7ff297d" class="outline-2">
-<h2 id="org7ff297d">Consumers</h2>
-<div class="outline-text-2" id="text-org7ff297d">
+<section id="outline-container-org364ba0c" class="outline-2">
+<h2 id="org364ba0c">Consumers</h2>
+<div class="outline-text-2" id="text-org364ba0c">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS calls the C ABI from <code>lammpsBoxToLcCell</code>,
