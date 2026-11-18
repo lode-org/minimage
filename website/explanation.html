@@ -30,9 +30,9 @@
 </nav>
 <div class="rule" aria-hidden="true"></div>
 
-<section id="outline-container-orgcab1a29" class="outline-2">
-<h2 id="orgcab1a29">Conventions and units</h2>
-<div class="outline-text-2" id="text-orgcab1a29">
+<section id="outline-container-org0cb8e29" class="outline-2">
+<h2 id="org0cb8e29">Conventions and units</h2>
+<div class="outline-text-2" id="text-org0cb8e29">
 <p>
 minimage is unit-agnostic: coordinates, lattice vectors, origins, and
 displacements share one caller-chosen Cartesian length unit, and
@@ -62,9 +62,9 @@ displacement and squared distance call.
 </div>
 </section>
 
-<section id="outline-container-org64cacb0" class="outline-2">
-<h2 id="org64cacb0">Fractional wrap and triclinic cells</h2>
-<div class="outline-text-2" id="text-org64cacb0">
+<section id="outline-container-org5a2051e" class="outline-2">
+<h2 id="org5a2051e">Fractional wrap and triclinic cells</h2>
+<div class="outline-text-2" id="text-org5a2051e">
 <p>
 A periodic cell is a parallelepiped whose edges are the columns of <code>H</code>.
 Cartesian coordinates fold to fractional coordinates
@@ -74,9 +74,9 @@ then map back <code>r = H s</code>. Squared engine distance is
 </p>
 </div>
 
-<div id="outline-container-org9c6aa7a" class="outline-3">
-<h3 id="org9c6aa7a">Orthorhombic cells</h3>
-<div class="outline-text-3" id="text-org9c6aa7a">
+<div id="outline-container-orgb90feff" class="outline-3">
+<h3 id="orgb90feff">Orthorhombic cells</h3>
+<div class="outline-text-3" id="text-orgb90feff">
 <p>
 Orthorhombic boxes are the diagonal case (Allen and Tildesley; Frenkel
 and Smit). Each axis is <code>d - L floor(d/L + 1/2)</code> for every image, not
@@ -105,9 +105,9 @@ See <a href="simd.html">SIMD paths and dispatch</a>.
 </div>
 </div>
 
-<div id="outline-container-org8082f63" class="outline-3">
-<h3 id="org8082f63">Restricted and general triclinic cells</h3>
-<div class="outline-text-3" id="text-org8082f63">
+<div id="outline-container-org4b5d651" class="outline-3">
+<h3 id="org4b5d651">Restricted and general triclinic cells</h3>
+<div class="outline-text-3" id="text-org4b5d651">
 <p>
 A restricted triclinic box (<code>a</code> along x, <code>b</code> in the xy plane, with
 upper-triangular tilts <code>xy</code>, <code>xz</code>, <code>yz</code>) uses the triangular <code>lamda</code>
@@ -131,9 +131,9 @@ general parallelepiped into the restricted-triclinic frame (LAMMPS
 </div>
 </div>
 
-<div id="outline-container-orgd3cf259" class="outline-3">
-<h3 id="orgd3cf259">Batch fusion</h3>
-<div class="outline-text-3" id="text-orgd3cf259">
+<div id="outline-container-org57960d0" class="outline-3">
+<h3 id="org57960d0">Batch fusion</h3>
+<div class="outline-text-3" id="text-org57960d0">
 <p>
 <code>dist2_many</code>, <code>dist2_pairs</code>, and <code>wrap_many</code> are one SIMD pass over
 the packed rows for every cell shape: four rows load as three vectors,
@@ -160,9 +160,9 @@ on all but one alignment in eight.
 </div>
 </section>
 
-<section id="outline-container-org16a4c27" class="outline-2">
-<h2 id="org16a4c27">Euclidean nearest image and Selling reduction</h2>
-<div class="outline-text-2" id="text-org16a4c27">
+<section id="outline-container-orgd3f0b18" class="outline-2">
+<h2 id="orgd3f0b18">Euclidean nearest image and Selling reduction</h2>
+<div class="outline-text-2" id="text-orgd3f0b18">
 <p>
 Smith, <strong>CCP5 Newsletter</strong> 1989: the engine wrap is the Euclidean
 nearest image when its length is strictly below half the smallest
@@ -255,9 +255,9 @@ subtract, so the production walk keeps the subtract.
 </div>
 </section>
 
-<section id="outline-container-org1b77fe6" class="outline-2">
-<h2 id="org1b77fe6">Partial periodicity</h2>
-<div class="outline-text-2" id="text-org1b77fe6">
+<section id="outline-container-orgedd21d3" class="outline-2">
+<h2 id="orgedd21d3">Partial periodicity</h2>
+<div class="outline-text-2" id="text-orgedd21d3">
 <p>
 <code>PartialCell</code> (<code>mi_pbc_cell</code> in C) handles systems periodic along zero,
 one, two, or three axes. An open system (zero periodic axes) returns
@@ -271,9 +271,9 @@ delegates to <code>Cell</code> and returns the exact same bits.
 </div>
 </section>
 
-<section id="outline-container-org099e7d5" class="outline-2">
-<h2 id="org099e7d5">Fixed-point fractions</h2>
-<div class="outline-text-2" id="text-org099e7d5">
+<section id="outline-container-orged9e6f3" class="outline-2">
+<h2 id="orged9e6f3">Fixed-point fractions</h2>
+<div class="outline-text-2" id="text-orged9e6f3">
 <p>
 <code>Cell::fixed</code> stores a position folded into the cell as three
 fractions on 64 bits, <code>round(s * 2^52) * 2^12</code>: the low 52 bits of
@@ -321,9 +321,9 @@ neighbour searches and histograms, beside the double contract.
 </div>
 </section>
 
-<section id="outline-container-org5a3b833" class="outline-2">
-<h2 id="org5a3b833">Arrays and devices</h2>
-<div class="outline-text-2" id="text-org5a3b833">
+<section id="outline-container-orga3d2741" class="outline-2">
+<h2 id="orga3d2741">Arrays and devices</h2>
+<div class="outline-text-2" id="text-orga3d2741">
 <p>
 The Python methods take any host DLPack producer (numpy, PyTorch, JAX,
 or CuPy host memory; see also metatensor and metatomic,
@@ -351,9 +351,9 @@ the CPU.
 </div>
 </section>
 
-<section id="outline-container-orge7c360d" class="outline-2">
-<h2 id="orge7c360d">Error behaviour</h2>
-<div class="outline-text-2" id="text-orge7c360d">
+<section id="outline-container-org498a6fa" class="outline-2">
+<h2 id="org498a6fa">Error behaviour</h2>
+<div class="outline-text-2" id="text-org498a6fa">
 <ul class="org-ul">
 <li><strong><strong>Rust</strong></strong>: constructors and slice-validated functions return
 <code>Result&lt;_, Error&gt;</code>. <code>Error::BadBox</code> covers singular (<code>|det(H)| &lt; 1e-18</code>),
@@ -386,9 +386,9 @@ buffers.</li>
 </div>
 </section>
 
-<section id="outline-container-org6d38ce3" class="outline-2">
-<h2 id="org6d38ce3">Dump bounds are not H</h2>
-<div class="outline-text-2" id="text-org6d38ce3">
+<section id="outline-container-orgab9d626" class="outline-2">
+<h2 id="orgab9d626">Dump bounds are not H</h2>
+<div class="outline-text-2" id="text-orgab9d626">
 <p>
 LAMMPS ITEM BOX BOUNDS stores bound spans plus tilt <code>xy, xz, yz</code>.
 <code>Cell::from_lammps_bounds</code> recovers the restricted-triclinic H and
@@ -409,9 +409,9 @@ pass rows <code>(a, b, c)</code>.
 </div>
 </section>
 
-<section id="outline-container-org84d1e03" class="outline-2">
-<h2 id="org84d1e03">vesin images</h2>
-<div class="outline-text-2" id="text-org84d1e03">
+<section id="outline-container-org9462d9c" class="outline-2">
+<h2 id="org9462d9c">vesin images</h2>
+<div class="outline-text-2" id="text-org9462d9c">
 <p>
 vesin enumerates periodic images. A particle can appear as its own
 neighbour through an image, and one neighbour can arrive through
@@ -421,9 +421,9 @@ the self image.
 </div>
 </section>
 
-<section id="outline-container-org63d4993" class="outline-2">
-<h2 id="org63d4993">Consumers</h2>
-<div class="outline-text-2" id="text-org63d4993">
+<section id="outline-container-orgba38ef7" class="outline-2">
+<h2 id="orgba38ef7">Consumers</h2>
+<div class="outline-text-2" id="text-orgba38ef7">
 <p>
 linkcell re-exports <code>minimage::Cell</code> for the fold and the lattice
 shift. d-SEAMS (<a href="https://doi.org/10.1021/acs.jcim.0c00031">doi:10.1021/acs.jcim.0c00031</a>)
