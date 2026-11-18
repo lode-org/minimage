@@ -1,15 +1,18 @@
-//! Recoverable failures from a cell or a distance call.
+//! Recoverable failures from cell construction or batch/pair calls.
 
 use std::fmt;
 
-/// Why a cell or a distance call could not run.
+/// Why a cell construction, reduction, or batch call could not run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
-    /// A box length is not strictly positive, or H is singular.
+    /// Singular or degenerate cell (`|det| < 1e-18`, non-finite entry,
+    /// non-positive perpendicular face width, collinear periodic basis
+    /// vectors, or non-positive box lengths where required).
     BadBox,
-    /// Caller output length does not match the candidate count.
+    /// Caller buffer lengths do not match, or an atom index exceeds the
+    /// coordinate slice length.
     BufferSize,
-    /// A pair list or candidate list is empty when a count is required.
+    /// A bead count or coordinate list is empty or not evenly divisible.
     Empty,
 }
 

@@ -1,6 +1,6 @@
 #+title: How-to
 #+setupfile: setup.org
-#+description: Embed minimage from C, C++, and Python. pkg-config. Cut a release.
+#+description: Embed minimage from C, C++, Python, and Burn. pkg-config. Cut a release.
 
 #+begin_export html
 <nav class="top" aria-label="minimage">
@@ -10,6 +10,7 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
@@ -17,8 +18,14 @@
 
 * Embed from C
 
+Every exported C function uses the =minimage_= prefix. Functions return
+=0= on success and =1= on failure; on failure, call
+=minimage_last_error()= on the same thread before any other
+=minimage_*= call.
+
 #+begin_src c
 #include "minimage.h"
+#include <stdio.h>
 
 mi_cell box = mi_cell_ortho(10.0, 10.0, 10.0);
 const double p[3] = {0.2, 0.0, 0.0};
@@ -27,8 +34,24 @@ double d2 = 0.0;
 if (minimage_dist2(&box, p, q, &d2) != 0) {
     fprintf(stderr, "%s\n", minimage_last_error());
 }
+
+/* Triclinic cell and Euclidean nearest-image displacement. */
+mi_cell hex;
+if (minimage_cell_from_lammps_bounds(
+        15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, &hex) != 0) {
+    fprintf(stderr, "%s\n", minimage_last_error());
+}
+const double origin[3] = {0.0, 0.0, 0.0};
+const double diag[3] = {7.35, 4.243524478543749, 4.9};
+double dr[3] = {0.0, 0.0, 0.0};
+if (minimage_displacement_euclidean(&hex, origin, diag, dr) != 0) {
+    fprintf(stderr, "%s\n", minimage_last_error());
+}
 #+end_src
 
+For slabs or wires in C, build an =mi_pbc_cell= with
+=minimage_pbc_cell_from_ase= and query
+=minimage_displacement_euclidean_pbc= or =minimage_dist2_euclidean_pbc=.
 Link =libminimage= and add =include/= to the include path. Meson
 exposes =minimage_dep=. CMake exposes =minimage::minimage=.
 
@@ -39,10 +62,18 @@ exposes =minimage_dep=. CMake exposes =minimage::minimage=.
 
 const minimage::Cell box = minimage::Cell::ortho(10.0, 10.0, 10.0);
 const double d2 = box.dist2({0.2, 0.0, 0.0}, {9.4, 0.0, 0.0});
+
+const minimage::Cell hex = minimage::Cell::from_lammps_bounds(
+    15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+const auto dr = hex.displacement_euclidean({0.0, 0.0, 0.0}, {7.35, 4.243524478543749, 4.9});
 #+end_src
 
 The header is a RAII wrap of =minimage.h=. Failures throw
-=minimage::Error=.
+=minimage::Error=, whose =status()= carries the C ABI return code and
+whose =what()= carries =minimage_last_error()=. =Cell::ortho= is
+=noexcept= and does not validate lengths until a distance or
+displacement method is called; the other constructors validate
+immediately.
 
 * Embed from Python
 
@@ -52,6 +83,11 @@ import minimage
 cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
 print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
 
+hex_cell = minimage.Cell.from_lammps_bounds(
+    15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0
+)
+dr = hex_cell.displacement_euclidean([0.0, 0.0, 0.0], [7.35, 4.243524478543749, 4.9])
+
 d2 = cell.dist2_pairs(ps, qs)        # (n, 3) arrays in, numpy out
 f = cell.fixed_many(positions)       # uint64 (n, 3)
 d2 = cell.dist2_pairs_fixed(f[i], f[j])
@@ -59,8 +95,10 @@ d2 = cell.dist2_pairs_fixed(f[i], f[j])
 
 Array arguments go through DLPack: numpy, PyTorch, JAX, and CuPy host
 arrays are read in place, and the result is a numpy array that owns
-its buffer. A list in gives a list out. A device array raises; move it
-to the host, or run the wrap on the device with =minimage-burn=.
+its buffer. A list in gives a list out. A device array raises
+=TypeError=; move it to the host, or run the wrap on the device with
+=minimage-burn=. Bad cells, shape mismatches, and wrong dtypes raise
+=ValueError=, =TypeError=, or =BufferError=.
 
 * Run on a GPU with Burn
 

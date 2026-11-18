@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>A wrapped pair</title>
-<meta name="description" content="Two points near opposite faces, and the sheared LAMMPS a-image." />
+<meta name="description" content="Two points near opposite faces, the sheared LAMMPS a-image, and Euclidean nearest image." />
 <meta name="generator" content="Org Mode" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="assets/minimage-icon.svg" type="image/svg+xml" />
@@ -25,23 +25,35 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
 
+<section id="outline-container-org32d4721" class="outline-2">
+<h2 id="org32d4721">Orthorhombic box</h2>
+<div class="outline-text-2" id="text-org32d4721">
 <p>
 Two points near opposite faces of a 10-wide box sit 9.2 apart in
 Cartesian space and 0.8 apart under the minimum image.
 </p>
 
 <div class="org-src-container">
-<pre class="src src-rust">use minimage::Cell;
+<pre class="src src-rust">use minimage::{Cell, Error};
 
-let cell = Cell::ortho(10.0, 10.0, 10.0)?;
-assert!((cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() &lt; 1e-12);
+fn main() -&gt; Result&lt;(), Error&gt; {
+    let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+    assert!((cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() &lt; 1e-12);
+    Ok(())
+}
 </pre>
 </div>
+</div>
+</section>
 
+<section id="outline-container-orga17b88d" class="outline-2">
+<h2 id="orga17b88d">Sheared LAMMPS dump</h2>
+<div class="outline-text-2" id="text-orga17b88d">
 <p>
 A sheared LAMMPS dump uses bound spans, not <code>lx, ly, lz</code>. The a-image
 pair <code>(0.2, 0.1, 1)</code> and <code>(9.7, 0.1, 1)</code> on
@@ -57,27 +69,79 @@ has squared distance 0.25.
 </p>
 
 <div class="org-src-container">
-<pre class="src src-rust">let sheared = Cell::from_lammps_bounds(
-    15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-)?;
-assert!((sheared.dist2([0.2, 0.1, 1.0], [9.7, 0.1, 1.0]) - 0.25).abs() &lt; 1e-12);
+<pre class="src src-rust">use minimage::{Cell, Error};
+
+fn main() -&gt; Result&lt;(), Error&gt; {
+    let sheared = Cell::from_lammps_bounds(
+        15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    )?;
+    assert!((sheared.dist2([0.2, 0.1, 1.0], [9.7, 0.1, 1.0]) - 0.25).abs() &lt; 1e-12);
+    Ok(())
+}
 </pre>
 </div>
+</div>
+</section>
 
+<section id="outline-container-org26842c8" class="outline-2">
+<h2 id="org26842c8">Triclinic Euclidean nearest image</h2>
+<div class="outline-text-2" id="text-org26842c8">
 <p>
-vesin can list a particle as its own neighbour through an image.
-<code>reduce_pairs</code> keeps each ordered pair once and drops the self image.
+On a tilted hexagonal prism, the fractional engine wrap along a body
+diagonal is not always the shortest image in Cartesian space.
+<code>displacement_euclidean</code> finds the exact Voronoi nearest image.
 </p>
 
 <div class="org-src-container">
-<pre class="src src-rust">use minimage::reduce_pairs;
+<pre class="src src-rust">use minimage::{Cell, Error};
 
-let pairs = [[0, 1], [0, 0], [0, 1]];
-let mut kept = Vec::new();
-reduce_pairs(&amp;pairs, &amp;mut kept)?;
-assert_eq!(kept, vec![[0, 1]]);
+fn main() -&gt; Result&lt;(), Error&gt; {
+    let hex = Cell::from_vectors(
+        [10.0, 0.0, 0.0],
+        [5.0, 8.660254037844386, 0.0],
+        [0.0, 0.0, 10.0],
+        [0.0, 0.0, 0.0],
+    )?;
+    let q = hex.cartesian([0.49, 0.49, 0.49]);
+    let euc = hex.displacement_euclidean([0.0, 0.0, 0.0], q);
+    let e2 = euc[0] * euc[0] + euc[1] * euc[1] + euc[2] * euc[2];
+    assert!(e2 &lt; hex.dist2([0.0, 0.0, 0.0], q));
+    Ok(())
+}
 </pre>
 </div>
+</div>
+</section>
+
+<section id="outline-container-orgf1bd66c" class="outline-2">
+<h2 id="orgf1bd66c">Partial periodicity and pair reduction</h2>
+<div class="outline-text-2" id="text-orgf1bd66c">
+<p>
+For a slab periodic in two axes, <code>PartialCell::from_ase</code> wraps along
+periodic vectors only and keeps open axes unwrapped.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-rust">use minimage::{reduce_pairs, Error, PartialCell};
+
+fn main() -&gt; Result&lt;(), Error&gt; {
+    let slab = PartialCell::from_ase(
+        [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 0.0]],
+        [true, true, false],
+    )?;
+    let d = slab.displacement_euclidean([0.5, 0.5, 0.0], [9.5, 0.5, 30.0]);
+    assert!((d[0] + 1.0).abs() &lt; 1e-12 &amp;&amp; (d[2] - 30.0).abs() &lt; 1e-12);
+
+    let pairs = [[0, 1], [0, 0], [0, 1]];
+    let mut kept = Vec::new();
+    reduce_pairs(&amp;pairs, &amp;mut kept)?;
+    assert_eq!(kept, vec![[0, 1]]);
+    Ok(())
+}
+</pre>
+</div>
+</div>
+</section>
 </div>
 </body>
 </html>

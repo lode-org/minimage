@@ -10,6 +10,7 @@
   <a href="howto.html">How-to</a>
   <a href="explanation.html">Explain</a>
   <a href="reference.html">Reference</a>
+  <a href="simd.html">SIMD</a>
   <a href="https://lode-org.github.io/">LODE</a>
 </nav>
 <div class="rule" aria-hidden="true"></div>
@@ -28,10 +29,13 @@ Pick *one* language.
 ** Rust
 
 #+begin_src rust
-use minimage::Cell;
+use minimage::{Cell, Error};
 
-let sim = Cell::ortho(10.0, 10.0, 10.0)?;
-assert!((sim.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() < 1e-12);
+fn main() -> Result<(), Error> {
+    let sim = Cell::ortho(10.0, 10.0, 10.0)?;
+    assert!((sim.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]) - 0.64).abs() < 1e-12);
+    Ok(())
+}
 #+end_src
 
 ** Python
@@ -58,6 +62,29 @@ depth = 1
 
 [provide]
 minimage = minimage_dep
+#+end_src
+
+#+begin_src meson
+minimage_dep = dependency('minimage', fallback: ['minimage', 'minimage_dep'])
+#+end_src
+
+** CMake and pkg-config
+
+#+begin_src sh
+cmake -B build -DCMAKE_INSTALL_PREFIX=$PREFIX
+cmake --build build
+cmake --install build
+#+end_src
+
+#+begin_src cmake
+find_package(minimage 0.2 REQUIRED)
+target_link_libraries(app PRIVATE minimage::minimage)
+#+end_src
+
+With pkg-config after installing via Meson or CMake:
+
+#+begin_src sh
+pkg-config --cflags --libs minimage
 #+end_src
 
 Next: [[file:tutorial.org][tutorial]].

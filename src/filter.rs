@@ -29,9 +29,42 @@ pub struct FilterOut {
 
 /// Drop candidates whose shifted distance is not strictly below `cut2`.
 ///
-/// `ii`, `jj`, and `shift` are the same length. An index past `xyz`
-/// is [`Error::BufferSize`]. `out` is cleared and filled; its capacity
-/// stays. `want_vector` stores `q + H S - p` beside each kept row.
+/// `xyz` holds positions in arbitrary consistent length units, `cut2` is
+/// the squared cutoff in those units squared, and `want_vector` controls
+/// whether `out.vector` is populated with `q + H S - p` (defaults to
+/// empty when `false`). `ii`, `jj`, and `shift` must share the same
+/// length. `out` is cleared and filled while preserving its allocated
+/// capacity.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `ii.len() != jj.len()`,
+/// `ii.len() != shift.len()`, or any index in `ii` or `jj` is greater
+/// than or equal to `xyz.len()`.
+///
+/// ```
+/// use minimage::{filter_shifted, Cell, FilterOut};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+/// let xyz = [[0.2, 0.0, 0.0], [9.4, 0.0, 0.0], [5.0, 0.0, 0.0]];
+/// let mut out = FilterOut::default();
+/// filter_shifted(
+///     &cell,
+///     &xyz,
+///     &[0, 0],
+///     &[1, 2],
+///     &[[-1, 0, 0], [0, 0, 0]],
+///     1.0,
+///     true,
+///     &mut out,
+/// )?;
+/// assert_eq!(out.i, vec![0]);
+/// assert_eq!(out.j, vec![1]);
+/// assert!((out.dist2[0] - 0.64).abs() < 1e-12);
+/// # Ok(())
+/// # }
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub fn filter_shifted(
     cell: &Cell,
@@ -188,13 +221,32 @@ fn filter_runs(
 
 /// Mean position of each atom across the beads of a ring polymer.
 ///
-/// `xyz` is bead-major: bead `b`, atom `a` is `xyz[b * atoms + a]`,
-/// with `atoms = xyz.len() / beads`. Each bead is unwrapped onto bead 0
-/// by the engine minimum image ([`Cell::fractional`] difference, wrapped
-/// into `[-1/2, 1/2)`), the fractions are averaged, and the mean is
-/// wrapped back into the primary cell. A bead spread wider than half a
-/// box along one axis is not a single image; the average then follows
-/// whichever image the wrap picked.
+/// `xyz` is bead-major in the same length units as `cell`: bead `b`,
+/// atom `a` is `xyz[b * atoms + a]`, with `atoms = xyz.len() / beads`.
+/// Each bead is unwrapped onto bead 0 by the engine minimum image
+/// ([`Cell::fractional`] difference, wrapped into `[-1/2, 1/2)`), the
+/// fractions are averaged, and the mean is wrapped back into the
+/// primary cell (`[0, 1)` mapped via [`Cell::cartesian`]). A bead
+/// spread wider than half a box along one axis is not a single image;
+/// the average then follows whichever image the wrap picked.
+///
+/// # Errors
+///
+/// Returns [`Error::Empty`] if `beads == 0`, `xyz` is empty, or
+/// `xyz.len()` is not a multiple of `beads`.
+///
+/// ```
+/// use minimage::{ring_centroid, Cell};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+/// let xyz = [[0.2, 1.0, 2.0], [9.8, 1.0, 2.0]];
+/// let centroids = ring_centroid(&cell, 2, &xyz)?;
+/// assert!((centroids[0][1] - 1.0).abs() < 1e-12);
+/// assert!((centroids[0][2] - 2.0).abs() < 1e-12);
+/// # Ok(())
+/// # }
+/// ```
 pub fn ring_centroid(cell: &Cell, beads: usize, xyz: &[[f64; 3]]) -> Result<Vec<[f64; 3]>, Error> {
     if beads == 0 || xyz.is_empty() || xyz.len() % beads != 0 {
         return Err(Error::Empty);
