@@ -121,9 +121,37 @@ fn finite3(v: [f64; 3]) -> bool {
 impl PartialCell {
     /// Cell from ASE-style rows `(a, b, c)` and a periodicity mask.
     ///
-    /// Rows of open axes are ignored and may be zero. The periodic rows
-    /// must be finite and linearly independent. All three periodic is
-    /// [`Cell::from_ase`].
+    /// Rows use the same Cartesian length unit as positions; open-axis
+    /// rows (`periodic[i] == false`) are ignored and may be zero. The
+    /// periodic rows must be finite and linearly independent. All three
+    /// periodic delegates to [`Cell::from_ase`]. Origin is always zero
+    /// (it cancels in displacements).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if any periodic row contains a
+    /// non-finite entry, if a single periodic row has non-positive
+    /// squared norm, if two periodic rows are collinear or nearly
+    /// collinear (`det <= 1e-24 * |u|^2 |v|^2`), or if three periodic
+    /// rows fail [`Cell::from_ase`].
+    ///
+    /// ```
+    /// use minimage::{Error, PartialCell};
+    ///
+    /// # fn main() -> Result<(), Error> {
+    /// let wire = PartialCell::from_ase(
+    ///     [[0.0; 3], [0.0; 3], [0.0, 0.0, 6.0]],
+    ///     [false, false, true],
+    /// )?;
+    /// assert_eq!(wire.periodic_count(), 1);
+    /// assert!(wire.full().is_none());
+    /// assert_eq!(
+    ///     PartialCell::from_ase([[0.0; 3]; 3], [true, false, false]),
+    ///     Err(Error::BadBox)
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from_ase(rows: [[f64; 3]; 3], periodic: [bool; 3]) -> Result<Self, Error> {
         let vectors: Vec<[f64; 3]> = (0..3).filter(|&i| periodic[i]).map(|i| rows[i]).collect();
         if !vectors.iter().all(|&v| finite3(v)) {
@@ -159,7 +187,7 @@ impl PartialCell {
         Ok(Self { kind })
     }
 
-    /// Number of periodic axes.
+    /// Number of periodic axes (`0`, `1`, `2`, or `3`).
     pub fn periodic_count(&self) -> usize {
         match self.kind {
             Kind::Open => 0,
@@ -169,7 +197,8 @@ impl PartialCell {
         }
     }
 
-    /// The fully periodic cell, when all three axes are periodic.
+    /// The underlying [`Cell`], or `None` when fewer than three axes are
+    /// periodic.
     pub fn full(&self) -> Option<&Cell> {
         match &self.kind {
             Kind::Full(cell) => Some(cell),
@@ -179,6 +208,10 @@ impl PartialCell {
 
     /// Displacement from `p` to `q` to the nearest image over the
     /// periodic lattice; open axes take no image.
+    ///
+    /// Returned in the same length units as `rows`, `p`, and `q`. On a
+    /// half-box tie along a periodic axis, keeps the engine wrap
+    /// `s - floor(s + 1/2)`.
     #[inline]
     pub fn displacement_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
         match &self.kind {
@@ -208,7 +241,8 @@ impl PartialCell {
         }
     }
 
-    /// Squared length of [`Self::displacement_euclidean`].
+    /// Squared length of [`Self::displacement_euclidean`], in the cell's
+    /// squared length units.
     #[inline]
     pub fn dist2_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> f64 {
         kernel::n2(self.displacement_euclidean(p, q))

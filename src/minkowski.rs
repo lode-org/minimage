@@ -15,8 +15,27 @@ use crate::Error;
 const TOL: f64 = 1e-12;
 const MAX_IT: usize = 10_000;
 
-/// True when the three columns of H satisfy the 3D Minkowski
-/// inequalities (Jaber; Nguyen–Stehlé).
+/// True when the three columns of `H` satisfy the 3D Minkowski
+/// inequalities (Jaber; Nguyen and Stehlé,
+/// <https://doi.org/10.1145/1597036.1597050>).
+///
+/// ```
+/// use minimage::{is_minkowski_reduced, Cell};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let ortho = Cell::ortho(10.0, 11.0, 12.0)?;
+/// assert!(is_minkowski_reduced(&ortho));
+///
+/// let skewed = Cell::from_vectors(
+///     [1.0, 0.0, 0.0],
+///     [0.99, 0.01, 0.0],
+///     [0.0, 0.0, 1.0],
+///     [0.0; 3],
+/// )?;
+/// assert!(!is_minkowski_reduced(&skewed));
+/// # Ok(())
+/// # }
+/// ```
 pub fn is_minkowski_reduced(cell: &Cell) -> bool {
     let a = cell.a();
     let b = cell.b();
@@ -56,7 +75,28 @@ pub fn is_minkowski_reduced(cell: &Cell) -> bool {
 }
 
 /// Unimodular Minkowski reduction. Same Cartesian lattice, new basis
-/// with `|a| <= |b| <= |c|`.
+/// with `|a| <= |b| <= |c|` and the origin preserved.
+///
+/// # Errors
+///
+/// Returns [`Error::BadBox`] if a trial or final reduced basis is
+/// singular or non-finite.
+///
+/// ```
+/// use minimage::{is_minkowski_reduced, minkowski_reduce, Cell};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let skewed = Cell::from_vectors(
+///     [1.0, 0.0, 0.0],
+///     [0.99, 0.01, 0.0],
+///     [0.0, 0.0, 1.0],
+///     [0.0; 3],
+/// )?;
+/// let reduced = minkowski_reduce(&skewed)?;
+/// assert!(is_minkowski_reduced(&reduced));
+/// # Ok(())
+/// # }
+/// ```
 pub fn minkowski_reduce(cell: &Cell) -> Result<Cell, Error> {
     if is_minkowski_reduced(cell) {
         return Ok(*cell);

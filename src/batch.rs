@@ -13,8 +13,26 @@ use crate::{Cell, Error};
 
 /// Minimum-image wrap of packed difference vectors.
 ///
-/// `diffs` and `out` are row-major `n` triples. Each row is `q - p`
-/// (the cell origin does not enter).
+/// `diffs` and `out` are row-major `n` triples in the cell's length
+/// units. Each row is `q - p` (the cell origin does not enter).
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `out.len() != diffs.len()`.
+///
+/// ```
+/// use minimage::{wrap_many, Cell};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+/// let diffs = [[9.2, 0.0, 0.0], [0.2, 0.0, 0.0]];
+/// let mut out = [[0.0; 3]; 2];
+/// wrap_many(&cell, &diffs, &mut out)?;
+/// assert!((out[0][0] + 0.8).abs() < 1e-12);
+/// assert!((out[1][0] - 0.2).abs() < 1e-12);
+/// # Ok(())
+/// # }
+/// ```
 pub fn wrap_many(cell: &Cell, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) -> Result<(), Error> {
     if out.len() != diffs.len() {
         return Err(Error::BufferSize);
@@ -25,7 +43,24 @@ pub fn wrap_many(cell: &Cell, diffs: &[[f64; 3]], out: &mut [[f64; 3]]) -> Resul
 
 /// Squared MIC distances from `p` to each packed candidate in `qs`.
 ///
-/// `qs` is row-major `n` triples. `out` has length `n`.
+/// `p` and `qs` use the cell's length units; `out` receives squared
+/// lengths in the same units squared.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `out.len() != qs.len()`.
+///
+/// ```
+/// use minimage::{dist2_many, Cell};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+/// let mut out = [0.0; 2];
+/// dist2_many(&cell, [0.2, 0.0, 0.0], &[[9.4, 0.0, 0.0], [1.0, 0.0, 0.0]], &mut out)?;
+/// assert!((out[0] - 0.64).abs() < 1e-12);
+/// # Ok(())
+/// # }
+/// ```
 pub fn dist2_many(cell: &Cell, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) -> Result<(), Error> {
     if out.len() != qs.len() {
         return Err(Error::BufferSize);
@@ -36,7 +71,28 @@ pub fn dist2_many(cell: &Cell, p: [f64; 3], qs: &[[f64; 3]], out: &mut [f64]) ->
 
 /// Squared MIC distances for packed pair lists `ps` and `qs`.
 ///
-/// Each slice is row-major `n` triples. `out` has length `n`.
+/// Each slice is row-major `n` triples in the cell's length units; `out`
+/// has length `n` in squared length units.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `ps.len() != qs.len()` or
+/// `out.len() != ps.len()`.
+///
+/// ```
+/// use minimage::{dist2_pairs, Cell};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+/// let ps = [[0.2, 0.0, 0.0], [1.0, 0.0, 0.0]];
+/// let qs = [[9.4, 0.0, 0.0], [2.5, 0.0, 0.0]];
+/// let mut out = [0.0; 2];
+/// dist2_pairs(&cell, &ps, &qs, &mut out)?;
+/// assert!((out[0] - 0.64).abs() < 1e-12);
+/// assert!((out[1] - 2.25).abs() < 1e-12);
+/// # Ok(())
+/// # }
+/// ```
 pub fn dist2_pairs(
     cell: &Cell,
     ps: &[[f64; 3]],
@@ -51,7 +107,30 @@ pub fn dist2_pairs(
 }
 
 /// [`Cell::dist2_euclidean`] from `p` to each row of `qs`, bit for bit.
+///
 /// The superbasis is looked up once per call rather than once per pair.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `out.len() != qs.len()`.
+///
+/// ```
+/// use minimage::{dist2_euclidean_many, Cell};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let hex = Cell::from_vectors(
+///     [10.0, 0.0, 0.0],
+///     [5.0, 8.660254037844386, 0.0],
+///     [0.0, 0.0, 10.0],
+///     [0.0; 3],
+/// )?;
+/// let q = hex.cartesian([0.49, 0.49, 0.49]);
+/// let mut out = [0.0; 1];
+/// dist2_euclidean_many(&hex, [0.0; 3], &[q], &mut out)?;
+/// assert!((out[0] - hex.dist2_euclidean([0.0; 3], q)).abs() < 1e-12);
+/// # Ok(())
+/// # }
+/// ```
 pub fn dist2_euclidean_many(
     cell: &Cell,
     p: [f64; 3],
@@ -78,6 +157,11 @@ pub(crate) fn euclidean_many(cell: &Cell, p: [f64; 3], qs: &[[f64; 3]], out: &mu
 
 /// [`Cell::dist2_euclidean`] for paired rows, bit for bit, with one
 /// superbasis lookup per call.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `ps.len() != qs.len()` or
+/// `out.len() != ps.len()`.
 pub fn dist2_euclidean_pairs(
     cell: &Cell,
     ps: &[[f64; 3]],
@@ -106,14 +190,39 @@ pub(crate) fn euclidean_pairs(cell: &Cell, ps: &[[f64; 3]], qs: &[[f64; 3]], out
 /// across frames.
 ///
 /// `images[k]` is the cell-basis lattice shift `n` of pair `k`'s image,
-/// `x = (q - p) - H n`, from the previous call; start with zeros. A pair
-/// whose stored image still lies in the Voronoi cell costs a subtraction
-/// and seven dot products. The others run the full search, bit for bit
-/// [`Cell::dist2_euclidean`], and get their new shift. The image is the
-/// one `dist2_euclidean` finds; for a stored image the distance equals
-/// it to rounding, since `H n` is subtracted directly rather than
-/// through the engine wrap. An orthorhombic cell takes the plain batch
-/// and leaves `images` alone.
+/// `x = (q - p) - H n`, from the previous call; pass zeros (`[0, 0, 0]`)
+/// on the first call. A pair whose stored image still lies in the
+/// Voronoi cell costs a subtraction and seven dot products. The others
+/// run the full search, bit for bit [`Cell::dist2_euclidean`], and get
+/// their new shift. The image is the one `dist2_euclidean` finds; for a
+/// stored image the distance equals it to rounding, since `H n` is
+/// subtracted directly rather than through the engine wrap. An
+/// orthorhombic cell takes the plain batch and leaves `images` alone.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `ps`, `qs`, `images`, and `out` do
+/// not all have the same length.
+///
+/// ```
+/// use minimage::{dist2_euclidean_pairs_warm, Cell};
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let cell = Cell::from_vectors(
+///     [1.0, 0.0, 0.0],
+///     [0.99, 0.01, 0.0],
+///     [0.0, 0.0, 1.0],
+///     [0.0; 3],
+/// )?;
+/// let ps = [[0.0, 0.0, 0.0]];
+/// let qs = [[0.02, -0.02, 0.0]];
+/// let mut images = [[0; 3]];
+/// let mut out = [0.0];
+/// dist2_euclidean_pairs_warm(&cell, &ps, &qs, &mut images, &mut out)?;
+/// assert!(out[0] < 1e-24);
+/// # Ok(())
+/// # }
+/// ```
 pub fn dist2_euclidean_pairs_warm(
     cell: &Cell,
     ps: &[[f64; 3]],
@@ -153,6 +262,13 @@ pub(crate) fn euclidean_pairs_warm(
 
 /// [`Cell::fixed`] for packed positions: one AVX2 pass folds, floors, and
 /// takes the mantissa of `t + 1` for four rows at once.
+///
+/// `rs` uses the cell's length units; `out` receives dimensionless 64-bit
+/// fixed-point coordinates.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `out.len() != rs.len()`.
 pub fn fixed_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u64; 3]]) -> Result<(), Error> {
     if out.len() != rs.len() {
         return Err(Error::BufferSize);
@@ -162,6 +278,13 @@ pub fn fixed_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u64; 3]]) -> Result<
 }
 
 /// [`Cell::fixed32`] for packed positions.
+///
+/// `rs` uses the cell's length units; `out` receives dimensionless 32-bit
+/// fixed-point coordinates.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `out.len() != rs.len()`.
 pub fn fixed32_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u32; 3]]) -> Result<(), Error> {
     if out.len() != rs.len() {
         return Err(Error::BufferSize);
@@ -172,6 +295,10 @@ pub fn fixed32_many(cell: &Cell, rs: &[[f64; 3]], out: &mut [[u32; 3]]) -> Resul
 
 /// [`Cell::dist2_fixed32`] from `p` to each row of `qs`, bit for bit:
 /// sixteen rows per AVX-512 pass, eight per AVX2 pass.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `out.len() != qs.len()`.
 pub fn dist2_many_fixed32(
     cell: &Cell,
     p: [u32; 3],
@@ -186,6 +313,11 @@ pub fn dist2_many_fixed32(
 }
 
 /// [`Cell::dist2_fixed32`] for paired rows, bit for bit.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `ps.len() != qs.len()` or
+/// `out.len() != ps.len()`.
 pub fn dist2_pairs_fixed32(
     cell: &Cell,
     ps: &[[u32; 3]],
@@ -201,6 +333,10 @@ pub fn dist2_pairs_fixed32(
 
 /// Squared engine-wrap distances from fixed-point `p` to each fixed-point
 /// `qs` ([`Cell::fixed`]). Integer wrap, one product with `H`.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `out.len() != qs.len()`.
 pub fn dist2_many_fixed(
     cell: &Cell,
     p: [u64; 3],
@@ -215,6 +351,11 @@ pub fn dist2_many_fixed(
 }
 
 /// Squared engine-wrap distances for fixed-point pair lists.
+///
+/// # Errors
+///
+/// Returns [`Error::BufferSize`] if `ps.len() != qs.len()` or
+/// `out.len() != ps.len()`.
 pub fn dist2_pairs_fixed(
     cell: &Cell,
     ps: &[[u64; 3]],
@@ -230,8 +371,28 @@ pub fn dist2_pairs_fixed(
 
 /// Orthorhombic wrap of precomputed differences, one reciprocal per axis.
 ///
-/// `dx`, `dy`, `dz`, and `out` have length `n`. This is the Highway
+/// Processes `n = min(dx.len(), dy.len(), dz.len(), out.len())` rows.
+/// Differences and box lengths `(bx, by, bz)` share one length unit,
+/// and `out` receives squared lengths in that unit squared. If `n == 0`,
+/// returns `Ok(())` without checking box lengths. This is the Highway
 /// kernel: `dr -= box * round(dr * (1 / box))` after taking `abs`.
+///
+/// # Errors
+///
+/// Returns [`Error::BadBox`] if `n > 0` and any of `bx`, `by`, or `bz`
+/// is not strictly positive (or is `NaN`).
+///
+/// ```
+/// use minimage::dist2_ortho_diffs;
+///
+/// # fn main() -> Result<(), minimage::Error> {
+/// let mut out = [0.0; 2];
+/// dist2_ortho_diffs(&[9.2, 0.8], &[0.0, 0.0], &[0.0, 0.0], 10.0, 10.0, 10.0, &mut out)?;
+/// assert!((out[0] - 0.64).abs() < 1e-12);
+/// assert!((out[1] - 0.64).abs() < 1e-12);
+/// # Ok(())
+/// # }
+/// ```
 pub fn dist2_ortho_diffs(
     dx: &[f64],
     dy: &[f64],

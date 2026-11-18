@@ -156,9 +156,16 @@ fn neon_ready() -> bool {
 
 /// Name of the SIMD path the next batch will use.
 ///
-/// One of `scalar`, `avx`, `avx2`, `avx512`, `neon`.
-/// `MINIMAGE_SIMD` overrides the choice. An unknown name is ignored.
-/// A name this CPU cannot run selects `scalar`.
+/// Returns one of `"scalar"`, `"avx"`, `"avx2"`, `"avx512"`, or `"neon"`.
+/// Defaults to the widest usable instruction set on this CPU (cached for
+/// the process). Setting `MINIMAGE_SIMD` overrides the choice on first
+/// read; unknown names are ignored and fall back to native detection,
+/// and a path this CPU cannot execute falls back to `"scalar"`.
+///
+/// ```
+/// let path = minimage::simd_path();
+/// assert!(["scalar", "avx", "avx2", "avx512", "neon"].contains(&path));
+/// ```
 pub fn simd_path() -> &'static str {
     select().name()
 }

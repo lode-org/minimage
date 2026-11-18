@@ -1,29 +1,61 @@
 //! Minimum-image convention for a periodic parallelepiped.
 //!
-//! [`Cell`] holds the 3x3 lattice H and a dump-cell origin. Constructors
-//! accept a LAMMPS bound box plus tilts, a CON lattice or
-//! length-angle box, an ASE-style 3x3 cell, and a vesin box. Distances
-//! are the fractional wrap `ds = wrap(Hinv (q - p))`, then `dr = H ds`.
-//! That is the LAMMPS lamda / eOn / HOOMD engine convention.
-//! Orthorhombic boxes use `d - L floor(d/L + 1/2)` on every image.
-//! A restricted triclinic box uses the triangular lamda step.
-//! [`Cell::reduce_tilts`] is GROMACS `correct_box`;
-//! [`Cell::to_restricted`] is the LAMMPS general-to-restricted rotation.
-//! [`Cell::displacement_euclidean`] is Smith's half-altitude test, then
-//! Babai's rounding and the Sommer–Feder–Shalvi slicer on the Selling
-//! superbasis cached on the calling thread. Lagrange size reduction runs before
-//! that Delone step. [`dist2_many`], [`dist2_pairs`], [`wrap_many`], and
+//! [`Cell`] holds the 3x3 lattice `H` and a dump-cell origin.
+//! Constructors accept a LAMMPS bound box plus tilts, a CON lattice or
+//! length-angle box, an ASE-style 3x3 cell, and a vesin box.
+//!
+//! # Units and conventions
+//!
+//! - **Length units**: arbitrary, provided `H`, `origin`, positions, and
+//!   cutoffs share one unit (squared cutoffs use that unit squared).
+//!   [`Cell::from_con_box`] takes crystallographic angles in degrees.
+//!   Fractional coordinates from [`Cell::fractional`] are dimensionless
+//!   in `[0, 1)`.
+//! - **Matrix storage**: [`Cell::from_vectors`] and [`Cell::h`] store
+//!   lattice vectors `a`, `b`, `c` as the **columns** of `H`, so
+//!   `r = H s + origin`. [`Cell::from_ase`], [`Cell::from_con`],
+//!   [`Cell::from_vesin`], and [`PartialCell::from_ase`] accept
+//!   row-major 3x3 arrays `[a, b, c]`.
+//! - **Displacement sign**: [`Cell::displacement`] returns the wrapped
+//!   vector from `p` to `q`, i.e., `wrap(q - p)`. The origin cancels in
+//!   every displacement and distance call.
+//! - **Engine wrap vs Euclidean MIC**: [`Cell::displacement`] and
+//!   [`Cell::dist2`] compute the fractional wrap `ds = wrap(Hinv (q - p))`,
+//!   then `dr = H ds` (the LAMMPS `lamda` / eOn / HOOMD convention).
+//!   Orthorhombic boxes use `d - L floor(d/L + 1/2)` on every image,
+//!   keeping `-L/2` and mapping `+L/2` to `-L/2`. Restricted triclinic
+//!   boxes use the triangular `lamda` step. [`Cell::reduce_tilts`] is
+//!   GROMACS `correct_box`; [`Cell::to_restricted`] is the LAMMPS
+//!   general-to-restricted rotation.
+//! - **Euclidean nearest image**: [`Cell::displacement_euclidean`] runs
+//!   Smith's half-altitude test, then Babai's rounding and the
+//!   Sommer-Feder-Shalvi slicer on the Selling superbasis cached on the
+//!   calling thread (with Lagrange size reduction before the Delone step).
+//!   On a tie it keeps the engine wrap.
+//!
+//! # Batch kernels, fixed-point, and partial periodicity
+//!
+//! [`dist2_many`], [`dist2_pairs`], [`wrap_many`], and
 //! [`dist2_ortho_diffs`] batch the engine wrap. Each batch reads
 //! [`simd_path`] once and runs AVX-512, AVX2, AVX, NEON, or scalar.
-//! [`Cell::fixed`] stores a position
-//! as 64-bit fixed-point fractions, and the wrap between two of them is
-//! exact integer arithmetic ([`Cell::dist2_fixed`], [`dist2_many_fixed`],
-//! [`dist2_pairs_fixed`]).
+//! [`Cell::fixed`] stores a position as 64-bit fixed-point fractions,
+//! and the wrap between two of them is exact integer arithmetic
+//! ([`Cell::dist2_fixed`], [`dist2_many_fixed`], [`dist2_pairs_fixed`]);
+//! [`Cell::fixed32`] keeps the top 32 bits for half the memory traffic.
 //! [`Cell::dist2_shifted_indexed`] gathers a linked-cell bin's index
-//! list into that shifted kernel. [`reduce_pairs`] turns
-//! a vesin image pair list into one minimum-image pair and drops the
-//! self image. [`PartialCell`] is periodic along some axes only: a slab,
-//! a wire, or an open system, with no image along an open axis.
+//! list into the shifted kernel. [`reduce_pairs`] turns a vesin image
+//! pair list into one minimum-image pair and drops the self image.
+//! [`PartialCell`] is periodic along some axes only: a slab, a wire, or
+//! an open system, with no image along an open axis.
+//!
+//! # Error behaviour
+//!
+//! Fallible functions return [`Result<_, Error>`](Error). [`Error::BadBox`]
+//! signals a singular, non-finite, or degenerate cell; [`Error::BufferSize`]
+//! signals mismatched slice lengths or out-of-range atom indices;
+//! [`Error::Empty`] signals an empty or misaligned ring-polymer input.
+//! Individual distance and displacement methods on [`Cell`] and
+//! [`PartialCell`] are infallible once the cell has been constructed.
 //!
 //! It is a LODE library. The Rust crate is the implementation. The C
 //! ABI (`minimage_*`) is the hourglass waist, the same shape as

@@ -2,11 +2,12 @@
 //!
 //! Every lattice of dimension at most 3 has an obtuse superbasis
 //! (Selling, *J. Math. Pures Appl.* 1874; Conway and Sloane, *Proc. R.
-//! Soc. Lond. A* **436**, 55, 1992): four vectors that sum to zero and
-//! whose pairwise dots are not positive. The Voronoi vectors are the
-//! `{-1,0,1}` combinations of that superbasis. Nearest-integer rounding
-//! in a Minkowski basis is not that certificate (Nguyen and Stehlé,
-//! *ACM Trans. Algorithms* **5**, 46, 2009, reduces the basis; it does
+//! Soc. Lond. A* **436**, 55, 1992, <https://doi.org/10.1098/rspa.1992.0004>):
+//! four vectors that sum to zero and whose pairwise dots are not positive.
+//! The Voronoi vectors are the `{-1,0,1}` combinations of that superbasis.
+//! Nearest-integer rounding in a Minkowski basis is not that certificate
+//! (Nguyen and Stehlé, *ACM Trans. Algorithms* **5**, 46, 2009,
+//! <https://doi.org/10.1145/1597036.1597050>, reduces the basis; it does
 //! not decide the closest image).
 //!
 //! The Delone step is the International Tables reduction, the same
@@ -20,21 +21,24 @@
 //! handful of iterations, which is the bound spglib's
 //! `delaunay_reduce_basis` relies on for an already short basis
 //! (Andrews, Bernstein, and Sauter, *Acta Cryst.* A **75**, 115, 2019,
-//! cap their Selling loop at 1000).
+//! <https://doi.org/10.1107/s2053273318015413>, cap their Selling loop at
+//! 1000).
 //!
 //! The closest point starts from Babai's rounding (*Combinatorica* **6**,
-//! 1, 1986) in three of the four superbasis vectors, then runs the
-//! iterative slicer of Sommer, Feder, and Shalvi (*SIAM J. Discrete
-//! Math.* **23**, 715, 2009): while some Voronoi-relevant vector `r`
-//! has `2 |x · r| > |r|^2`, step `x` by `r` toward the origin. Every
-//! Voronoi-relevant vector of a lattice with an obtuse superbasis is
+//! 1, 1986, <https://doi.org/10.1007/bf02579403>) in three of the four
+//! superbasis vectors, then runs the iterative slicer of Sommer, Feder,
+//! and Shalvi (*SIAM J. Discrete Math.* **23**, 715, 2009,
+//! <https://doi.org/10.1137/060676362>): while some Voronoi-relevant
+//! vector `r` has `2 |x · r| > |r|^2`, step `x` by `r` toward the origin.
+//! Every Voronoi-relevant vector of a lattice with an obtuse superbasis is
 //! one of the fourteen `±v_S`, `S` a nonempty proper subset of the four
 //! (Conway and Sloane, 1992), seven up to sign. Each step shortens `x`,
 //! so the walk stops, and where it stops `x` is inside the Voronoi cell:
 //! the shortest vector of its coset. McKilliam, Grant, and Clarkson
-//! (*SIAM J. Discrete Math.* **28**, 1405, 2014) search the same sixteen
-//! subset sums; seven dot products and a reduced starting point replace
-//! their three rounds of fifteen candidates.
+//! (*SIAM J. Discrete Math.* **28**, 1405, 2014,
+//! <https://doi.org/10.1137/140952806>) search the same sixteen subset
+//! sums; seven dot products and a reduced starting point replace their
+//! three rounds of fifteen candidates.
 
 use std::cell::RefCell;
 

@@ -18,9 +18,17 @@
 //!   half- or single-precision device keeps an exact wrap and loses only
 //!   the rounding of `ds` and of the product with `H`. This is the
 //!   symmetric residue of Ozaki Scheme II (Ozaki, Uchino, and Imamura,
-//!   arXiv:2504.08009, 2025) in floating point, and the explicit reduced
-//!   precision of kernel_float (Heldens et al., Netherlands eScience
-//!   Center).
+//!   <https://arxiv.org/abs/2504.08009>, 2025) in floating point, and
+//!   the explicit reduced precision of kernel_float (Heldens et al.,
+//!   Netherlands eScience Center).
+//!
+//! # Units and errors
+//!
+//! Coordinates, lattice vectors, and squared distances share the cell's
+//! length units (and units squared). Fractional tensors are
+//! dimensionless in `[0, 1)`. Methods on [`Lattice`] assume valid
+//! `(n, 3)` and `(1, 3)` tensor shapes and panic via `burn_tensor` if
+//! tensor ranks, trailing dimensions, or device/dtype placements mismatch.
 //!
 //! Burn rounds halves to even, so a fraction exactly one half apart may
 //! wrap to `+1/2` where `minimage` keeps `-1/2`; the squared distance is
@@ -95,29 +103,34 @@ impl Lattice {
         s.clone().sub(s.round()).matmul(self.h_t.clone())
     }
 
-    /// Squared engine-wrap distance of each row pair.
+    /// Squared engine-wrap distance of each row pair, in squared cell
+    /// length units. `ps` and `qs` have shape `(n, 3)`.
     pub fn dist2_pairs(&self, ps: Tensor<2>, qs: Tensor<2>) -> Tensor<1> {
         norm2(self.wrap(qs.sub(ps)))
     }
 
-    /// Squared engine-wrap distance from the `(1, 3)` row `p` to each row.
+    /// Squared engine-wrap distance from the `(1, 3)` row `p` to each row
+    /// of `(n, 3)` `qs`, in squared cell length units.
     pub fn dist2_many(&self, p: Tensor<2>, qs: Tensor<2>) -> Tensor<1> {
         norm2(self.wrap(qs.sub(p)))
     }
 
     /// Cartesian displacement between fraction rows from
-    /// [`Self::fractions`] or [`Self::fractional`]. The wrap is exact.
+    /// [`Self::fractions`] or [`Self::fractional`], in cell length units.
+    /// The wrap is exact.
     pub fn displacement_fractional(&self, sp: Tensor<2>, sq: Tensor<2>) -> Tensor<2> {
         let ds = sq.sub(sp);
         ds.clone().sub(ds.round()).matmul(self.h_t.clone())
     }
 
-    /// Squared distance of each fraction row pair.
+    /// Squared distance of each fraction row pair `(n, 3)`, in squared
+    /// cell length units.
     pub fn dist2_pairs_fractional(&self, sp: Tensor<2>, sq: Tensor<2>) -> Tensor<1> {
         norm2(self.displacement_fractional(sp, sq))
     }
 
-    /// Squared distance from the `(1, 3)` fraction row `sp` to each row.
+    /// Squared distance from the `(1, 3)` fraction row `sp` to each row
+    /// of `(n, 3)` `sq`, in squared cell length units.
     pub fn dist2_many_fractional(&self, sp: Tensor<2>, sq: Tensor<2>) -> Tensor<1> {
         norm2(self.displacement_fractional(sp, sq))
     }
@@ -133,7 +146,11 @@ pub fn rows_tensor(rows: &[[f64; 3]], device: &Device, dtype: DType) -> Tensor<2
     Tensor::<2>::from_data(TensorData::new(flat, [rows.len(), 3]), (device, dtype))
 }
 
-/// A rank-one tensor read back as doubles.
+/// A rank-one tensor read back as `f64` values.
+///
+/// # Panics
+///
+/// Panics if the tensor's data cannot be converted to `f64`.
 pub fn to_vec(t: Tensor<1>) -> Vec<f64> {
     t.into_data()
         .convert::<f64>()

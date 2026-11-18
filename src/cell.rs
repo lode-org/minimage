@@ -53,10 +53,27 @@ pub struct Cell {
 }
 
 impl Cell {
-    /// Diagonal box with origin at zero.
+    /// Diagonal box with origin at `[0.0, 0.0, 0.0]`.
     ///
-    /// Sets [`Self::is_ortho`] so [`Self::dist2`] and
-    /// [`Self::lattice_shift`] skip the two 3x3 matvecs.
+    /// Edge lengths `(lx, ly, lz)` use any consistent length unit. Sets
+    /// [`Self::is_ortho`] so [`Self::dist2`] and [`Self::lattice_shift`]
+    /// skip the two 3x3 matvecs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if `lx * ly * lz` is non-finite or
+    /// `|lx * ly * lz| < 1e-18`.
+    ///
+    /// ```
+    /// use minimage::{Cell, Error};
+    ///
+    /// # fn main() -> Result<(), Error> {
+    /// let cell = Cell::ortho(10.0, 11.0, 12.0)?;
+    /// assert!(cell.is_ortho());
+    /// assert_eq!(Cell::ortho(0.0, 10.0, 10.0), Err(Error::BadBox));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn ortho(lx: f64, ly: f64, lz: f64) -> Result<Self, Error> {
         Self::from_rows(
             [lx, 0.0, 0.0],
@@ -66,18 +83,47 @@ impl Cell {
         )
     }
 
-    /// Diagonal box with an explicit dump-cell origin.
+    /// Diagonal box with an explicit dump-cell origin in the same length
+    /// units as `(lx, ly, lz)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if `lx * ly * lz` is non-finite or
+    /// `|lx * ly * lz| < 1e-18`.
     pub fn ortho_origin(lx: f64, ly: f64, lz: f64, origin: [f64; 3]) -> Result<Self, Error> {
         Self::from_rows([lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz], origin)
     }
 
-    /// Parallelepiped from lattice vectors `a`, `b`, `c` and an origin.
+    /// Parallelepiped from lattice vectors `a`, `b`, `c` and an origin,
+    /// all in consistent length units.
     ///
-    /// Vectors are the columns of H. A non-diagonal H clears
-    /// [`Self::is_ortho`].
+    /// Vectors are the columns of `H`, so `r = H s + origin`. A
+    /// non-diagonal `H` clears [`Self::is_ortho`].
     ///
     /// Inlined so the caller writes the cell once. An outlined return
     /// stores it and then copies it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if `det(H)` is non-finite,
+    /// `|det(H)| < 1e-18`, or any perpendicular face width is not
+    /// strictly positive.
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let hex = Cell::from_vectors(
+    ///     [10.0, 0.0, 0.0],
+    ///     [5.0, 8.660254037844386, 0.0],
+    ///     [0.0, 0.0, 10.0],
+    ///     [0.0, 0.0, 0.0],
+    /// )?;
+    /// assert!(hex.is_restricted());
+    /// assert!(!hex.is_ortho());
+    /// # Ok(())
+    /// # }
+    /// ```
     #[inline(always)]
     pub fn from_vectors(
         a: [f64; 3],
@@ -234,26 +280,65 @@ impl Cell {
         })
     }
 
-    /// ASE-style 3x3 cell: rows are lattice vectors a, b, c.
+    /// ASE-style 3x3 cell: rows are lattice vectors `a`, `b`, `c`.
     ///
-    /// Origin is zero. Matches `atoms.cell` in ASE.
+    /// Origin defaults to `[0.0, 0.0, 0.0]`. Matches `atoms.cell` in ASE.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] under the same conditions as
+    /// [`Self::from_vectors`].
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let cell = Cell::from_ase([[10.0, 0.0, 0.0], [0.0, 11.0, 0.0], [0.0, 0.0, 12.0]])?;
+    /// assert!(cell.is_ortho());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from_ase(rows: [[f64; 3]; 3]) -> Result<Self, Error> {
         Self::from_vectors(rows[0], rows[1], rows[2], [0.0, 0.0, 0.0])
     }
 
-    /// CON lattice: rows are lattice vectors a, b, c, origin zero.
+    /// CON lattice: rows are lattice vectors `a`, `b`, `c`, origin zero.
     ///
-    /// Same storage as readcon `lattice_vectors` and an eOn CON
+    /// Same storage as `readcon-core` `lattice_vectors` and an eOn CON
     /// header that already holds the 3x3 basis.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] under the same conditions as
+    /// [`Self::from_vectors`].
     pub fn from_con(rows: [[f64; 3]; 3]) -> Result<Self, Error> {
         Self::from_ase(rows)
     }
 
     /// CON / crystallographic lengths and angles (degrees).
     ///
-    /// `alpha` is the angle at the origin between b and c, `beta`
-    /// between a and c, `gamma` between a and b. The basis is the
-    /// standard reduced triclinic frame used by ASE and eOn.
+    /// `boxl` holds `[|a|, |b|, |c|]` in consistent length units, and
+    /// `angles_deg` holds `[alpha, beta, gamma]` in degrees (`alpha`
+    /// between `b` and `c`, `beta` between `a` and `c`, `gamma` between
+    /// `a` and `b`). Origin defaults to `[0.0, 0.0, 0.0]`. The basis is
+    /// the standard reduced triclinic frame used by ASE and eOn.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if any length is not strictly positive,
+    /// `|sin(gamma)| < 1e-18`, `c_z^2 <= 0`, or the resulting `H` is
+    /// singular.
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let hex = Cell::from_con_box([10.0, 10.0, 10.0], [90.0, 90.0, 60.0])?;
+    /// assert!(hex.is_restricted());
+    /// assert!((hex.b()[0] - 5.0).abs() < 1e-12);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from_con_box(boxl: [f64; 3], angles_deg: [f64; 3]) -> Result<Self, Error> {
         let [lx, ly, lz] = boxl;
         if !(lx > 0.0 && ly > 0.0 && lz > 0.0) {
@@ -280,16 +365,28 @@ impl Cell {
         Self::from_rows(a, b, [cx, cy, cz2.sqrt()], [0.0, 0.0, 0.0])
     }
 
-    /// vesin box: rows are lattice vectors a, b, c, origin zero.
+    /// vesin box: rows are lattice vectors `a`, `b`, `c`, origin zero.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] under the same conditions as
+    /// [`Self::from_vectors`].
     pub fn from_vesin(rows: [[f64; 3]; 3]) -> Result<Self, Error> {
         Self::from_ase(rows)
     }
 
-    /// LAMMPS restricted-triclinic box from `xlo xhi ylo yhi zlo zhi`
-    /// and tilt factors `xy, xz, yz`.
+    /// LAMMPS restricted-triclinic box from dump-bound coordinates
+    /// `xlo xhi ylo yhi zlo zhi` and tilt factors `xy, xz, yz`.
     ///
-    /// Recovers the same H and origin as a dump ITEM BOX BOUNDS line
-    /// whose bound lo/hi already include the tilt padding.
+    /// Expects tilt-padded dump bounds (`xlo_bound, xhi_bound, ...`),
+    /// recovering the same `H` and origin as [`Self::from_lammps_bounds`]
+    /// with spans `xhi - xlo`, `yhi - ylo`, `zhi - zlo`. All arguments
+    /// share the same length unit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if the recovered cell is singular or
+    /// non-finite.
     #[allow(clippy::too_many_arguments)]
     pub fn from_lammps(
         xlo: f64,
@@ -305,12 +402,30 @@ impl Cell {
         Self::from_lammps_bounds(xhi - xlo, yhi - ylo, zhi - zlo, xy, xz, yz, xlo, ylo, zlo)
     }
 
-    /// LAMMPS dump bound spans plus tilts and bound lo.
+    /// LAMMPS dump bound spans plus tilts and bound lo, all in consistent
+    /// length units.
     ///
     /// `xspan, yspan, zspan` are `xhi_bound - xlo_bound` etc.
     /// `xy, xz, yz` are the tilt factors. `xlo_b, ylo_b, zlo_b` are
     /// the bound lo. Inverse of
     /// `xlo_bound = xlo + min(0, xy, xz, xy+xz)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if the recovered cell is singular or
+    /// non-finite.
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let sheared = Cell::from_lammps_bounds(
+    ///     15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    /// )?;
+    /// assert!((sheared.dist2([0.2, 0.1, 1.0], [9.7, 0.1, 1.0]) - 0.25).abs() < 1e-12);
+    /// # Ok(())
+    /// # }
+    /// ```
     #[allow(clippy::too_many_arguments)]
     pub fn from_lammps_bounds(
         xspan: f64,
@@ -327,51 +442,55 @@ impl Cell {
         Self::from_rows(h[0], h[1], h[2], origin)
     }
 
-    /// True when H is diagonal. Distances and lattice shifts then skip
-    /// the two 3x3 matvecs and use three independent wraps.
+    /// True when `H` is diagonal within `1e-12 * max(wa + wb + wc, 1)`.
+    ///
+    /// Distances and lattice shifts then skip the two 3x3 matvecs and
+    /// use three independent wraps.
     pub fn is_ortho(&self) -> bool {
         self.ortho
     }
 
-    /// Lattice vector a (first column of H).
+    /// Lattice vector `a` (first column of `H`), in cell length units.
     pub fn a(&self) -> [f64; 3] {
         self.h[0]
     }
 
-    /// Lattice vector b.
+    /// Lattice vector `b` (second column of `H`), in cell length units.
     pub fn b(&self) -> [f64; 3] {
         self.h[1]
     }
 
-    /// Lattice vector c.
+    /// Lattice vector `c` (third column of `H`), in cell length units.
     pub fn c(&self) -> [f64; 3] {
         self.h[2]
     }
 
-    /// Dump-cell origin.
+    /// Dump-cell origin in cell length units (defaults to `[0.0; 3]`).
     pub fn origin(&self) -> [f64; 3] {
         self.origin
     }
 
-    /// Perpendicular widths of the three faces.
+    /// Perpendicular widths `|a . n_a|`, `|b . n_b|`, `|c . n_c|` of the
+    /// three faces, in cell length units.
     pub fn widths(&self) -> [f64; 3] {
         self.widths
     }
 
-    /// Columns of H.
+    /// Columns of `H` (`[a, b, c]`), in cell length units.
     pub fn h(&self) -> [[f64; 3]; 3] {
         self.h
     }
 
-    /// Inverse of H, stored by columns.
+    /// Inverse of `H`, stored by columns, in inverse cell length units.
     pub fn hinv(&self) -> [[f64; 3]; 3] {
         self.hinv
     }
 
-    /// Fractional coordinates in `[0, 1)`.
+    /// Dimensionless fractional coordinates in `[0, 1)`.
     ///
     /// Orthorhombic boxes divide by the three widths. The general path
-    /// is `s = Hinv (r - origin)`, then wrap.
+    /// is `s = Hinv (r - origin)`, then wrap. `r` uses the cell's length
+    /// units.
     #[inline]
     pub fn fractional(&self, r: [f64; 3]) -> [f64; 3] {
         if self.ortho {
@@ -398,6 +517,18 @@ impl Cell {
     ///
     /// Convert positions once; [`Self::dist2_fixed`] and the fixed-point
     /// batches then wrap with integer subtraction, for any cell shape.
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+    /// let fa = cell.fixed([0.2, 0.0, 0.0]);
+    /// let fb = cell.fixed([9.4, 0.0, 0.0]);
+    /// assert!((cell.dist2_fixed(fa, fb) - 0.64).abs() < 1e-12);
+    /// # Ok(())
+    /// # }
+    /// ```
     #[inline]
     pub fn fixed(&self, r: [f64; 3]) -> [u64; 3] {
         self.fold().fixed(r)
@@ -568,10 +699,26 @@ impl Cell {
         dx * dx + dy * dy + dz * dz
     }
 
-    /// Minimum-image displacement from `p` to `q`: wrap(`q - p`).
+    /// Minimum-image displacement from `p` to `q`: `wrap(q - p)`, in
+    /// cell length units.
     ///
-    /// Orthorhombic boxes wrap each axis independently. The general path
-    /// is `ds = wrap(Hinv (q - p))`, then `dr = H ds`.
+    /// Orthorhombic boxes wrap each axis into `[-L/2, L/2)` (keeping
+    /// `-L/2` and mapping `+L/2` to `-L/2`). Restricted triclinic boxes
+    /// use the triangular `lamda` wrap (`sz`, then `sy`, then `sx` via
+    /// half-away-from-zero rounding). The general path is
+    /// `ds = wrap(Hinv (q - p))`, then `dr = H ds`. The cell origin does
+    /// not enter.
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+    /// let dr = cell.displacement([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]);
+    /// assert!((dr[0] + 0.8).abs() < 1e-12);
+    /// # Ok(())
+    /// # }
+    /// ```
     #[inline(always)]
     pub fn displacement(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
         let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
@@ -606,7 +753,9 @@ impl Cell {
         kernel::general_wrap(c.h, c.hinv, dp)
     }
 
-    /// Squared minimum-image distance.
+    /// Squared minimum-image distance in the cell's squared length units.
+    ///
+    /// Equals `|self.displacement(p, q)|^2`.
     #[inline(always)]
     pub fn dist2(&self, p: [f64; 3], q: [f64; 3]) -> f64 {
         let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
@@ -681,6 +830,29 @@ impl Cell {
     /// basis. No-op when [`Self::tilts_reduced`] is already true.
     /// A general orientation is rotated into the restricted frame first
     /// (LAMMPS `define_general_triclinic`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if rotating a general cell into the
+    /// restricted frame fails (`|a| < 1e-18` or `|b_perp| < 1e-18`) or
+    /// the reduced cell is singular.
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let skewed = Cell::from_vectors(
+    ///     [1.0, 0.0, 0.0],
+    ///     [0.99, 0.01, 0.0],
+    ///     [0.0, 0.0, 1.0],
+    ///     [0.0; 3],
+    /// )?;
+    /// assert!(!skewed.tilts_reduced());
+    /// let red = skewed.reduce_tilts()?;
+    /// assert!(red.tilts_reduced());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn reduce_tilts(&self) -> Result<Self, Error> {
         let (cell, _rot) = self.restricted_frame()?;
         if cell.tilts_reduced() {
@@ -698,12 +870,17 @@ impl Cell {
     /// Rotate a general parallelepiped onto the restricted-triclinic
     /// frame (LAMMPS general-to-restricted). Identity when already
     /// restricted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] if `|a| < 1e-18`, `|b_perp| < 1e-18`, or
+    /// the rotated cell is singular.
     pub fn to_restricted(&self) -> Result<Self, Error> {
         Ok(self.restricted_frame()?.0)
     }
 
-    /// Euclidean nearest image, including displacements longer than
-    /// the cell.
+    /// Euclidean nearest image from `p` to `q` in cell length units,
+    /// including displacements longer than the cell.
     ///
     /// An orthorhombic box is the per-axis wrap. Otherwise Smith,
     /// *CCP5 Newsletter* 1989: the engine wrap is nearest when its
@@ -720,6 +897,26 @@ impl Cell {
     /// not stored in the cell. A tie keeps the engine vector.
     /// [`Self::displacement`] stays that engine vector on the caller's
     /// `H`.
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let hex = Cell::from_vectors(
+    ///     [10.0, 0.0, 0.0],
+    ///     [5.0, 8.660254037844386, 0.0],
+    ///     [0.0, 0.0, 10.0],
+    ///     [0.0; 3],
+    /// )?;
+    /// let q = hex.cartesian([0.49, 0.49, 0.49]);
+    /// let frac = hex.displacement([0.0; 3], q);
+    /// let euc = hex.displacement_euclidean([0.0; 3], q);
+    /// let f2 = frac[0] * frac[0] + frac[1] * frac[1] + frac[2] * frac[2];
+    /// let e2 = euc[0] * euc[0] + euc[1] * euc[1] + euc[2] * euc[2];
+    /// assert!(e2 < f2);
+    /// # Ok(())
+    /// # }
+    /// ```
     #[inline(always)]
     pub fn displacement_euclidean(&self, p: [f64; 3], q: [f64; 3]) -> [f64; 3] {
         let dp = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
@@ -763,8 +960,25 @@ impl Cell {
     /// Squared distances from `p` to each `q`, with one lattice shift
     /// already applied to every `q`.
     ///
-    /// Rapaport's linked-cell pair: `|q + shift - p|^2`. No wrap and
-    /// no `Hinv`. `out` has one entry per `q`.
+    /// Rapaport's linked-cell pair: `|q + shift - p|^2` in squared cell
+    /// length units. No wrap and no `Hinv`. `out` has one entry per `q`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BufferSize`] if `out.len() != qs.len()`.
+    ///
+    /// ```
+    /// use minimage::Cell;
+    ///
+    /// # fn main() -> Result<(), minimage::Error> {
+    /// let cell = Cell::ortho(10.0, 10.0, 10.0)?;
+    /// let shift = cell.lattice_shift(-1, 0, 0);
+    /// let mut out = [0.0; 1];
+    /// cell.dist2_shifted_many([0.2, 0.0, 0.0], &[[9.4, 0.0, 0.0]], shift, &mut out)?;
+    /// assert!((out[0] - 0.64).abs() < 1e-12);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn dist2_shifted_many(
         &self,
         p: [f64; 3],
@@ -790,7 +1004,16 @@ impl Cell {
     /// index list that copy was slower than the inlined subtract, so
     /// the production walk keeps the subtract.
     ///
-    /// `out` has one entry per index. An index past `positions` panics.
+    /// `out` has one entry per index, in squared cell length units.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BufferSize`] if `out.len() != indices.len()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index in `indices` is greater than or equal to
+    /// `positions.len()`.
     pub fn dist2_shifted_indexed(
         &self,
         p: [f64; 3],
@@ -1072,8 +1295,13 @@ mod cartesian_tests {
     }
 }
 
-/// Recover restricted-triclinic H (columns a, b, c) and origin from a
-/// LAMMPS dump bound box.
+/// Recover restricted-triclinic `H` (columns `[a, b, c]`) and origin
+/// from a LAMMPS dump bound box.
+///
+/// `xspan, yspan, zspan` are `xhi_bound - xlo_bound` etc.; `xy, xz, yz`
+/// are the tilt factors; `xlo_b, ylo_b, zlo_b` are the bound origins,
+/// all in consistent length units. Returns `(h, origin)` without
+/// checking whether the resulting cell is non-singular.
 #[allow(clippy::too_many_arguments)]
 pub fn dump_bounds_to_h(
     xspan: f64,
