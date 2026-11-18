@@ -38,6 +38,32 @@
         (setq new (% (1+ new) #x10000000)))
       new)))
 
+;; Org 9.7 stores the blank line after a headline or section on that
+;; element's last child. Org 9.6 stores it on the headline or section.
+;; ox-html keeps a parent's :post-blank as a blank line between sections
+;; and drops a child's :post-blank when it normalizes the section body.
+;; Emacs 30.2 (Org 9.7.11) therefore drops the blank lines Emacs 29.3
+;; (Org 9.6.15) keeps. The tracked HTML follows the blank lines in the
+;; Org source. No export option chooses which element owns the blank, so
+;; lift it onto the parent before HTML export. Both versions then match.
+(defun minimage-normalize-section-gap (tree _backend _info)
+  "Pin the blank line between sections on the parent element."
+  (minimage--lift-post-blank tree)
+  tree)
+
+(defun minimage--lift-post-blank (elem)
+  "Move a trailing :post-blank from the last child of ELEM onto ELEM."
+  (dolist (child (org-element-contents elem))
+    (minimage--lift-post-blank child))
+  (when (memq (org-element-type elem) '(headline section))
+    (let ((last (car (last (org-element-contents elem)))))
+      (when (and last
+                 (> (or (org-element-property :post-blank last) 0) 0)
+                 (= (or (org-element-property :post-blank elem) 0) 0))
+        (org-element-put-property elem :post-blank
+                                  (org-element-property :post-blank last))
+        (org-element-put-property last :post-blank 0)))))
+
 (setq org-export-with-toc nil
       org-html-prefer-user-labels t
       org-export-with-section-numbers nil
@@ -59,6 +85,9 @@
       '((preamble "div" "preamble")
         (content "div" "content")
         (postamble "div" "postamble"))
+      org-export-filter-parse-tree-functions
+      (cons #'minimage-normalize-section-gap
+            org-export-filter-parse-tree-functions)
       org-html-text-markup-alist
       '((bold . "<strong>%s</strong>")
         (code . "<code>%s</code>")
