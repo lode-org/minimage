@@ -36,9 +36,9 @@ fallback. A build does not crash on a CPU that lacks a wider set.
 Nothing in the build asks for <code>-march=native</code> or a <code>target-cpu</code>.
 </p>
 
-<section id="outline-container-org4c5a119" class="outline-2">
-<h2 id="org4c5a119">Paths</h2>
-<div class="outline-text-2" id="text-org4c5a119">
+<section id="outline-container-org13e7e11" class="outline-2">
+<h2 id="org13e7e11">Paths</h2>
+<div class="outline-text-2" id="text-org13e7e11">
 <table>
 
 
@@ -120,9 +120,9 @@ or a NaN, sends that group through the scalar loop.
 </div>
 </section>
 
-<section id="outline-container-org38b8d4f" class="outline-2">
-<h2 id="org38b8d4f">Selection</h2>
-<div class="outline-text-2" id="text-org38b8d4f">
+<section id="outline-container-orgd1f8e5e" class="outline-2">
+<h2 id="orgd1f8e5e">Selection</h2>
+<div class="outline-text-2" id="text-orgd1f8e5e">
 <p>
 <code>simd_path()</code> returns the name of the path the next batch will use.
 Each batch entry reads that choice once, before the row loop.
@@ -139,9 +139,9 @@ calling thread and pass it down.
 </div>
 </section>
 
-<section id="outline-container-org7bdde4f" class="outline-2">
-<h2 id="org7bdde4f">Packed rows</h2>
-<div class="outline-text-2" id="text-org7bdde4f">
+<section id="outline-container-org1fae6d3" class="outline-2">
+<h2 id="org1fae6d3">Packed rows</h2>
+<div class="outline-text-2" id="text-org1fae6d3">
 <p>
 An orthorhombic packed kernel used to send a whole vector group back
 to scalar when any lane was a full box away. On the review batch that
@@ -369,9 +369,9 @@ Pairs, many, and wrap are about 1.4× to 2.4× scalar on this runner.
 </div>
 </section>
 
-<section id="outline-container-org95680e0" class="outline-2">
-<h2 id="org95680e0">Bit identity</h2>
-<div class="outline-text-2" id="text-org95680e0">
+<section id="outline-container-orgaa7ff6e" class="outline-2">
+<h2 id="orgaa7ff6e">Bit identity</h2>
+<div class="outline-text-2" id="text-orgaa7ff6e">
 <p>
 The same input gives the same output bits on every path, including
 the sign of zero. Reductions add in the scalar order,

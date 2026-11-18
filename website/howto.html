@@ -30,9 +30,9 @@
 </nav>
 <div class="rule" aria-hidden="true"></div>
 
-<section id="outline-container-orgef8148e" class="outline-2">
-<h2 id="orgef8148e">Embed from C</h2>
-<div class="outline-text-2" id="text-orgef8148e">
+<section id="outline-container-org7c172ae" class="outline-2">
+<h2 id="org7c172ae">Embed from C</h2>
+<div class="outline-text-2" id="text-org7c172ae">
 <p>
 Every exported C function uses the <code>minimage_</code> prefix. Functions return
 <code>0</code> on success and <code>1</code> on failure; on failure, call
@@ -77,9 +77,9 @@ exposes <code>minimage_dep</code>. CMake exposes <code>minimage::minimage</code>
 </div>
 </section>
 
-<section id="outline-container-org1ced763" class="outline-2">
-<h2 id="org1ced763">Embed from C++</h2>
-<div class="outline-text-2" id="text-org1ced763">
+<section id="outline-container-org678c319" class="outline-2">
+<h2 id="org678c319">Embed from C++</h2>
+<div class="outline-text-2" id="text-org678c319">
 <div class="org-src-container">
 <pre class="src src-cpp">#include "minimage.hpp"
 
@@ -103,9 +103,9 @@ immediately.
 </div>
 </section>
 
-<section id="outline-container-org4d1ef9e" class="outline-2">
-<h2 id="org4d1ef9e">Embed from Python</h2>
-<div class="outline-text-2" id="text-org4d1ef9e">
+<section id="outline-container-orgdeb9d03" class="outline-2">
+<h2 id="orgdeb9d03">Embed from Python</h2>
+<div class="outline-text-2" id="text-orgdeb9d03">
 <div class="org-src-container">
 <pre class="src src-python">import minimage
 
@@ -134,9 +134,9 @@ its buffer. A list in gives a list out. A device array raises
 </div>
 </section>
 
-<section id="outline-container-org2aacd88" class="outline-2">
-<h2 id="org2aacd88">Run on a GPU with Burn</h2>
-<div class="outline-text-2" id="text-org2aacd88">
+<section id="outline-container-orgccb0177" class="outline-2">
+<h2 id="orgccb0177">Run on a GPU with Burn</h2>
+<div class="outline-text-2" id="text-orgccb0177">
 <p>
 <code>burn/</code> is the <code>minimage-burn</code> crate, outside the workspace because
 Burn needs Rust 1.95. Enable the backend features you need (<code>wgpu</code>,
@@ -163,9 +163,9 @@ on the device is then exact in single or half precision.
 </div>
 </section>
 
-<section id="outline-container-org1cecbc7" class="outline-2">
-<h2 id="org1cecbc7">pkg-config</h2>
-<div class="outline-text-2" id="text-org1cecbc7">
+<section id="outline-container-orgc6f940e" class="outline-2">
+<h2 id="orgc6f940e">pkg-config</h2>
+<div class="outline-text-2" id="text-orgc6f940e">
 <div class="org-src-container">
 <pre class="src src-text">pkg-config --cflags --libs minimage
 </pre>
@@ -178,9 +178,9 @@ so a wrap consumer can find <code>-lminimage</code>.
 </div>
 </section>
 
-<section id="outline-container-org2b2ae7a" class="outline-2">
-<h2 id="org2b2ae7a">Cut a release</h2>
-<div class="outline-text-2" id="text-org2b2ae7a">
+<section id="outline-container-orgc0a74a4" class="outline-2">
+<h2 id="orgc0a74a4">Cut a release</h2>
+<div class="outline-text-2" id="text-orgc0a74a4">
 <p>
 The version is written by hand in one place, <code>[workspace.package].version</code> in <code>Cargo.toml</code>.
 Meson and CMake read it through <code>scripts/crate_version.py</code>, and maturin reads it from the crate.
@@ -230,9 +230,9 @@ A failed hook stops it before the commit.
 </p>
 </div>
 
-<div id="outline-container-org191470f" class="outline-3">
-<h3 id="org191470f">The wrap tag rule</h3>
-<div class="outline-text-3" id="text-org191470f">
+<div id="outline-container-org876ed9c" class="outline-3">
+<h3 id="org876ed9c">The wrap tag rule</h3>
+<div class="outline-text-3" id="text-org876ed9c">
 <p>
 A wrap snippet can only name a tag that exists, since Meson fetches each wrap at a git tag.
 The snippets sit in <code>README.md</code>, <code>packaging/wrapdb/minimage.wrap</code>, <code>getting-started.org</code> and its HTML page.
@@ -243,9 +243,9 @@ Only the release commit moves the tag to <code>v&lt;version&gt;</code>, and the 
 </div>
 </div>
 
-<div id="outline-container-org94d353f" class="outline-3">
-<h3 id="org94d353f">The tag check</h3>
-<div class="outline-text-3" id="text-org94d353f">
+<div id="outline-container-org5b0c08f" class="outline-3">
+<h3 id="org5b0c08f">The tag check</h3>
+<div class="outline-text-3" id="text-org5b0c08f">
 <p>
 On a tag push, CI, the crates.io job and the wheels job run the tag check.
 They pass the pushed tag name to <code>scripts/check_version_lockstep.py --tag</code>.

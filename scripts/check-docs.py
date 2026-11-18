@@ -28,7 +28,6 @@ PAGES = [
     "simd.html",
     "reference.html",
 ]
-ORG_ID_RE = re.compile(r"(outline-container-|text-|#)?org[0-9a-f]{7}")
 
 
 class HtmlScanner(html.parser.HTMLParser):
@@ -49,10 +48,6 @@ class HtmlScanner(html.parser.HTMLParser):
             val = attr_map.get(key)
             if val:
                 self.links.append(val)
-
-
-def normalize_org_html(text: str) -> str:
-    return ORG_ID_RE.sub(lambda m: f"{m.group(1) or ''}orgHASH", text)
 
 
 def check_internal_links(root: Path) -> tuple[list[str], set[str]]:
@@ -154,9 +149,7 @@ def check_emacs_export(root: Path, require_emacs: bool) -> list[str]:
             if not expected_path.exists():
                 errors.append(f"tracked website/{page} is missing")
                 continue
-            exp = normalize_org_html(expected_path.read_text(encoding="utf-8"))
-            act = normalize_org_html(actual_path.read_text(encoding="utf-8"))
-            if exp != act:
+            if expected_path.read_bytes() != actual_path.read_bytes():
                 errors.append(
                     f"website/{page} is out of sync with docs/orgmode (run: emacs --batch -l docs/export.el)"
                 )

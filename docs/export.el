@@ -2,7 +2,44 @@
 ;; Usage: emacs --batch -l docs/export.el
 (require 'ox-html)
 
+;; Org draws anchor ids from the PRNG, so every export rewrites them and
+;; the tracked HTML churns. Derive them from the heading path instead.
+;; A heading with a CUSTOM_ID property keeps that id.
+(defvar minimage--export-datum nil
+  "Element or object whose reference `org-export-get-reference' is building.")
+
+(defun minimage--datum-key (datum)
+  "Return a string that identifies DATUM independently of the PRNG."
+  (if (eq (org-element-type datum) 'headline)
+      (let (titles)
+        (while datum
+          (when (eq (org-element-type datum) 'headline)
+            (push (org-element-property :raw-value datum) titles))
+          (setq datum (org-element-property :parent datum)))
+        (mapconcat #'identity titles "/"))
+    (format "%s@%s" (org-element-type datum)
+            (org-element-property :begin datum))))
+
+(define-advice org-export-get-reference
+    (:around (fn datum info) minimage-stable-id)
+  (let ((minimage--export-datum datum))
+    (funcall fn datum info)))
+
+(define-advice org-export-new-reference
+    (:around (fn references) minimage-stable-id)
+  (if (null minimage--export-datum)
+      (funcall fn references)
+    (let ((new (string-to-number
+                (substring (secure-hash 'sha1 (minimage--datum-key
+                                               minimage--export-datum))
+                           0 7)
+                16)))
+      (while (rassq new references)
+        (setq new (% (1+ new) #x10000000)))
+      new)))
+
 (setq org-export-with-toc nil
+      org-html-prefer-user-labels t
       org-export-with-section-numbers nil
       org-export-with-author nil
       org-export-with-timestamps nil
