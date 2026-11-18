@@ -42,7 +42,11 @@ if (minimage_cell_from_lammps_bounds(
     fprintf(stderr, "%s\n", minimage_last_error());
 }
 const double origin[3] = {0.0, 0.0, 0.0};
-const double diag[3] = {7.35, 4.243524478543749, 4.9};
+const double diag[3] = {
+    0.49 * (hex.ax + hex.bx + hex.cx),
+    0.49 * (hex.ay + hex.by + hex.cy),
+    0.49 * (hex.az + hex.bz + hex.cz),
+};
 double dr[3] = {0.0, 0.0, 0.0};
 if (minimage_displacement_euclidean(&hex, origin, diag, dr) != 0) {
     fprintf(stderr, "%s\n", minimage_last_error());
@@ -65,7 +69,12 @@ const double d2 = box.dist2({0.2, 0.0, 0.0}, {9.4, 0.0, 0.0});
 
 const minimage::Cell hex = minimage::Cell::from_lammps_bounds(
     15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-const auto dr = hex.displacement_euclidean({0.0, 0.0, 0.0}, {7.35, 4.243524478543749, 4.9});
+const std::array<double, 3> diag = {
+    0.49 * (hex.a[0] + hex.b[0] + hex.c[0]),
+    0.49 * (hex.a[1] + hex.b[1] + hex.c[1]),
+    0.49 * (hex.a[2] + hex.b[2] + hex.c[2]),
+};
+const auto dr = hex.displacement_euclidean({0.0, 0.0, 0.0}, diag);
 #+end_src
 
 The header is a RAII wrap of =minimage.h=. Failures throw
@@ -83,10 +92,10 @@ import minimage
 cell = minimage.Cell.ortho(10.0, 10.0, 10.0)
 print(cell.dist2([0.2, 0.0, 0.0], [9.4, 0.0, 0.0]))
 
-hex_cell = minimage.Cell.from_lammps_bounds(
-    15.0, 8.660254037844386, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0
-)
-dr = hex_cell.displacement_euclidean([0.0, 0.0, 0.0], [7.35, 4.243524478543749, 4.9])
+rows = [[10.0, 0.0, 0.0], [5.0, 8.660254037844386, 0.0], [0.0, 0.0, 10.0]]
+hex_cell = minimage.Cell.from_ase(rows)
+diag = [0.49 * (rows[0][k] + rows[1][k] + rows[2][k]) for k in range(3)]
+dr = hex_cell.displacement_euclidean([0.0, 0.0, 0.0], diag)
 
 d2 = cell.dist2_pairs(ps, qs)        # (n, 3) arrays in, numpy out
 f = cell.fixed_many(positions)       # uint64 (n, 3)

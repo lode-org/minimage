@@ -807,9 +807,12 @@ impl Cell {
     /// GROMACS `correct_box` / LAMMPS half-box limits
     /// `|xy| <= lx/2`, `|xz| <= lx/2`, `|yz| <= ly/2`.
     ///
-    /// On that domain the fractional wrap is the Euclidean MIC, which
-    /// is why LAMMPS `Domain::minimum_image` and HOOMD `BoxDim::minImage`
-    /// never search extra images.
+    /// On that domain LAMMPS `Domain::minimum_image` and HOOMD
+    /// `BoxDim::minImage` wrap without searching extra images, which is
+    /// the Euclidean MIC below half the smallest face altitude
+    /// (Smith, *CCP5 Newsletter* 1989). Longer displacements such as a
+    /// hex-prism body diagonal can still have a shorter image
+    /// ([`Self::displacement_euclidean`]).
     pub fn tilts_reduced(&self) -> bool {
         if !self.is_restricted() {
             return false;

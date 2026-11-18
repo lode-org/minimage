@@ -106,7 +106,8 @@ Fallible functions return =Result<_, Error>= with variants
 | =Cell::a=, =b=, =c=, =origin=, =widths=, =h=, =hinv=, =is_ortho=, =is_restricted=, =tilts_reduced= | Cell geometry and basis queries |
 | =Cell::fractional=, =cartesian=, =lattice_shift=, =displacement=, =dist2=, =dist2_shifted=, =dist2_shifted_many=, =dist2_shifted_indexed= | Engine wrap, coordinate conversion, and linked-cell shifts |
 | =Cell::displacement_cartesian=, =fractional_matches_cartesian=, =displacement_euclidean=, =dist2_euclidean= | 27-image check and exact Selling-superbasis Euclidean MIC |
-| =Cell::reduce_tilts=, =to_restricted=, =minkowski_reduce=, =is_minkowski_reduced= | Unimodular tilt reduction, frame rotation, and Minkowski reduction |
+| =Cell::reduce_tilts=, =Cell::to_restricted= | Unimodular tilt reduction and restricted-frame rotation |
+| =minkowski_reduce=, =is_minkowski_reduced= | 3D Minkowski basis reduction and predicate |
 | =Cell::fixed=, =displacement_fixed=, =dist2_fixed=, =fixed32=, =displacement_fixed32=, =dist2_fixed32= | 64-bit and 32-bit fixed-point fractional wraps |
 | =wrap_many=, =dist2_many=, =dist2_pairs=, =dist2_ortho_diffs= | Batched engine MIC wraps and squared distances |
 | =dist2_euclidean_many=, =dist2_euclidean_pairs=, =dist2_euclidean_pairs_warm= | Batched and warm-started Euclidean nearest-image distances |
