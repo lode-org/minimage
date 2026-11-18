@@ -158,7 +158,11 @@ if (minimage_cell_from_lammps_bounds(
     fprintf(stderr, "%s\n", minimage_last_error());
 }
 const double p[3] = {0.0, 0.0, 0.0};
-const double q[3] = {7.35, 4.243524478543749, 4.9};
+const double q[3] = {
+    0.49 * (cell.ax + cell.bx + cell.cx),
+    0.49 * (cell.ay + cell.by + cell.cy),
+    0.49 * (cell.az + cell.bz + cell.cz),
+};
 double dr[3] = {0.0};
 if (minimage_displacement_euclidean(&cell, p, q, dr) != 0) {
     fprintf(stderr, "%s\n", minimage_last_error());
