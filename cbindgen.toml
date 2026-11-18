@@ -19,19 +19,20 @@ header = """
  *
  * Memory ownership
  *   - Constructor calls write one mi_cell into a caller-owned out.
- *   - mi_displacement / mi_displacement_euclidean / mi_wrap_many /
- *     mi_dist2 / mi_dist2_many / mi_dist2_pairs / mi_dist2_ortho_diffs
+ *   - minimage_displacement / minimage_displacement_euclidean /
+ *     minimage_wrap_many / minimage_dist2 / minimage_dist2_many /
+ *     minimage_dist2_pairs / minimage_dist2_ortho_diffs
  *     write into caller-owned buffers.
- *   - mi_reduce_pairs writes kept (i, j) pairs into caller-owned out
+ *   - minimage_reduce_pairs writes kept pairs into caller-owned out
  *     and the count into out_n.
- *   - mi_last_error returns a thread-local pointer. Do not free. The
- *     pointer is invalid after the next mi_* call on the same thread.
- *     mi_version does not read or write the slot.
- *   - mi_version returns a process-static pointer. Do not free.
+ *   - minimage_last_error returns a thread-local pointer. Do not free.
+ *     The pointer is invalid after the next minimage_* call on the same
+ *     thread. minimage_version does not read or write the slot.
+ *   - minimage_version returns a process-static pointer. Do not free.
  *
  * Thread safety
  *   - Distinct cells and distance calls may run concurrently.
- *   - mi_last_error is a thread-local slot. Read it on the same thread
+ *   - minimage_last_error is a thread-local slot. Read it on the same thread
  *     that received a nonzero return.
  */
 """
@@ -95,23 +96,23 @@ usize_is_size_t = true
 [export]
 include = [
     "mi_cell",
-    "mi_cell_from_ase",
-    "mi_cell_from_con",
-    "mi_cell_from_con_box",
-    "mi_cell_from_lammps",
-    "mi_cell_from_lammps_bounds",
-    "mi_cell_from_vectors",
-    "mi_cell_from_vesin",
-    "mi_displacement",
-    "mi_displacement_euclidean",
-    "mi_dist2",
-    "mi_dist2_many",
-    "mi_dist2_ortho_diffs",
-    "mi_dist2_pairs",
-    "mi_last_error",
-    "mi_reduce_pairs",
-    "mi_version",
-    "mi_wrap_many",
+    "minimage_cell_from_ase",
+    "minimage_cell_from_con",
+    "minimage_cell_from_con_box",
+    "minimage_cell_from_lammps",
+    "minimage_cell_from_lammps_bounds",
+    "minimage_cell_from_vectors",
+    "minimage_cell_from_vesin",
+    "minimage_displacement",
+    "minimage_displacement_euclidean",
+    "minimage_dist2",
+    "minimage_dist2_many",
+    "minimage_dist2_ortho_diffs",
+    "minimage_dist2_pairs",
+    "minimage_last_error",
+    "minimage_reduce_pairs",
+    "minimage_version",
+    "minimage_wrap_many",
 ]
 exclude = ["mi_cell_ortho", "Cell", "Error"]
 item_types = ["enums", "structs", "unions", "typedefs", "opaque", "functions", "constants"]

@@ -10,20 +10,20 @@ use std::time::Instant;
 use minimage::{mi_cell, mi_pbc_cell, Cell, PartialCell};
 
 extern "C" {
-    fn mi_cell_from_ase(rows: *const f64, origin: *const f64, out: *mut mi_cell) -> c_int;
-    fn mi_displacement_euclidean(
+    fn minimage_cell_from_ase(rows: *const f64, origin: *const f64, out: *mut mi_cell) -> c_int;
+    fn minimage_displacement_euclidean(
         simbox: *const mi_cell,
         p: *const f64,
         q: *const f64,
         dr: *mut f64,
     ) -> c_int;
-    fn mi_pbc_cell_from_ase(
+    fn minimage_pbc_cell_from_ase(
         rows: *const f64,
         pbc: *const c_int,
         origin: *const f64,
         out: *mut mi_pbc_cell,
     ) -> c_int;
-    fn mi_displacement_euclidean_pbc(
+    fn minimage_displacement_euclidean_pbc(
         simbox: *const mi_pbc_cell,
         p: *const f64,
         q: *const f64,
@@ -75,7 +75,7 @@ fn bench_euclidean() {
     let cell = Cell::from_ase(nested).unwrap();
     let mut raw = std::mem::MaybeUninit::<mi_cell>::zeroed();
     assert_eq!(
-        unsafe { mi_cell_from_ase(rows.as_ptr(), std::ptr::null(), raw.as_mut_ptr()) },
+        unsafe { minimage_cell_from_ase(rows.as_ptr(), std::ptr::null(), raw.as_mut_ptr()) },
         0
     );
     let raw = unsafe { raw.assume_init() };
@@ -83,7 +83,7 @@ fn bench_euclidean() {
     time("cell", &pts, &|p, q| cell.displacement_euclidean(p, q));
     time("c_cell", &pts, &|p, q| {
         let mut dr = [0.0; 3];
-        unsafe { mi_displacement_euclidean(&raw, p.as_ptr(), q.as_ptr(), dr.as_mut_ptr()) };
+        unsafe { minimage_displacement_euclidean(&raw, p.as_ptr(), q.as_ptr(), dr.as_mut_ptr()) };
         dr
     });
     let all = PartialCell::from_ase(nested, [true; 3]).unwrap();
@@ -102,7 +102,7 @@ fn bench_euclidean() {
     let mask: [c_int; 3] = [1, 1, 0];
     assert_eq!(
         unsafe {
-            mi_pbc_cell_from_ase(
+            minimage_pbc_cell_from_ase(
                 rows.as_ptr(),
                 mask.as_ptr(),
                 std::ptr::null(),
@@ -115,7 +115,7 @@ fn bench_euclidean() {
     time("c_slab", &pts, &|p, q| {
         let mut dr = [0.0; 3];
         unsafe {
-            mi_displacement_euclidean_pbc(&slab_raw, p.as_ptr(), q.as_ptr(), dr.as_mut_ptr())
+            minimage_displacement_euclidean_pbc(&slab_raw, p.as_ptr(), q.as_ptr(), dr.as_mut_ptr())
         };
         dr
     });

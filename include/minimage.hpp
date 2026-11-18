@@ -38,7 +38,7 @@ private:
 
 inline void check(int status, const char *what) {
   if (status != 0) {
-    const char *msg = mi_last_error();
+    const char *msg = minimage_last_error();
     throw Error(status, msg ? std::string(msg) : std::string(what));
   }
 }
@@ -65,8 +65,8 @@ struct Cell {
                            std::array<double, 3> c,
                            std::array<double, 3> origin = {}) {
     mi_cell raw;
-    check(mi_cell_from_vectors(a.data(), b.data(), c.data(), origin.data(),
-                               &raw),
+    check(minimage_cell_from_vectors(a.data(), b.data(), c.data(),
+                                     origin.data(), &raw),
           "minimage: from_vectors failed");
     return Cell(raw);
   }
@@ -75,7 +75,8 @@ struct Cell {
                           double zlo, double zhi, double xy, double xz,
                           double yz) {
     mi_cell raw;
-    check(mi_cell_from_lammps(xlo, xhi, ylo, yhi, zlo, zhi, xy, xz, yz, &raw),
+    check(minimage_cell_from_lammps(xlo, xhi, ylo, yhi, zlo, zhi, xy, xz, yz,
+                                    &raw),
           "minimage: from_lammps failed");
     return Cell(raw);
   }
@@ -84,8 +85,8 @@ struct Cell {
                                  double xy, double xz, double yz, double xlo_b,
                                  double ylo_b, double zlo_b) {
     mi_cell raw;
-    check(mi_cell_from_lammps_bounds(xspan, yspan, zspan, xy, xz, yz, xlo_b,
-                                     ylo_b, zlo_b, &raw),
+    check(minimage_cell_from_lammps_bounds(xspan, yspan, zspan, xy, xz, yz,
+                                           xlo_b, ylo_b, zlo_b, &raw),
           "minimage: from_lammps_bounds failed");
     return Cell(raw);
   }
@@ -93,27 +94,28 @@ struct Cell {
   static Cell from_ase(const double rows[9],
                        const double *origin = nullptr) {
     mi_cell raw;
-    check(mi_cell_from_ase(rows, origin, &raw), "minimage: from_ase failed");
+    check(minimage_cell_from_ase(rows, origin, &raw),
+          "minimage: from_ase failed");
     return Cell(raw);
   }
 
   static Cell from_con(const double rows[9]) {
     mi_cell raw;
-    check(mi_cell_from_con(rows, &raw), "minimage: from_con failed");
+    check(minimage_cell_from_con(rows, &raw), "minimage: from_con failed");
     return Cell(raw);
   }
 
   static Cell from_con_box(std::array<double, 3> boxl,
                            std::array<double, 3> angles_deg) {
     mi_cell raw;
-    check(mi_cell_from_con_box(boxl.data(), angles_deg.data(), &raw),
+    check(minimage_cell_from_con_box(boxl.data(), angles_deg.data(), &raw),
           "minimage: from_con_box failed");
     return Cell(raw);
   }
 
   static Cell from_vesin(const double rows[9]) {
     mi_cell raw;
-    check(mi_cell_from_vesin(rows, &raw), "minimage: from_vesin failed");
+    check(minimage_cell_from_vesin(rows, &raw), "minimage: from_vesin failed");
     return Cell(raw);
   }
 
@@ -129,7 +131,7 @@ struct Cell {
   displacement(std::array<double, 3> p, std::array<double, 3> q) const {
     const mi_cell box = raw();
     std::array<double, 3> dr{};
-    check(mi_displacement(&box, p.data(), q.data(), dr.data()),
+    check(minimage_displacement(&box, p.data(), q.data(), dr.data()),
           "minimage: displacement failed");
     return dr;
   }
@@ -139,7 +141,7 @@ struct Cell {
                          std::array<double, 3> q) const {
     const mi_cell box = raw();
     std::array<double, 3> dr{};
-    check(mi_displacement_euclidean(&box, p.data(), q.data(), dr.data()),
+    check(minimage_displacement_euclidean(&box, p.data(), q.data(), dr.data()),
           "minimage: displacement_euclidean failed");
     return dr;
   }
@@ -148,7 +150,8 @@ struct Cell {
                              std::array<double, 3> q) const {
     const mi_cell box = raw();
     double out = 0.0;
-    check(mi_dist2(&box, p.data(), q.data(), &out), "minimage: dist2 failed");
+    check(minimage_dist2(&box, p.data(), q.data(), &out),
+          "minimage: dist2 failed");
     return out;
   }
 
@@ -156,14 +159,14 @@ struct Cell {
   void dist2_shifted_many(std::array<double, 3> p, const double *qs,
                           std::array<double, 3> shift, std::size_t n,
                           double *out) const {
-    check(mi_dist2_shifted_many(p.data(), qs, shift.data(), n, out),
+    check(minimage_dist2_shifted_many(p.data(), qs, shift.data(), n, out),
           "minimage: dist2_shifted_many failed");
   }
 
   void dist2_many(std::array<double, 3> p, const double *qs, std::size_t n,
                   double *out) const {
     const mi_cell box = raw();
-    check(mi_dist2_many(&box, p.data(), qs, n, out),
+    check(minimage_dist2_many(&box, p.data(), qs, n, out),
           "minimage: dist2_many failed");
   }
 
@@ -172,14 +175,14 @@ struct Cell {
   void dist2_euclidean_many(std::array<double, 3> p, const double *qs,
                             std::size_t n, double *out) const {
     const mi_cell box = raw();
-    check(mi_dist2_euclidean_many(&box, p.data(), qs, n, out),
+    check(minimage_dist2_euclidean_many(&box, p.data(), qs, n, out),
           "minimage: dist2_euclidean_many failed");
   }
 
   void dist2_euclidean_pairs(const double *ps, const double *qs,
                              std::size_t n, double *out) const {
     const mi_cell box = raw();
-    check(mi_dist2_euclidean_pairs(&box, ps, qs, n, out),
+    check(minimage_dist2_euclidean_pairs(&box, ps, qs, n, out),
           "minimage: dist2_euclidean_pairs failed");
   }
 
@@ -189,7 +192,7 @@ struct Cell {
                                   std::size_t n, std::int32_t *images,
                                   double *out) const {
     const mi_cell box = raw();
-    check(mi_dist2_euclidean_pairs_warm(&box, ps, qs, n, images, out),
+    check(minimage_dist2_euclidean_pairs_warm(&box, ps, qs, n, images, out),
           "minimage: dist2_euclidean_pairs_warm failed");
   }
 };
@@ -197,7 +200,7 @@ struct Cell {
 inline void dist2_ortho_diffs(const double *dx, const double *dy,
                               const double *dz, double bx, double by, double bz,
                               double *out, std::size_t n) {
-  check(mi_dist2_ortho_diffs(dx, dy, dz, bx, by, bz, out, n),
+  check(minimage_dist2_ortho_diffs(dx, dy, dz, bx, by, bz, out, n),
         "minimage: dist2_ortho_diffs failed");
 }
 
@@ -209,7 +212,7 @@ reduce_pairs(const int *pairs, std::size_t n) {
   }
   std::vector<int> out(n * 2, 0);
   std::size_t kept = 0;
-  check(mi_reduce_pairs(pairs, n, out.data(), &kept),
+  check(minimage_reduce_pairs(pairs, n, out.data(), &kept),
         "minimage: reduce_pairs failed");
   std::vector<std::array<int, 2>> rows(kept);
   for (std::size_t k = 0; k < kept; ++k) {

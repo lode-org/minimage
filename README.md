@@ -14,7 +14,7 @@ yz` tilts, a CON lattice or length-angle box, an ASE-style 3x3 cell,
 and a vesin box.
 
 It is a LODE library. The Rust crate is the implementation. The C ABI
-(`mi_*`) is the hourglass waist, the same shape as
+(`minimage_*`) is the hourglass waist, the same shape as
 [linkcell](https://github.com/d-SEAMS/linkcell) and
 [readcon-core](https://github.com/lode-org/readcon-core). C++ is a
 RAII header over that ABI.
@@ -34,6 +34,10 @@ cargo add minimage
 C and C++ consumers take the `staticlib` (`--features capi`, on by
 default) plus `include/minimage.h` or `include/minimage.hpp`. Meson,
 CMake, and pkg-config all install that archive and those headers.
+The function prefix spells out the crate name so it cannot collide with
+mimalloc's `mi_*` ABI. The non-default `capi-compat-names` feature adds
+deprecated thin aliases for the old `mi_*` function names while consumers
+migrate; those aliases can still collide with mimalloc.
 
 ```
 pip install minimage
