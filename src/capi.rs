@@ -1734,8 +1734,21 @@ pub unsafe extern "C" fn minimage_pairs_within_images(
             Err(e) => fail(e),
         }
     } else {
-        let mut rows = Vec::new();
-        match crate::pairs_within_images(&cell, periodic, pts, cutoff, half != 0, &mut rows) {
+        let mut written = 0usize;
+        match crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
+            if written < cap {
+                unsafe {
+                    *out.add(written) = mi_image_pair {
+                        i: r.i,
+                        j: r.j,
+                        shift: r.shift,
+                        d: r.d,
+                        dist2: r.dist2,
+                    };
+                }
+            }
+            written += 1;
+        }) {
             Ok(count) => {
                 unsafe {
                     *out_count = count;
@@ -1743,22 +1756,94 @@ pub unsafe extern "C" fn minimage_pairs_within_images(
                 if count > cap {
                     return fail_msg("image pair buffer is shorter than the pair count");
                 }
-                unsafe {
-                    for (k, r) in rows.iter().enumerate() {
-                        *out.add(k) = mi_image_pair {
-                            i: r.i,
-                            j: r.j,
-                            shift: r.shift,
-                            d: r.d,
-                            dist2: r.dist2,
-                        };
-                    }
-                }
                 clear_error();
                 0
             }
             Err(e) => fail(e),
         }
+    }
+}
+
+/// Callback invoked for each periodic image pair by
+/// [`minimage_visit_pairs_within_images`].
+#[allow(non_camel_case_types)]
+pub type mi_image_pair_visitor =
+    Option<unsafe extern "C" fn(userdata: *mut std::ffi::c_void, pair: *const mi_image_pair)>;
+
+/// Visit every periodic image of `n` points strictly inside `cutoff` in a
+/// single pass without allocating a pair buffer.
+///
+/// `pbc` is three ints (nonzero for a periodic axis) or `NULL` for
+/// fully periodic. `half` nonzero visits `i <= j` and restricts
+/// self-images (`i == j`) to the positive half-space. When `visit` is
+/// non-null, it is called with `(userdata, &pair)` for each emitted image;
+/// when `visit` is `NULL`, only the total count is computed. `out_count`,
+/// if non-null, receives the number of emitted pair images.
+///
+/// Returns `0` on success, or `1` on failure (null `simbox` or `xyz` when
+/// `n > 0`, invalid cell or cutoff, extent or shift count past the cap,
+/// non-finite separation, or shift index overflow; inspect
+/// `minimage_last_error()` on this thread).
+///
+/// # Safety
+///
+/// `simbox` is one `mi_cell`. `pbc` is `NULL` or three ints. `xyz` is
+/// `n * 3` doubles when `n > 0`. `out_count` is `NULL` or one writable
+/// `size_t`. `visit`, if non-null, is safe to call with `userdata` and a
+/// valid `*const mi_image_pair` for the duration of the call.
+#[allow(clippy::too_many_arguments)]
+#[no_mangle]
+pub unsafe extern "C" fn minimage_visit_pairs_within_images(
+    simbox: *const mi_cell,
+    pbc: *const c_int,
+    xyz: *const f64,
+    n: usize,
+    cutoff: f64,
+    half: c_int,
+    visit: mi_image_pair_visitor,
+    userdata: *mut std::ffi::c_void,
+    out_count: *mut usize,
+) -> c_int {
+    let pts = match packed_triples(xyz, n, "null xyz") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let periodic = if pbc.is_null() {
+        [true, true, true]
+    } else {
+        let s = unsafe { [*pbc, *pbc.add(1), *pbc.add(2)] };
+        [s[0] != 0, s[1] != 0, s[2] != 0]
+    };
+    let cell = match with_cell(simbox, |c| *c) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let res = match visit {
+        Some(cb) => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
+            let raw = mi_image_pair {
+                i: r.i,
+                j: r.j,
+                shift: r.shift,
+                d: r.d,
+                dist2: r.dist2,
+            };
+            unsafe {
+                cb(userdata, &raw);
+            }
+        }),
+        None => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |_| {}),
+    };
+    match res {
+        Ok(count) => {
+            if !out_count.is_null() {
+                unsafe {
+                    *out_count = count;
+                }
+            }
+            clear_error();
+            0
+        }
+        Err(e) => fail(e),
     }
 }
 

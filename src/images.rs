@@ -143,11 +143,6 @@ pub fn image_extents(cell: &Cell, periodic: [bool; 3], cutoff: f64) -> Result<[i
 }
 
 #[inline(always)]
-fn positive_half_space(h: i64, k: i64, l: i64) -> bool {
-    h > 0 || (h == 0 && (k > 0 || (k == 0 && l > 0)))
-}
-
-#[inline(always)]
 fn image_center(fractional: f64, extent: i32) -> Result<i32, Error> {
     if !fractional.is_finite() {
         return Err(Error::NonFinite);
@@ -212,88 +207,286 @@ where
         return Ok(0);
     }
     let extent = image_extents(cell, periodic, cutoff)?;
-    let h = cell.h();
-    let inv = cell.hinv();
+    let [a0, a1, a2] = cell.h();
+    let [inv0, inv1, inv2] = cell.hinv();
+    let [ext0, ext1, ext2] = extent;
+    let [pbc0, pbc1, pbc2] = periodic;
     let cut2 = cutoff * cutoff;
     let mut count = 0usize;
 
-    for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
-        let j_start = if half { i } else { 0 };
-        for (j, &[xj, yj, zj]) in xyz.iter().enumerate().skip(j_start) {
-            let dx0 = xi - xj;
-            let dy0 = yi - yj;
-            let dz0 = zi - zj;
-            let f0 = inv[0][0] * dx0 + inv[1][0] * dy0 + inv[2][0] * dz0;
-            let f1 = inv[0][1] * dx0 + inv[1][1] * dy0 + inv[2][1] * dz0;
-            let f2 = inv[0][2] * dx0 + inv[1][2] * dy0 + inv[2][2] * dz0;
-            let c0 = if periodic[0] {
-                image_center(f0, extent[0])?
-            } else {
-                if !f0.is_finite() {
-                    return Err(Error::NonFinite);
-                }
-                0
-            };
-            let c1 = if periodic[1] {
-                image_center(f1, extent[1])?
-            } else {
-                if !f1.is_finite() {
-                    return Err(Error::NonFinite);
-                }
-                0
-            };
-            let c2 = if periodic[2] {
-                image_center(f2, extent[2])?
-            } else {
-                if !f2.is_finite() {
-                    return Err(Error::NonFinite);
-                }
-                0
-            };
-            let h_lo = i64::from(c0 - extent[0]);
-            let h_hi = i64::from(c0 + extent[0]);
-            let k_lo = i64::from(c1 - extent[1]);
-            let k_hi = i64::from(c1 + extent[1]);
-            let l_lo = i64::from(c2 - extent[2]);
-            let l_hi = i64::from(c2 + extent[2]);
-            for sa in h_lo..=h_hi {
-                for sb in k_lo..=k_hi {
-                    for sc in l_lo..=l_hi {
-                        if !periodic[0] && sa != 0 {
-                            continue;
-                        }
-                        if !periodic[1] && sb != 0 {
-                            continue;
-                        }
-                        if !periodic[2] && sc != 0 {
-                            continue;
-                        }
-                        if i == j {
-                            if sa == 0 && sb == 0 && sc == 0 {
-                                continue;
-                            }
-                            if half && !positive_half_space(sa, sb, sc) {
-                                continue;
-                            }
-                        }
-                        let fa = sa as f64;
-                        let fb = sb as f64;
-                        let fc = sc as f64;
-                        let sx = fa * h[0][0] + fb * h[1][0] + fc * h[2][0];
-                        let sy = fa * h[0][1] + fb * h[1][1] + fc * h[2][1];
-                        let sz = fa * h[0][2] + fb * h[1][2] + fc * h[2][2];
-                        let dx = dx0 - sx;
-                        let dy = dy0 - sy;
-                        let dz = dz0 - sz;
+    for &[x, y, z] in xyz {
+        if !(x.is_finite() && y.is_finite() && z.is_finite()) {
+            return Err(Error::NonFinite);
+        }
+    }
+
+    // Precompute lattice shifts (sa * a0 + sb * a1 + sc * a2) and integer
+    // shift offsets [sa, sb, sc] in [-ext0..=ext0] x [-ext1..=ext1] x [-ext2..=ext2].
+    let span0 = (2 * ext0 + 1) as usize;
+    let span1 = (2 * ext1 + 1) as usize;
+    let span2 = (2 * ext2 + 1) as usize;
+    let total_shifts = span0 * span1 * span2;
+    let mut shifts_xyz_stack = [std::mem::MaybeUninit::<[f64; 3]>::uninit(); 1024];
+    let mut shifts_ijk_stack = [std::mem::MaybeUninit::<[i32; 3]>::uninit(); 1024];
+    let mut shifts_xyz_heap = Vec::new();
+    let mut shifts_ijk_heap = Vec::new();
+
+    if half {
+        // Self-images (j == i): displacement -(sa * a0 + sb * a1 + sc * a2) is
+        // identical for every atom i. Scan the positive half-space once and
+        // emit each in-cutoff shift for every atom i, while populating `shifts`.
+        let mut self_shifts =
+            [std::mem::MaybeUninit::<(i32, i32, i32, f64, f64, f64, f64)>::uninit(); 128];
+        let mut n_self = 0usize;
+        let mut self_overflow = Vec::new();
+        let use_stack = total_shifts <= shifts_xyz_stack.len();
+        if !use_stack {
+            shifts_xyz_heap.reserve(total_shifts);
+            shifts_ijk_heap.reserve(total_shifts);
+        }
+        let mut idx = 0usize;
+        for sa in -ext0..=ext0 {
+            let fa = f64::from(sa);
+            let sx_a = fa * a0[0];
+            let sy_a = fa * a0[1];
+            let sz_a = fa * a0[2];
+            for sb in -ext1..=ext1 {
+                let fb = f64::from(sb);
+                let sx_ab = sx_a + fb * a1[0];
+                let sy_ab = sy_a + fb * a1[1];
+                let sz_ab = sz_a + fb * a1[2];
+                for sc in -ext2..=ext2 {
+                    let fc = f64::from(sc);
+                    let sx = sx_ab + fc * a2[0];
+                    let sy = sy_ab + fc * a2[1];
+                    let sz = sz_ab + fc * a2[2];
+                    if use_stack {
+                        shifts_xyz_stack[idx].write([sx, sy, sz]);
+                        shifts_ijk_stack[idx].write([sa, sb, sc]);
+                    } else {
+                        shifts_xyz_heap.push([sx, sy, sz]);
+                        shifts_ijk_heap.push([sa, sb, sc]);
+                    }
+                    idx += 1;
+                    if sa > 0 || (sa == 0 && (sb > 0 || (sb == 0 && sc > 0))) {
+                        let dx = -sx;
+                        let dy = -sy;
+                        let dz = -sz;
                         let r2 = dx * dx + dy * dy + dz * dz;
-                        if !r2.is_finite() || r2 <= 0.0 || r2 >= cut2 {
+                        if r2 > 0.0 && r2 < cut2 {
+                            let entry = (sa, sb, sc, dx, dy, dz, r2);
+                            if n_self < self_shifts.len() {
+                                self_shifts[n_self].write(entry);
+                            } else {
+                                if n_self == self_shifts.len() {
+                                    // SAFETY: all `self_shifts.len()` elements were written above.
+                                    let init_self: &[(i32, i32, i32, f64, f64, f64, f64)] = unsafe {
+                                        std::slice::from_raw_parts(
+                                            self_shifts.as_ptr().cast(),
+                                            self_shifts.len(),
+                                        )
+                                    };
+                                    self_overflow.extend_from_slice(init_self);
+                                }
+                                self_overflow.push(entry);
+                            }
+                            n_self += 1;
+                        }
+                    }
+                }
+            }
+        }
+        // SAFETY: `idx == total_shifts` elements of `shifts_*_stack` and
+        // `n_self` elements of `self_shifts` were written above.
+        let (shifts_xyz, shifts_ijk): (&[[f64; 3]], &[[i32; 3]]) = if use_stack {
+            unsafe {
+                (
+                    std::slice::from_raw_parts(shifts_xyz_stack.as_ptr().cast(), total_shifts),
+                    std::slice::from_raw_parts(shifts_ijk_stack.as_ptr().cast(), total_shifts),
+                )
+            }
+        } else {
+            (shifts_xyz_heap.as_slice(), shifts_ijk_heap.as_slice())
+        };
+        let self_slice: &[(i32, i32, i32, f64, f64, f64, f64)] = if n_self <= self_shifts.len() {
+            unsafe { std::slice::from_raw_parts(self_shifts.as_ptr().cast(), n_self) }
+        } else {
+            self_overflow.as_slice()
+        };
+
+        for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
+            let ii = i as i32;
+            for &(sa, sb, sc, dx, dy, dz, r2) in self_slice {
+                count += 1;
+                visit(ImagePair {
+                    i: ii,
+                    j: ii,
+                    shift: [sa, sb, sc],
+                    d: [dx, dy, dz],
+                    dist2: r2,
+                });
+            }
+            // Distinct pairs (j > i).
+            for (j, &[xj, yj, zj]) in xyz.iter().enumerate().skip(i + 1) {
+                let jj = j as i32;
+                let dx0 = xi - xj;
+                let dy0 = yi - yj;
+                let dz0 = zi - zj;
+                let f0 = inv0[0] * dx0 + inv1[0] * dy0 + inv2[0] * dz0;
+                let f1 = inv0[1] * dx0 + inv1[1] * dy0 + inv2[1] * dz0;
+                let f2 = inv0[2] * dx0 + inv1[2] * dy0 + inv2[2] * dz0;
+                let c0 = if pbc0 {
+                    image_center(f0, ext0)?
+                } else {
+                    if !f0.is_finite() {
+                        return Err(Error::NonFinite);
+                    }
+                    0
+                };
+                let c1 = if pbc1 {
+                    image_center(f1, ext1)?
+                } else {
+                    if !f1.is_finite() {
+                        return Err(Error::NonFinite);
+                    }
+                    0
+                };
+                let c2 = if pbc2 {
+                    image_center(f2, ext2)?
+                } else {
+                    if !f2.is_finite() {
+                        return Err(Error::NonFinite);
+                    }
+                    0
+                };
+                let fc0 = f64::from(c0);
+                let fc1 = f64::from(c1);
+                let fc2 = f64::from(c2);
+                let rx = dx0 - (fc0 * a0[0] + fc1 * a1[0] + fc2 * a2[0]);
+                let ry = dy0 - (fc0 * a0[1] + fc1 * a1[1] + fc2 * a2[1]);
+                let rz = dz0 - (fc0 * a0[2] + fc1 * a1[2] + fc2 * a2[2]);
+                for (k, &[sx, sy, sz]) in shifts_xyz.iter().enumerate() {
+                    let dx = rx - sx;
+                    let dy = ry - sy;
+                    let dz = rz - sz;
+                    let r2 = dx * dx + dy * dy + dz * dz;
+                    if r2 > 0.0 && r2 < cut2 {
+                        let [da, db, dc] = shifts_ijk[k];
+                        count += 1;
+                        visit(ImagePair {
+                            i: ii,
+                            j: jj,
+                            shift: [c0 + da, c1 + db, c2 + dc],
+                            d: [dx, dy, dz],
+                            dist2: r2,
+                        });
+                    }
+                }
+            }
+        }
+    } else {
+        let use_stack = total_shifts <= shifts_xyz_stack.len();
+        if !use_stack {
+            shifts_xyz_heap.reserve(total_shifts);
+            shifts_ijk_heap.reserve(total_shifts);
+        }
+        let mut idx = 0usize;
+        for sa in -ext0..=ext0 {
+            let fa = f64::from(sa);
+            let sx_a = fa * a0[0];
+            let sy_a = fa * a0[1];
+            let sz_a = fa * a0[2];
+            for sb in -ext1..=ext1 {
+                let fb = f64::from(sb);
+                let sx_ab = sx_a + fb * a1[0];
+                let sy_ab = sy_a + fb * a1[1];
+                let sz_ab = sz_a + fb * a1[2];
+                for sc in -ext2..=ext2 {
+                    let fc = f64::from(sc);
+                    let sx = sx_ab + fc * a2[0];
+                    let sy = sy_ab + fc * a2[1];
+                    let sz = sz_ab + fc * a2[2];
+                    if use_stack {
+                        shifts_xyz_stack[idx].write([sx, sy, sz]);
+                        shifts_ijk_stack[idx].write([sa, sb, sc]);
+                    } else {
+                        shifts_xyz_heap.push([sx, sy, sz]);
+                        shifts_ijk_heap.push([sa, sb, sc]);
+                    }
+                    idx += 1;
+                }
+            }
+        }
+        // SAFETY: `idx == total_shifts` elements of `shifts_*_stack` were written above.
+        let (shifts_xyz, shifts_ijk): (&[[f64; 3]], &[[i32; 3]]) = if use_stack {
+            unsafe {
+                (
+                    std::slice::from_raw_parts(shifts_xyz_stack.as_ptr().cast(), total_shifts),
+                    std::slice::from_raw_parts(shifts_ijk_stack.as_ptr().cast(), total_shifts),
+                )
+            }
+        } else {
+            (shifts_xyz_heap.as_slice(), shifts_ijk_heap.as_slice())
+        };
+        for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
+            let ii = i as i32;
+            for (j, &[xj, yj, zj]) in xyz.iter().enumerate() {
+                let jj = j as i32;
+                let same_atom = i == j;
+                let dx0 = xi - xj;
+                let dy0 = yi - yj;
+                let dz0 = zi - zj;
+                let f0 = inv0[0] * dx0 + inv1[0] * dy0 + inv2[0] * dz0;
+                let f1 = inv0[1] * dx0 + inv1[1] * dy0 + inv2[1] * dz0;
+                let f2 = inv0[2] * dx0 + inv1[2] * dy0 + inv2[2] * dz0;
+                let c0 = if pbc0 {
+                    image_center(f0, ext0)?
+                } else {
+                    if !f0.is_finite() {
+                        return Err(Error::NonFinite);
+                    }
+                    0
+                };
+                let c1 = if pbc1 {
+                    image_center(f1, ext1)?
+                } else {
+                    if !f1.is_finite() {
+                        return Err(Error::NonFinite);
+                    }
+                    0
+                };
+                let c2 = if pbc2 {
+                    image_center(f2, ext2)?
+                } else {
+                    if !f2.is_finite() {
+                        return Err(Error::NonFinite);
+                    }
+                    0
+                };
+                let fc0 = f64::from(c0);
+                let fc1 = f64::from(c1);
+                let fc2 = f64::from(c2);
+                let rx = dx0 - (fc0 * a0[0] + fc1 * a1[0] + fc2 * a2[0]);
+                let ry = dy0 - (fc0 * a0[1] + fc1 * a1[1] + fc2 * a2[1]);
+                let rz = dz0 - (fc0 * a0[2] + fc1 * a1[2] + fc2 * a2[2]);
+                for (k, &[sx, sy, sz]) in shifts_xyz.iter().enumerate() {
+                    let dx = rx - sx;
+                    let dy = ry - sy;
+                    let dz = rz - sz;
+                    let r2 = dx * dx + dy * dy + dz * dz;
+                    if r2 > 0.0 && r2 < cut2 {
+                        let [da, db, dc] = shifts_ijk[k];
+                        let sa = c0 + da;
+                        let sb = c1 + db;
+                        let sc = c2 + dc;
+                        if same_atom && sa == 0 && sb == 0 && sc == 0 {
                             continue;
                         }
                         count += 1;
                         visit(ImagePair {
-                            i: i as i32,
-                            j: j as i32,
-                            shift: [sa as i32, sb as i32, sc as i32],
+                            i: ii,
+                            j: jj,
+                            shift: [sa, sb, sc],
                             d: [dx, dy, dz],
                             dist2: r2,
                         });
