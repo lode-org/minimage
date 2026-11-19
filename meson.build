@@ -57,6 +57,7 @@ minimage_cargo = custom_target(
     'src/cell.rs',
     'src/error.rs',
     'src/batch.rs',
+    'src/images.rs',
     'src/pairs.rs',
     'src/capi.rs',
   ),

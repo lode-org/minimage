@@ -1585,6 +1585,183 @@ pub unsafe extern "C" fn minimage_ring_centroid(
     }
 }
 
+/// Perpendicular altitude of the face opposite lattice axis `axis`,
+/// or `0.0` if `cell` is singular or non-finite.
+///
+/// # Safety
+///
+/// `cell` is nine readable doubles (ASE row-major `[a, b, c]`).
+#[no_mangle]
+pub unsafe extern "C" fn minimage_face_spacing(cell: *const f64, axis: c_int) -> f64 {
+    if cell.is_null() || !(0..3).contains(&axis) {
+        return 0.0;
+    }
+    let s = unsafe { slice::from_raw_parts(cell, 9) };
+    let u = [
+        s[3 * ((axis as usize + 1) % 3)],
+        s[3 * ((axis as usize + 1) % 3) + 1],
+        s[3 * ((axis as usize + 1) % 3) + 2],
+    ];
+    let v = [
+        s[3 * ((axis as usize + 2) % 3)],
+        s[3 * ((axis as usize + 2) % 3) + 1],
+        s[3 * ((axis as usize + 2) % 3) + 2],
+    ];
+    let cx = u[1] * v[2] - u[2] * v[1];
+    let cy = u[2] * v[0] - u[0] * v[2];
+    let cz = u[0] * v[1] - u[1] * v[0];
+    let area = (cx * cx + cy * cy + cz * cz).sqrt();
+    let vol = (s[0] * (s[4] * s[8] - s[5] * s[7]) - s[1] * (s[3] * s[8] - s[5] * s[6])
+        + s[2] * (s[3] * s[7] - s[4] * s[6]))
+        .abs();
+    if !area.is_finite() || !vol.is_finite() || area <= 0.0 || vol <= 0.0 {
+        return 0.0;
+    }
+    vol / area
+}
+
+/// Nonzero when `2 * cutoff` is at least the perpendicular face spacing
+/// on any periodic axis of the ASE row-major `cell`.
+///
+/// # Safety
+///
+/// `cell` is nine readable doubles. `pbc` is `NULL` or three readable ints.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_cutoff_exceeds_half_width(
+    cell: *const f64,
+    pbc: *const c_int,
+    cutoff: f64,
+) -> c_int {
+    if cell.is_null() {
+        return 0;
+    }
+    let periodic = if pbc.is_null() {
+        [true, true, true]
+    } else {
+        let s = unsafe { [*pbc, *pbc.add(1), *pbc.add(2)] };
+        [s[0] != 0, s[1] != 0, s[2] != 0]
+    };
+    for (axis, &is_pbc) in periodic.iter().enumerate() {
+        if !is_pbc {
+            continue;
+        }
+        let spacing = unsafe { minimage_face_spacing(cell, axis as c_int) };
+        if !cutoff.is_finite() || !spacing.is_finite() || 2.0 * cutoff >= spacing {
+            return 1;
+        }
+    }
+    0
+}
+
+/// One periodic image of pair `(i, j)` within a cutoff.
+///
+/// `d` is `(xyz[i] - xyz[j]) - H shift`, and `dist2` is `|d|^2`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct mi_image_pair {
+    /// Source atom index.
+    pub i: i32,
+    /// Target atom index.
+    pub j: i32,
+    /// Integer lattice shift `(sa, sb, sc)` subtracted from `xyz[i] - xyz[j]`.
+    pub shift: [i32; 3],
+    /// Cartesian separation `(xyz[i] - xyz[j]) - H shift`.
+    pub d: [f64; 3],
+    /// Squared distance `d[0]^2 + d[1]^2 + d[2]^2`.
+    pub dist2: f64,
+}
+
+/// Enumerate every periodic image of `n` points strictly inside `cutoff`.
+///
+/// `pbc` is three ints (nonzero for a periodic axis) or `NULL` for
+/// fully periodic. `half` nonzero visits `i <= j` and restricts
+/// self-images (`i == j`) to the positive half-space.
+///
+/// Pass `out == NULL` to query the count into `out_count` (returns `0`).
+/// Otherwise `out` holds `cap` rows. If `cap` is smaller than the
+/// needed row count, writes the needed count to `out_count`, leaves
+/// `out` untouched, and returns `1`.
+///
+/// Returns `0` on success, or `1` on failure (null required pointer,
+/// invalid cell or cutoff, extent or shift count past the cap,
+/// non-finite separation, or shift index overflow; inspect
+/// `minimage_last_error()` on this thread).
+///
+/// # Safety
+///
+/// `simbox` is one `mi_cell`. `pbc` is `NULL` or three ints. `xyz` is
+/// `n * 3` doubles when `n > 0`. `out_count` is one writable `size_t`.
+/// When `out` is non-null, it is writable for `cap` `mi_image_pair` rows.
+#[allow(clippy::too_many_arguments)]
+#[no_mangle]
+pub unsafe extern "C" fn minimage_pairs_within_images(
+    simbox: *const mi_cell,
+    pbc: *const c_int,
+    xyz: *const f64,
+    n: usize,
+    cutoff: f64,
+    half: c_int,
+    out: *mut mi_image_pair,
+    cap: usize,
+    out_count: *mut usize,
+) -> c_int {
+    if out_count.is_null() {
+        return fail_msg("null out_count");
+    }
+    let pts = match packed_triples(xyz, n, "null xyz") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let periodic = if pbc.is_null() {
+        [true, true, true]
+    } else {
+        let s = unsafe { [*pbc, *pbc.add(1), *pbc.add(2)] };
+        [s[0] != 0, s[1] != 0, s[2] != 0]
+    };
+    let cell = match with_cell(simbox, |c| *c) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    if out.is_null() {
+        match crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |_| {}) {
+            Ok(count) => {
+                unsafe {
+                    *out_count = count;
+                }
+                clear_error();
+                0
+            }
+            Err(e) => fail(e),
+        }
+    } else {
+        let mut rows = Vec::new();
+        match crate::pairs_within_images(&cell, periodic, pts, cutoff, half != 0, &mut rows) {
+            Ok(count) => {
+                unsafe {
+                    *out_count = count;
+                }
+                if count > cap {
+                    return fail_msg("image pair buffer is shorter than the pair count");
+                }
+                unsafe {
+                    for (k, r) in rows.iter().enumerate() {
+                        *out.add(k) = mi_image_pair {
+                            i: r.i,
+                            j: r.j,
+                            shift: r.shift,
+                            d: r.d,
+                            dist2: r.dist2,
+                        };
+                    }
+                }
+                clear_error();
+                0
+            }
+            Err(e) => fail(e),
+        }
+    }
+}
+
 #[cfg(feature = "capi-compat-names")]
 mod compat_names {
     use super::*;
