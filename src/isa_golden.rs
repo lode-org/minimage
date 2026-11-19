@@ -490,6 +490,12 @@ fn every_path_matches_main_ce6dfb1_on_golden_and_far_images() {
             false,
         ));
         for (key, expected) in &frozen {
+            if key.ends_with("_general") || key.ends_with("_tri") {
+                // The scaled FMA inverse intentionally changes the last
+                // bits of non-orthorhombic construction. Current
+                // cross-ISA agreement is checked by `isa-hashes.toml`.
+                continue;
+            }
             if let Some(base) = key.strip_suffix("_main") {
                 assert_ne!(
                     got.get(base).map(String::as_str),

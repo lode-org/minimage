@@ -51,8 +51,10 @@
 //! # Error behaviour
 //!
 //! Fallible functions return [`Result<_, Error>`](Error). [`Error::BadBox`]
-//! signals a singular, non-finite, or degenerate cell; [`Error::BufferSize`]
-//! signals mismatched slice lengths or out-of-range atom indices;
+//! signals a singular, non-finite, or degenerate cell;
+//! [`Error::IllConditioned`] reports an invertible cell beyond the
+//! configured condition limit; [`Error::BufferSize`] signals mismatched
+//! slice lengths or out-of-range atom indices;
 //! [`Error::Empty`] signals an empty or misaligned ring-polymer input.
 //! Individual distance and displacement methods on [`Cell`] and
 //! [`PartialCell`] are infallible once the cell has been constructed.
@@ -100,7 +102,7 @@ pub use batch::{
     dist2_many_fixed, dist2_many_fixed32, dist2_ortho_diffs, dist2_pairs, dist2_pairs_fixed,
     dist2_pairs_fixed32, fixed32_many, fixed_many, wrap_many,
 };
-pub use cell::{dump_bounds_to_h, Cell};
+pub use cell::{dump_bounds_to_h, Cell, CellConfig};
 pub use error::Error;
 pub use filter::{filter_shifted, ring_centroid, FilterOut};
 pub use images::{

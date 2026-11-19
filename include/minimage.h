@@ -288,6 +288,30 @@ int minimage_cell_from_vectors(const double *a,
 int minimage_cell_from_vesin(const double *box_rows, struct mi_cell *out);
 
 /**
+ * Write the inverse cell matrix to nine doubles as three consecutive
+ * columns, matching `mi_cell` lattice-vector order.
+ *
+ * Returns `0` on success, or `1` on failure.
+ *
+ * # Safety
+ *
+ * `simbox` is one readable `mi_cell`; `out` is nine writable doubles.
+ */
+int minimage_cell_hinv(const struct mi_cell *simbox, double *out);
+
+/**
+ * Write all three perpendicular face widths to `out` in lattice-axis
+ * order `(a, b, c)`.
+ *
+ * Returns `0` on success, or `1` on failure.
+ *
+ * # Safety
+ *
+ * `simbox` is one readable `mi_cell`; `out` is three writable doubles.
+ */
+int minimage_cell_widths(const struct mi_cell *simbox, double *out);
+
+/**
  * Nonzero when `2 * cutoff` is at least the perpendicular face spacing
  * on any periodic axis of the ASE row-major `cell`.
  *
@@ -651,6 +675,21 @@ int minimage_fixed_many(const struct mi_cell *simbox,
                         const double *rs,
                         size_t n,
                         uint64_t *out);
+
+/**
+ * Convert a Cartesian position to wrapped fractional coordinates in
+ * `[0, 1)` and write the three fractions to `out`.
+ *
+ * Returns `0` on success, or `1` on failure.
+ *
+ * # Safety
+ *
+ * `simbox` is one readable `mi_cell`; `r` is three readable doubles;
+ * `out` is three writable doubles.
+ */
+int minimage_fractional(const struct mi_cell *simbox,
+                        const double *r,
+                        double *out);
 
 /**
  * Thread-local last-error string from this thread's most recent `minimage_*`

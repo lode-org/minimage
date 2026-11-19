@@ -391,6 +391,95 @@ pub unsafe extern "C" fn minimage_cell_from_vesin(
     unsafe { minimage_cell_from_con(box_rows, out) }
 }
 
+/// Write the inverse cell matrix to nine doubles as three consecutive
+/// columns, matching `mi_cell` lattice-vector order.
+///
+/// Returns `0` on success, or `1` on failure.
+///
+/// # Safety
+///
+/// `simbox` is one readable `mi_cell`; `out` is nine writable doubles.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_cell_hinv(simbox: *const mi_cell, out: *mut f64) -> c_int {
+    if out.is_null() {
+        return fail_msg("null inverse output");
+    }
+    match with_cell(simbox, Cell::hinv) {
+        Ok(hinv) => {
+            for (column, values) in hinv.iter().enumerate() {
+                for (row, value) in values.iter().enumerate() {
+                    unsafe {
+                        *out.add(3 * column + row) = *value;
+                    }
+                }
+            }
+            0
+        }
+        Err(e) => e,
+    }
+}
+
+/// Write all three perpendicular face widths to `out` in lattice-axis
+/// order `(a, b, c)`.
+///
+/// Returns `0` on success, or `1` on failure.
+///
+/// # Safety
+///
+/// `simbox` is one readable `mi_cell`; `out` is three writable doubles.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_cell_widths(simbox: *const mi_cell, out: *mut f64) -> c_int {
+    if out.is_null() {
+        return fail_msg("null widths output");
+    }
+    match with_cell(simbox, Cell::widths) {
+        Ok(widths) => {
+            unsafe {
+                *out = widths[0];
+                *out.add(1) = widths[1];
+                *out.add(2) = widths[2];
+            }
+            0
+        }
+        Err(e) => e,
+    }
+}
+
+/// Convert a Cartesian position to wrapped fractional coordinates in
+/// `[0, 1)` and write the three fractions to `out`.
+///
+/// Returns `0` on success, or `1` on failure.
+///
+/// # Safety
+///
+/// `simbox` is one readable `mi_cell`; `r` is three readable doubles;
+/// `out` is three writable doubles.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_fractional(
+    simbox: *const mi_cell,
+    r: *const f64,
+    out: *mut f64,
+) -> c_int {
+    let r = match read3(r, "null position") {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if out.is_null() {
+        return fail_msg("null fractional output");
+    }
+    match with_cell(simbox, |cell| cell.fractional(r)) {
+        Ok(s) => {
+            unsafe {
+                *out = s[0];
+                *out.add(1) = s[1];
+                *out.add(2) = s[2];
+            }
+            0
+        }
+        Err(e) => e,
+    }
+}
+
 fn read3(p: *const f64, what: &str) -> Result<[f64; 3], c_int> {
     if p.is_null() {
         return Err(fail_msg(what));
@@ -1819,18 +1908,20 @@ pub unsafe extern "C" fn minimage_visit_pairs_within_images(
         Err(e) => return e,
     };
     let res = match visit {
-        Some(cb) => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
-            let raw = mi_image_pair {
-                i: r.i,
-                j: r.j,
-                shift: r.shift,
-                d: r.d,
-                dist2: r.dist2,
-            };
-            unsafe {
-                cb(userdata, &raw);
-            }
-        }),
+        Some(cb) => {
+            crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
+                let raw = mi_image_pair {
+                    i: r.i,
+                    j: r.j,
+                    shift: r.shift,
+                    d: r.d,
+                    dist2: r.dist2,
+                };
+                unsafe {
+                    cb(userdata, &raw);
+                }
+            })
+        }
         None => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |_| {}),
     };
     match res {
@@ -1934,6 +2025,25 @@ mod compat_names {
         mi_cell_from_vesin => minimage_cell_from_vesin(
             box_rows: *const f64,
             out: *mut mi_cell
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_cell_hinv => minimage_cell_hinv(
+            simbox: *const mi_cell,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_cell_widths => minimage_cell_widths(
+            simbox: *const mi_cell,
+            out: *mut f64
+        ) -> c_int
+    );
+    unsafe_alias!(
+        mi_fractional => minimage_fractional(
+            simbox: *const mi_cell,
+            r: *const f64,
+            out: *mut f64
         ) -> c_int
     );
     unsafe_alias!(
