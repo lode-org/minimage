@@ -6,7 +6,8 @@ cog blocks. Cargo.lock keeps no markers, so an anchored pattern replaces any
 version there. The Meson wrap snippets name a git tag, which has to exist
 before a wrap can fetch it, so they take [workspace.metadata.release].tag
 instead of the version. Every `find_package(minimage X.Y` line in the
-README and the getting started snippets takes that tag's major.minor.
+README, the getting started snippets and the CMake consumer test takes
+that tag's major.minor.
 The lockstep check reads each of those lines. `--release` first sets that
 tag to v<version> and the CITATION.cff date-released to today (UTC), for
 the release commit. CI runs this and then `git diff --exit-code`.
@@ -20,6 +21,7 @@ import sys
 from pathlib import Path
 
 import tomllib
+from check_version_lockstep import SNIPPETS
 from cogapp import Cog
 from crate_version import crate_version
 
@@ -31,13 +33,6 @@ LOCK = rf'^name = "minimage(?:-python)?"\nversion = "(?P<v>{V})"'
 WRAPS = [
     "README.md",
     "packaging/wrapdb/minimage.wrap",
-    "docs/orgmode/getting-started.org",
-    "website/getting-started.html",
-]
-# The lockstep check reads find_package(minimage X.Y in every snippet,
-# not only the README. Same files as check_version_lockstep.SNIPPETS.
-FIND_PACKAGE_FILES = [
-    "README.md",
     "docs/orgmode/getting-started.org",
     "website/getting-started.html",
 ]
@@ -104,10 +99,10 @@ def main(argv=()):
         return status
     rewrite("Cargo.lock", lambda text: substitute(LOCK, text, version))
     tag = release_tag()
-    for rel in WRAPS:
+    for rel in dict.fromkeys([*WRAPS, *SNIPPETS]):
         rewrite(rel, lambda text: substitute(REVISION, text, tag))
     minor = ".".join(tag.removeprefix("v").split(".")[:2])
-    for rel in FIND_PACKAGE_FILES:
+    for rel in SNIPPETS:
         rewrite(rel, lambda text: substitute(FIND_PACKAGE, text, minor))
     return 0
 

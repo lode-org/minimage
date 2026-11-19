@@ -2,6 +2,33 @@
 
 <!-- towncrier release notes start -->
 
+## 0.2.3 - 2026-11-19
+
+### Changed
+
+Expanded Rust, C (`minimage_*`), C++, Python, and Burn API documentation
+and the Diataxis org-mode site to cover units, defaults, triclinic cells,
+conventions, error behaviour, and verified citations. Added CI checks for
+rustdoc warnings and missing docs, doctests, HTML export and link
+validation, C header Doxygen syntax, and `capi-compat-names` ABI tests.
+
+### Fixed
+
+A test now parses the C API catalog in `docs/orgmode/reference.org` and
+compares it with the `minimage_*` symbols exported by the built cdylib.
+A symbol that is documented but not exported, or exported but not
+documented, fails `cargo test`.
+
+The default C ABI now exports `minimage_*` function symbols, using the full
+crate name to avoid collisions with mimalloc's `mi_*` symbols. The
+non-default `capi-compat-names` feature provides deprecated thin aliases for
+the old names during migration.
+
+`Error::BufferSize` and `minimage_last_error()` after `minimage_filter_shifted`
+now report `atom index >= n_atoms` when a candidate atom index is out of range,
+and `Cell::tilts_reduced`, `reference.org`, and the hex body-diagonal examples
+were updated to match the implementation.
+
 ## 0.2.1 - 2026-11-16
 
 ### Added

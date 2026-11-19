@@ -37,6 +37,7 @@ SNIPPETS = [
     "README.md",
     "docs/orgmode/getting-started.org",
     "website/getting-started.html",
+    "tests/cmake-consumer/CMakeLists.txt",
 ]
 INHERIT = {"workspace": True}
 
@@ -125,14 +126,15 @@ def wrap(root, rel, version, tag):
 
 
 def snippet(root, rel, version, tag):
-    pattern = r"^\s*revision\s*[=:]\s*(.*?)\s*$"
-    found = re.findall(pattern, read(root, rel), re.MULTILINE)
-    if not found:
-        raise ValueError("no revision line")
-    for value in found:
+    text = read(root, rel)
+    revisions = re.findall(r"^\s*revision\s*[=:]\s*(.*?)\s*$", text, re.MULTILINE)
+    packages = re.findall(r"find_package\(\s*minimage\s+([^\s)]+)", text)
+    if not revisions and not packages:
+        raise ValueError("no revision or find_package(minimage) line")
+    for value in revisions:
         yield "revision", value, tag
     minor = ".".join(tag.removeprefix("v").split(".")[:2])
-    for value in re.findall(r"find_package\(\s*minimage\s+([^\s)]+)", read(root, rel)):
+    for value in packages:
         yield "find_package(minimage) version", value, minor
 
 
