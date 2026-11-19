@@ -135,6 +135,34 @@ class Drift(unittest.TestCase):
         self.run_sync("--release")
         self.assertEqual(lockstep.check(self.root, pushed_tag="v10.20.30-rc.1"), [])
 
+    @unittest.skipIf(sync is None, "needs cogapp")
+    def test_every_checked_file_is_synced(self):
+        self.assertIs(sync.SNIPPETS, lockstep.SNIPPETS)
+        static = {
+            lockstep.helper,
+            lockstep.python_crate,
+            lockstep.pyproject,
+            lockstep.meson_build,
+        }
+        before = {rel: self.text(rel) for rel, _ in lockstep.sources(self.root)}
+        crate_version.set_crate_version("10.20.30", self.root / "Cargo.toml")
+        self.run_sync("--release")
+        for rel, reader in lockstep.sources(self.root):
+            if reader in static:
+                continue
+            self.assertNotEqual(self.text(rel), before[rel], f"{rel} was not synced")
+            if rel == "Cargo.toml":
+                continue
+            synced = self.text(rel)
+            (self.root / rel).write_text(before[rel], encoding="utf-8")
+            errors = lockstep.check(self.root, pushed_tag="v10.20.30")
+            self.assertTrue(
+                any(e.startswith(f"{rel}: ") for e in errors),
+                f"{rel} checked without failing when unsynced: {errors}",
+            )
+            (self.root / rel).write_text(synced, encoding="utf-8")
+        self.assertEqual(lockstep.check(self.root, pushed_tag="v10.20.30"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

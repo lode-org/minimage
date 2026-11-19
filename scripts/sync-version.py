@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import tomllib
+from check_version_lockstep import SNIPPETS
 from cogapp import Cog
 from crate_version import crate_version
 
@@ -34,14 +35,6 @@ WRAPS = [
     "packaging/wrapdb/minimage.wrap",
     "docs/orgmode/getting-started.org",
     "website/getting-started.html",
-]
-# The lockstep check reads find_package(minimage X.Y in every snippet,
-# not only the README. Same files as check_version_lockstep.SNIPPETS.
-FIND_PACKAGE_FILES = [
-    "README.md",
-    "docs/orgmode/getting-started.org",
-    "website/getting-started.html",
-    "tests/cmake-consumer/CMakeLists.txt",
 ]
 REVISION = rf"^revision = (?P<v>v{V})$"
 FIND_PACKAGE = r"find_package\(minimage (?P<v>\d+\.\d+) "
@@ -106,10 +99,10 @@ def main(argv=()):
         return status
     rewrite("Cargo.lock", lambda text: substitute(LOCK, text, version))
     tag = release_tag()
-    for rel in WRAPS:
+    for rel in dict.fromkeys([*WRAPS, *SNIPPETS]):
         rewrite(rel, lambda text: substitute(REVISION, text, tag))
     minor = ".".join(tag.removeprefix("v").split(".")[:2])
-    for rel in FIND_PACKAGE_FILES:
+    for rel in SNIPPETS:
         rewrite(rel, lambda text: substitute(FIND_PACKAGE, text, minor))
     return 0
 
