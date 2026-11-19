@@ -103,6 +103,7 @@ usize_is_size_t = true
 include = [
     "mi_cell",
     "mi_image_pair",
+    "mi_image_pair_visitor",
     "mi_pbc_cell",
     "minimage_cell_from_ase",
     "minimage_cell_from_con",
@@ -140,6 +141,7 @@ include = [
     "minimage_reduce_pairs",
     "minimage_ring_centroid",
     "minimage_version",
+    "minimage_visit_pairs_within_images",
     "minimage_wrap_many",
 ]
 exclude = ["mi_cell_ortho", "Cell", "Error"]

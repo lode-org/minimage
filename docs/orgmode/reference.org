@@ -69,6 +69,7 @@ process-static string and neither reads nor modifies the error slot.
 | =minimage_cutoff_exceeds_half_width= | Nonzero when =2 * cutoff= reaches or exceeds a periodic face altitude |
 | =mi_image_pair= | One periodic image =(i, j, shift, d, dist2)= within a cutoff |
 | =minimage_pairs_within_images= | Enumerate all periodic images within =cutoff= (half or full list) |
+| =minimage_visit_pairs_within_images= | Single-pass callback visitor over periodic images within =cutoff= |
 | =minimage_reduce_pairs= | Drop self images, sort and deduplicate =(i, j)= pairs |
 | =minimage_last_error= | Thread-local error string (=NULL= after success) |
 | =minimage_version= | Process-static version string |
@@ -96,6 +97,7 @@ throws =minimage::Error= (with =status()= and =what()=) on failure.
 | =minimage::Cell::dist2_many=, =dist2_shifted_many= | Packed candidate batches (engine MIC and shifted) |
 | =minimage::Cell::dist2_euclidean_many=, =dist2_euclidean_pairs=, =dist2_euclidean_pairs_warm= | Batched and warm-started Euclidean nearest-image distances |
 | =minimage::dist2_ortho_diffs= | SoA orthorhombic batch wrap |
+| =minimage::visit_pairs_within_images=, =pairs_within_images= | Single-pass visitor and vector collector for periodic images within =cutoff= |
 | =minimage::reduce_pairs= | Sorted unique pairs with self images dropped |
 
 * Rust
