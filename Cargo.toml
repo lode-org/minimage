@@ -18,7 +18,7 @@ exclude = ["burn"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.3"
+version = "0.3.0"
 
 # The newest pushed release tag, which the Meson wrap snippets name. The
 # release commit sets it with `scripts/sync-version.py --release`, and the tag

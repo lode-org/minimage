@@ -70,6 +70,11 @@ fn time(name: &str, pts: &[[f64; 3]], f: &dyn Fn([f64; 3], [f64; 3]) -> [f64; 3]
 #[test]
 #[ignore]
 fn bench_euclidean() {
+    let ortho = Cell::ortho(8.0, 7.0, 9.0).unwrap();
+    let ortho_pts = points(1 << 18, 30.0);
+    time("ortho", &ortho_pts, &|p, q| {
+        ortho.displacement_euclidean(p, q)
+    });
     let rows = [8.0, 0.0, 0.0, 3.0, 7.0, 0.0, 1.0, -2.0, 9.0];
     let nested = [[8.0, 0.0, 0.0], [3.0, 7.0, 0.0], [1.0, -2.0, 9.0]];
     let cell = Cell::from_ase(nested).unwrap();

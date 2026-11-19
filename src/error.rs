@@ -5,10 +5,18 @@ use std::fmt;
 /// Why a cell construction, reduction, or batch call could not run.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Error {
-    /// Singular or degenerate cell (`|det| < 1e-18`, non-finite entry,
+    /// Singular or degenerate cell (non-finite entry, zero determinant,
     /// non-positive perpendicular face width, collinear periodic basis
     /// vectors, or non-positive box lengths where required).
     BadBox,
+    /// The cell is invertible but its infinity-norm condition estimate
+    /// exceeds the configured limit.
+    IllConditioned {
+        /// Estimated infinity-norm condition number.
+        condition: f64,
+        /// Maximum condition number accepted by the constructor.
+        limit: f64,
+    },
     /// Caller buffer lengths do not match, or an atom index exceeds the
     /// coordinate slice length.
     BufferSize,
@@ -50,6 +58,10 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::BadBox => write!(f, "singular or non-positive cell"),
+            Error::IllConditioned { condition, limit } => write!(
+                f,
+                "cell condition number {condition} exceeds configured limit {limit}"
+            ),
             Error::BufferSize => write!(
                 f,
                 "out buffer length must match the pair count, or atom index >= n_atoms"
