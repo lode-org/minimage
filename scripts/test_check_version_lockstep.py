@@ -77,6 +77,13 @@ class Drift(unittest.TestCase):
         self.edit("README.md", old, "find_package( minimage 0.1 REQUIRED)")
         self.assertFails("README.md")
 
+    def test_reformatted_cmake_consumer_find_package(self):
+        minor = ".".join(self.tag.removeprefix("v").split(".")[:2])
+        rel = "tests/cmake-consumer/CMakeLists.txt"
+        old = f"find_package(minimage {minor} REQUIRED CONFIG)"
+        self.edit(rel, old, "find_package( minimage 0.1 REQUIRED CONFIG)")
+        self.assertFails(rel)
+
     def test_reformatted_cargo_lock(self):
         entry = f'name = "minimage"\nversion = "{self.v}"'
         self.edit("Cargo.lock", entry, "name = 'minimage'\nversion = '9.9.9'")
@@ -111,10 +118,11 @@ class Drift(unittest.TestCase):
     @unittest.skipIf(sync is None, "needs cogapp")
     def test_release_sync_moves_every_snippet(self):
         self.run_sync("--release")
-        for rel in [lockstep.WRAP, *lockstep.SNIPPETS]:
+        for rel in sync.WRAPS:
             self.assertIn(f"revision = v{self.v}\n", self.text(rel))
         minor = ".".join(self.v.split(".")[:2])
-        self.assertIn(f"find_package(minimage {minor} REQUIRED)", self.text("README.md"))
+        for rel in lockstep.SNIPPETS:
+            self.assertIn(f"find_package(minimage {minor} REQUIRED", self.text(rel))
         today = sync.datetime.datetime.now(sync.datetime.timezone.utc).date()
         self.assertIn(f'date-released: "{today.isoformat()}"\n', self.text("CITATION.cff"))
         self.assertEqual(lockstep.check(self.root, pushed_tag=f"v{self.v}"), [])

@@ -6,7 +6,8 @@ cog blocks. Cargo.lock keeps no markers, so an anchored pattern replaces any
 version there. The Meson wrap snippets name a git tag, which has to exist
 before a wrap can fetch it, so they take [workspace.metadata.release].tag
 instead of the version. Every `find_package(minimage X.Y` line in the
-README and the getting started snippets takes that tag's major.minor.
+README, the getting started snippets and the CMake consumer test takes
+that tag's major.minor.
 The lockstep check reads each of those lines. `--release` first sets that
 tag to v<version> and the CITATION.cff date-released to today (UTC), for
 the release commit. CI runs this and then `git diff --exit-code`.
@@ -40,6 +41,7 @@ FIND_PACKAGE_FILES = [
     "README.md",
     "docs/orgmode/getting-started.org",
     "website/getting-started.html",
+    "tests/cmake-consumer/CMakeLists.txt",
 ]
 REVISION = rf"^revision = (?P<v>v{V})$"
 FIND_PACKAGE = r"find_package\(minimage (?P<v>\d+\.\d+) "
