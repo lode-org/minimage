@@ -754,4 +754,30 @@ fn pairs_within_images_abi_matches_rust() {
         assert_eq!(got.d.map(f64::to_bits), exp.d.map(f64::to_bits));
         assert_eq!(got.dist2.to_bits(), exp.dist2.to_bits());
     }
+
+    extern "C" fn collect_pair(
+        userdata: *mut std::ffi::c_void,
+        pair: *const minimage::mi_image_pair,
+    ) {
+        let dst = unsafe { &mut *(userdata as *mut Vec<minimage::mi_image_pair>) };
+        dst.push(unsafe { *pair });
+    }
+    let mut visited = Vec::new();
+    let mut visited_count = 0usize;
+    let rc = unsafe {
+        minimage::minimage_visit_pairs_within_images(
+            &raw,
+            pbc.as_ptr(),
+            xyz.as_ptr().cast(),
+            xyz.len(),
+            cutoff,
+            1,
+            Some(collect_pair),
+            (&mut visited as *mut Vec<minimage::mi_image_pair>).cast(),
+            &mut visited_count,
+        )
+    };
+    assert_eq!(rc, 0);
+    assert_eq!(visited_count, count);
+    assert_eq!(visited, out);
 }
