@@ -102,6 +102,7 @@ usize_is_size_t = true
 [export]
 include = [
     "mi_cell",
+    "mi_image_pair",
     "mi_pbc_cell",
     "minimage_cell_from_ase",
     "minimage_cell_from_con",
@@ -128,10 +129,13 @@ include = [
     "minimage_dist2_pairs_fixed",
     "minimage_dist2_pairs_fixed32",
     "minimage_dist2_shifted_many",
+    "minimage_face_spacing",
     "minimage_filter_shifted",
     "minimage_fixed32_many",
     "minimage_fixed_many",
     "minimage_last_error",
+    "minimage_cutoff_exceeds_half_width",
+    "minimage_pairs_within_images",
     "minimage_pbc_cell_from_ase",
     "minimage_reduce_pairs",
     "minimage_ring_centroid",

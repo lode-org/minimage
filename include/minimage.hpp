@@ -307,6 +307,39 @@ reduce_pairs(const int *pairs, std::size_t n) {
   return rows;
 }
 
+/// Enumerate every periodic image of `n` points strictly inside `cutoff`.
+///
+/// Each returned `mi_image_pair` holds `(i, j, shift, d, dist2)` with
+/// `d = (xyz[i] - xyz[j]) - H shift` and `0 < dist2 < cutoff^2`.
+/// When `half` is `true`, only `i <= j` are returned and self-images
+/// (`i == j`) are restricted to the positive half-space.
+inline std::vector<mi_image_pair>
+pairs_within_images(const Cell &cell, const double *xyz, std::size_t n,
+                    double cutoff,
+                    std::array<bool, 3> periodic = {true, true, true},
+                    bool half = true) {
+  if (n == 0 || cutoff == 0.0) {
+    return {};
+  }
+  const mi_cell box = cell.raw();
+  const int pbc[3] = {periodic[0] ? 1 : 0, periodic[1] ? 1 : 0,
+                      periodic[2] ? 1 : 0};
+  std::size_t count = 0;
+  check(minimage_pairs_within_images(&box, pbc, xyz, n, cutoff, half ? 1 : 0,
+                                     nullptr, 0, &count),
+        "minimage: pairs_within_images query failed");
+  if (count == 0) {
+    return {};
+  }
+  std::vector<mi_image_pair> out(count);
+  std::size_t wrote = 0;
+  check(minimage_pairs_within_images(&box, pbc, xyz, n, cutoff, half ? 1 : 0,
+                                     out.data(), count, &wrote),
+        "minimage: pairs_within_images fill failed");
+  out.resize(wrote);
+  return out;
+}
+
 } // namespace minimage
 
 #endif

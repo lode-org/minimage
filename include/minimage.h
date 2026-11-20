@@ -45,6 +45,18 @@
 #include <stdlib.h>
 
 /**
+ * Largest product `(2 * extent_a + 1) * (2 * extent_b + 1) * (2 * extent_c + 1)`
+ * of per-axis shift counts accepted by [`pairs_within_images`] (`64^3`).
+ */
+#define MAX_IMAGE_COUNT ((64 * 64) * 64)
+
+/**
+ * Largest per-axis shell extent `ceil(cutoff / width)` accepted by
+ * [`pairs_within_images`].
+ */
+#define MAX_IMAGE_EXTENT 1024
+
+/**
  * Periodic parallelepiped.
  *
  * Stores lattice vectors `a`, `b`, `c` (columns of `H`) and origin
@@ -123,6 +135,34 @@ typedef struct mi_pbc_cell {
      */
     int pbc_c;
 } mi_pbc_cell;
+
+/**
+ * One periodic image of pair `(i, j)` within a cutoff.
+ *
+ * `d` is `(xyz[i] - xyz[j]) - H shift`, and `dist2` is `|d|^2`.
+ */
+typedef struct mi_image_pair {
+    /**
+     * Source atom index.
+     */
+    int32_t i;
+    /**
+     * Target atom index.
+     */
+    int32_t j;
+    /**
+     * Integer lattice shift `(sa, sb, sc)` subtracted from `xyz[i] - xyz[j]`.
+     */
+    int32_t shift[3];
+    /**
+     * Cartesian separation `(xyz[i] - xyz[j]) - H shift`.
+     */
+    double d[3];
+    /**
+     * Squared distance `d[0]^2 + d[1]^2 + d[2]^2`.
+     */
+    double dist2;
+} mi_image_pair;
 
 #ifdef __cplusplus
 extern "C" {
@@ -239,6 +279,18 @@ int minimage_cell_from_vectors(const double *a,
  * Same contract as `minimage_cell_from_con`.
  */
 int minimage_cell_from_vesin(const double *box_rows, struct mi_cell *out);
+
+/**
+ * Nonzero when `2 * cutoff` is at least the perpendicular face spacing
+ * on any periodic axis of the ASE row-major `cell`.
+ *
+ * # Safety
+ *
+ * `cell` is nine readable doubles. `pbc` is `NULL` or three readable ints.
+ */
+int minimage_cutoff_exceeds_half_width(const double *cell,
+                                       const int *pbc,
+                                       double cutoff);
 
 /**
  * Engine minimum-image displacement from `p` to `q` (`wrap(q - p)`)
@@ -524,6 +576,16 @@ int minimage_dist2_shifted_many(const double *p,
                                 double *out);
 
 /**
+ * Perpendicular altitude of the face opposite lattice axis `axis`,
+ * or `0.0` if `cell` is singular or non-finite.
+ *
+ * # Safety
+ *
+ * `cell` is nine readable doubles (ASE row-major `[a, b, c]`).
+ */
+double minimage_face_spacing(const double *cell, int axis);
+
+/**
  * Squared-distance filter of candidate pairs `(ii[k], jj[k], shift[k])`.
  *
  * `xyz` uses the cell's length units and `cut2` is the squared cutoff
@@ -594,6 +656,39 @@ int minimage_fixed_many(const struct mi_cell *simbox,
  * call on this thread. Do not free it.
  */
 const char *minimage_last_error(void);
+
+/**
+ * Enumerate every periodic image of `n` points strictly inside `cutoff`.
+ *
+ * `pbc` is three ints (nonzero for a periodic axis) or `NULL` for
+ * fully periodic. `half` nonzero visits `i <= j` and restricts
+ * self-images (`i == j`) to the positive half-space.
+ *
+ * Pass `out == NULL` to query the count into `out_count` (returns `0`).
+ * Otherwise `out` holds `cap` rows. If `cap` is smaller than the
+ * needed row count, writes the needed count to `out_count`, leaves
+ * `out` untouched, and returns `1`.
+ *
+ * Returns `0` on success, or `1` on failure (null required pointer,
+ * invalid cell or cutoff, extent or shift count past the cap,
+ * non-finite separation, or shift index overflow; inspect
+ * `minimage_last_error()` on this thread).
+ *
+ * # Safety
+ *
+ * `simbox` is one `mi_cell`. `pbc` is `NULL` or three ints. `xyz` is
+ * `n * 3` doubles when `n > 0`. `out_count` is one writable `size_t`.
+ * When `out` is non-null, it is writable for `cap` `mi_image_pair` rows.
+ */
+int minimage_pairs_within_images(const struct mi_cell *simbox,
+                                 const int *pbc,
+                                 const double *xyz,
+                                 size_t n,
+                                 double cutoff,
+                                 int half,
+                                 struct mi_image_pair *out,
+                                 size_t cap,
+                                 size_t *out_count);
 
 /**
  * Fill `out` from ASE-style rows, a periodicity mask and an origin.

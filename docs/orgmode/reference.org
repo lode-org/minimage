@@ -65,6 +65,10 @@ process-static string and neither reads nor modifies the error slot.
 | =minimage_dist2_euclidean_pbc= | Squared length of =minimage_displacement_euclidean_pbc= |
 | =minimage_filter_shifted= | Filter =(ii, jj, shift)= pairs below =cut2=; =out_vector= may be =NULL= |
 | =minimage_ring_centroid= | Bead-major ring-polymer centroids wrapped into primary cell |
+| =minimage_face_spacing= | Perpendicular altitude of the face opposite a lattice axis |
+| =minimage_cutoff_exceeds_half_width= | Nonzero when =2 * cutoff= reaches or exceeds a periodic face altitude |
+| =mi_image_pair= | One periodic image =(i, j, shift, d, dist2)= within a cutoff |
+| =minimage_pairs_within_images= | Enumerate all periodic images within =cutoff= (half or full list) |
 | =minimage_reduce_pairs= | Drop self images, sort and deduplicate =(i, j)= pairs |
 | =minimage_last_error= | Thread-local error string (=NULL= after success) |
 | =minimage_version= | Process-static version string |
@@ -114,6 +118,7 @@ Fallible functions return =Result<_, Error>= with variants
 | =fixed_many=, =dist2_many_fixed=, =dist2_pairs_fixed=, =fixed32_many=, =dist2_many_fixed32=, =dist2_pairs_fixed32= | Batched fixed-point conversions and distances |
 | =PartialCell::from_ase=, =periodic_count=, =full=, =displacement_euclidean=, =dist2_euclidean= | Slabs (2D), wires (1D), open (0D), and full (3D) cells |
 | =filter_shifted=, =FilterOut=, =ring_centroid= | Verlet-skin candidate filter and ring-polymer bead centroids |
+| =pairs_within_images=, =visit_pairs_within_images=, =cutoff_exceeds_half_width=, =image_extents=, =ImagePair= | Multi-image cutoff enumeration for small or skewed cells |
 | =reduce_pairs=, =reduce_pairs_packed=, =dump_bounds_to_h= | vesin pair deduplication and LAMMPS dump bound conversion |
 | =simd_path()= | Active SIMD path: =scalar=, =avx=, =avx2=, =avx512=, or =neon= |
 | =Error= | =BadBox=, =BufferSize=, =Empty= |

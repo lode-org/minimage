@@ -697,3 +697,61 @@ fn filter_shifted_abi_reports_atom_index_out_of_bounds() {
         .unwrap();
     assert!(msg.contains("atom index >= n_atoms"), "got {msg:?}");
 }
+
+#[test]
+fn pairs_within_images_abi_matches_rust() {
+    let rows = [3.6, 0.0, 0.0, 1.8, 3.1, 0.0, 1.8, 1.0, 2.9];
+    let mut raw = std::mem::MaybeUninit::<mi_cell>::zeroed();
+    assert_eq!(
+        unsafe { mi_cell_from_ase(rows.as_ptr(), std::ptr::null(), raw.as_mut_ptr()) },
+        0
+    );
+    let raw = unsafe { raw.assume_init() };
+    let cell = Cell::from_ase([[3.6, 0.0, 0.0], [1.8, 3.1, 0.0], [1.8, 1.0, 2.9]]).unwrap();
+    let xyz = [[0.2, 0.3, 0.4], [1.7, 1.1, 0.8]];
+    let pbc = [1, 1, 1];
+    let cutoff = 5.0;
+    let mut count = 0usize;
+    let rc = unsafe {
+        minimage::minimage_pairs_within_images(
+            &raw,
+            pbc.as_ptr(),
+            xyz.as_ptr().cast(),
+            xyz.len(),
+            cutoff,
+            1,
+            std::ptr::null_mut(),
+            0,
+            &mut count,
+        )
+    };
+    assert_eq!(rc, 0);
+    assert!(count > 0);
+    let mut out = vec![minimage::mi_image_pair::default(); count];
+    let mut wrote = 0usize;
+    let rc = unsafe {
+        minimage::minimage_pairs_within_images(
+            &raw,
+            pbc.as_ptr(),
+            xyz.as_ptr().cast(),
+            xyz.len(),
+            cutoff,
+            1,
+            out.as_mut_ptr(),
+            count,
+            &mut wrote,
+        )
+    };
+    assert_eq!(rc, 0);
+    assert_eq!(wrote, count);
+
+    let mut want = Vec::new();
+    minimage::pairs_within_images(&cell, [true, true, true], &xyz, cutoff, true, &mut want)
+        .unwrap();
+    assert_eq!(want.len(), count);
+    for (got, exp) in out.iter().zip(&want) {
+        assert_eq!((got.i, got.j, got.shift), (exp.i, exp.j, exp.shift));
+        assert_eq!(got.d.map(f64::to_bits), exp.d.map(f64::to_bits));
+        assert_eq!(got.dist2.to_bits(), exp.dist2.to_bits());
+    }
+}

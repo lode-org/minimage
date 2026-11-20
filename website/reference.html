@@ -226,6 +226,26 @@ process-static string and neither reads nor modifies the error slot.
 </tr>
 
 <tr>
+<td class="org-left"><code>minimage_face_spacing</code></td>
+<td class="org-left">Perpendicular altitude of the face opposite a lattice axis</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_cutoff_exceeds_half_width</code></td>
+<td class="org-left">Nonzero when <code>2 * cutoff</code> reaches or exceeds a periodic face altitude</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>mi_image_pair</code></td>
+<td class="org-left">One periodic image <code>(i, j, shift, d, dist2)</code> within a cutoff</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_pairs_within_images</code></td>
+<td class="org-left">Enumerate all periodic images within <code>cutoff</code> (half or full list)</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>minimage_reduce_pairs</code></td>
 <td class="org-left">Drop self images, sort and deduplicate <code>(i, j)</code> pairs</td>
 </tr>
@@ -420,6 +440,11 @@ Fallible functions return <code>Result&lt;_, Error&gt;</code> with variants
 <tr>
 <td class="org-left"><code>filter_shifted</code>, <code>FilterOut</code>, <code>ring_centroid</code></td>
 <td class="org-left">Verlet-skin candidate filter and ring-polymer bead centroids</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>pairs_within_images</code>, <code>visit_pairs_within_images</code>, <code>cutoff_exceeds_half_width</code>, <code>image_extents</code>, <code>ImagePair</code></td>
+<td class="org-left">Multi-image cutoff enumeration for small or skewed cells</td>
 </tr>
 
 <tr>

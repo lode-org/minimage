@@ -84,6 +84,7 @@ mod filter;
 mod fixed;
 mod fixed32;
 mod fused;
+mod images;
 mod kernel;
 mod minkowski;
 mod pairs;
@@ -102,6 +103,10 @@ pub use batch::{
 pub use cell::{dump_bounds_to_h, Cell};
 pub use error::Error;
 pub use filter::{filter_shifted, ring_centroid, FilterOut};
+pub use images::{
+    cutoff_exceeds_half_width, image_extents, pairs_within_images, visit_pairs_within_images,
+    ImagePair, MAX_IMAGE_COUNT, MAX_IMAGE_EXTENT,
+};
 pub use minkowski::{is_minkowski_reduced, minkowski_reduce};
 pub use pairs::{reduce_pairs, reduce_pairs_packed};
 pub use partial::PartialCell;
