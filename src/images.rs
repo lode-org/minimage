@@ -26,6 +26,8 @@
 //! any triclinic cell. (The real-valued bound `q_a + 1/2` can exceed
 //! `ceil(q_a)`; it is the integrality of the shells that closes the gap.)
 
+use std::ops::ControlFlow;
+
 use crate::{Cell, Error};
 
 /// Largest per-axis shell extent `ceil(cutoff / width)` accepted by
@@ -204,6 +206,26 @@ pub fn visit_pairs_within_images<F>(
 where
     F: FnMut(ImagePair),
 {
+    try_visit_pairs_within_images(cell, periodic, xyz, cutoff, half, |pair| {
+        visit(pair);
+        ControlFlow::Continue(())
+    })
+}
+
+/// Same enumeration as [`visit_pairs_within_images`], but the callback
+/// can end the walk early by returning [`ControlFlow::Break`]. The
+/// returned count includes the pair whose callback broke.
+pub(crate) fn try_visit_pairs_within_images<F>(
+    cell: &Cell,
+    periodic: [bool; 3],
+    xyz: &[[f64; 3]],
+    cutoff: f64,
+    half: bool,
+    mut visit: F,
+) -> Result<usize, Error>
+where
+    F: FnMut(ImagePair) -> ControlFlow<()>,
+{
     if !cutoff.is_finite() || cutoff < 0.0 {
         return Err(Error::BadCutoff);
     }
@@ -292,13 +314,16 @@ where
                             continue;
                         }
                         count += 1;
-                        visit(ImagePair {
+                        let pair = ImagePair {
                             i: ii,
                             j: jj,
                             shift: [sa, sb, sc],
                             d: [dx, dy, dz],
                             dist2: r2,
-                        });
+                        };
+                        if visit(pair).is_break() {
+                            return Ok(count);
+                        }
                     }
                 }
             }

@@ -4,6 +4,7 @@
 
 use std::cell::{Cell as StdCell, RefCell};
 use std::ffi::{c_char, c_int, CString};
+use std::ops::ControlFlow;
 use std::ptr;
 use std::slice;
 
@@ -1766,9 +1767,15 @@ pub unsafe extern "C" fn minimage_pairs_within_images(
 
 /// Callback invoked for each periodic image pair by
 /// [`minimage_visit_pairs_within_images`].
+///
+/// Return `0` to continue. A nonzero return stops the visit after the
+/// current pair; the call still succeeds and `out_count` counts the pairs
+/// delivered, including the one that stopped it. The callback must not
+/// unwind (throw or `longjmp`) out of the call.
 #[allow(non_camel_case_types)]
-pub type mi_image_pair_visitor =
-    Option<unsafe extern "C" fn(userdata: *mut std::ffi::c_void, pair: *const mi_image_pair)>;
+pub type mi_image_pair_visitor = Option<
+    unsafe extern "C" fn(userdata: *mut std::ffi::c_void, pair: *const mi_image_pair) -> c_int,
+>;
 
 /// Visit every periodic image of `n` points strictly inside `cutoff` in a
 /// single pass without allocating a pair buffer.
@@ -1776,9 +1783,11 @@ pub type mi_image_pair_visitor =
 /// `pbc` is three ints (nonzero for a periodic axis) or `NULL` for
 /// fully periodic. `half` nonzero visits `i <= j` and restricts
 /// self-images (`i == j`) to the positive half-space. When `visit` is
-/// non-null, it is called with `(userdata, &pair)` for each emitted image;
-/// when `visit` is `NULL`, only the total count is computed. `out_count`,
-/// if non-null, receives the number of emitted pair images.
+/// non-null, it is called with `(userdata, &pair)` for each emitted image
+/// and a nonzero return value stops the visit early; when `visit` is
+/// `NULL`, only the total count is computed. `out_count`, if non-null,
+/// receives the number of emitted pair images (the number delivered when
+/// the visit was stopped early).
 ///
 /// Returns `0` on success, or `1` on failure (null `simbox` or `xyz` when
 /// `n > 0`, invalid cell or cutoff, extent or shift count past the cap,
@@ -1790,7 +1799,8 @@ pub type mi_image_pair_visitor =
 /// `simbox` is one `mi_cell`. `pbc` is `NULL` or three ints. `xyz` is
 /// `n * 3` doubles when `n > 0`. `out_count` is `NULL` or one writable
 /// `size_t`. `visit`, if non-null, is safe to call with `userdata` and a
-/// valid `*const mi_image_pair` for the duration of the call.
+/// valid `*const mi_image_pair` for the duration of the call, and must
+/// return normally rather than unwinding through this function.
 #[allow(clippy::too_many_arguments)]
 #[no_mangle]
 pub unsafe extern "C" fn minimage_visit_pairs_within_images(
@@ -1819,8 +1829,13 @@ pub unsafe extern "C" fn minimage_visit_pairs_within_images(
         Err(e) => return e,
     };
     let res = match visit {
-        Some(cb) => {
-            crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
+        Some(cb) => crate::images::try_visit_pairs_within_images(
+            &cell,
+            periodic,
+            pts,
+            cutoff,
+            half != 0,
+            |r| {
                 let raw = mi_image_pair {
                     i: r.i,
                     j: r.j,
@@ -1828,11 +1843,13 @@ pub unsafe extern "C" fn minimage_visit_pairs_within_images(
                     d: r.d,
                     dist2: r.dist2,
                 };
-                unsafe {
-                    cb(userdata, &raw);
+                if unsafe { cb(userdata, &raw) } != 0 {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
                 }
-            })
-        }
+            },
+        ),
         None => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |_| {}),
     };
     match res {
