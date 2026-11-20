@@ -279,15 +279,19 @@ struct Cell {
   }
 };
 
-/// Wrap one orthorhombic component into the strict half-open interval
-/// `[-length / 2, length / 2)`.
+/// Wrap one orthorhombic component into the closed interval
+/// `[-length / 2, length / 2]` using strict boundary comparisons.
 ///
-/// Exact positive half-box ties map to `-length / 2`; exact negative ties
-/// remain `-length / 2`. `delta` must be finite and `length` finite and
-/// strictly positive.
+/// Exact positive and negative half-box ties retain their sign. `delta` must
+/// be finite and `length` finite and strictly positive.
 [[nodiscard]] inline double wrap_ortho_half_strict(double delta,
                                                     double length) noexcept {
-  return delta - length * std::floor(delta / length + 0.5);
+  const double half = 0.5 * length;
+  double wrapped = delta - length * std::floor(delta / length + 0.5);
+  if (wrapped == -half && delta > 0.0) {
+    wrapped = half;
+  }
+  return wrapped;
 }
 
 /// Orthorhombic wrap of `n` precomputed SoA differences `(dx, dy, dz)`

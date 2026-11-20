@@ -1,8 +1,7 @@
-/// Wrap one orthorhombic component into the strict half-open interval
-/// `[-length / 2, length / 2)`.
+/// Wrap one orthorhombic component into the closed interval
+/// `[-length / 2, length / 2]` using strict boundary comparisons.
 ///
-/// Exact positive half-box ties map to `-length / 2`; exact negative ties
-/// remain `-length / 2`.
+/// Exact positive and negative half-box ties retain their sign.
 ///
 /// # Panics
 ///
@@ -15,7 +14,13 @@ pub fn wrap_ortho_half_strict(delta: f64, length: f64) -> f64 {
         length.is_finite() && length > 0.0,
         "length must be finite and positive"
     );
-    delta - length * (delta / length + 0.5).floor()
+    let half = 0.5 * length;
+    let wrapped = delta - length * (delta / length + 0.5).floor();
+    if wrapped == -half && delta > 0.0 {
+        half
+    } else {
+        wrapped
+    }
 }
 
 #[cfg(test)]
@@ -23,9 +28,9 @@ mod tests {
     use super::wrap_ortho_half_strict;
 
     #[test]
-    fn exact_half_box_ties_choose_negative_half() {
-        assert_eq!(wrap_ortho_half_strict(5.0, 10.0), -5.0);
-        assert_eq!(wrap_ortho_half_strict(15.0, 10.0), -5.0);
+    fn exact_positive_ties_keep_positive_half() {
+        assert_eq!(wrap_ortho_half_strict(5.0, 10.0), 5.0);
+        assert_eq!(wrap_ortho_half_strict(15.0, 10.0), 5.0);
     }
 
     #[test]
