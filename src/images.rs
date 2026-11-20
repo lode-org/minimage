@@ -294,14 +294,6 @@ where
                     let sy_ab = sy_a + fb * a1[1];
                     let sz_ab = sz_a + fb * a1[2];
                     for sc in (c2 - ext2)..=(c2 + ext2) {
-                        if same_atom {
-                            if sa == 0 && sb == 0 && sc == 0 {
-                                continue;
-                            }
-                            if half && !positive_half_space(sa, sb, sc) {
-                                continue;
-                            }
-                        }
                         let fc = f64::from(sc);
                         let sx = sx_ab + fc * a2[0];
                         let sy = sy_ab + fc * a2[1];
@@ -310,7 +302,14 @@ where
                         let dy = dy0 - sy;
                         let dz = dz0 - sz;
                         let r2 = dx * dx + dy * dy + dz * dz;
-                        if !r2.is_finite() || r2 <= 0.0 || r2 >= cut2 {
+                        // A NaN or infinite r2 fails this test, as does r2 == 0.
+                        if !(r2 > 0.0 && r2 < cut2) {
+                            continue;
+                        }
+                        if same_atom
+                            && ((sa == 0 && sb == 0 && sc == 0)
+                                || (half && !positive_half_space(sa, sb, sc)))
+                        {
                             continue;
                         }
                         count += 1;
