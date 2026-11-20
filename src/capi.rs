@@ -1735,20 +1735,19 @@ pub unsafe extern "C" fn minimage_pairs_within_images(
             Err(e) => fail(e),
         }
     } else {
-        let mut written = 0usize;
+        // Rows are staged so that a short buffer stays untouched, as
+        // documented above.
+        let mut rows = Vec::new();
         match crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
-            if written < cap {
-                unsafe {
-                    *out.add(written) = mi_image_pair {
-                        i: r.i,
-                        j: r.j,
-                        shift: r.shift,
-                        d: r.d,
-                        dist2: r.dist2,
-                    };
-                }
+            if rows.len() < cap {
+                rows.push(mi_image_pair {
+                    i: r.i,
+                    j: r.j,
+                    shift: r.shift,
+                    d: r.d,
+                    dist2: r.dist2,
+                });
             }
-            written += 1;
         }) {
             Ok(count) => {
                 unsafe {
@@ -1756,6 +1755,9 @@ pub unsafe extern "C" fn minimage_pairs_within_images(
                 }
                 if count > cap {
                     return fail_msg("image pair buffer is shorter than the pair count");
+                }
+                unsafe {
+                    std::ptr::copy_nonoverlapping(rows.as_ptr(), out, count);
                 }
                 clear_error();
                 0
