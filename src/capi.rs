@@ -1819,18 +1819,20 @@ pub unsafe extern "C" fn minimage_visit_pairs_within_images(
         Err(e) => return e,
     };
     let res = match visit {
-        Some(cb) => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
-            let raw = mi_image_pair {
-                i: r.i,
-                j: r.j,
-                shift: r.shift,
-                d: r.d,
-                dist2: r.dist2,
-            };
-            unsafe {
-                cb(userdata, &raw);
-            }
-        }),
+        Some(cb) => {
+            crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
+                let raw = mi_image_pair {
+                    i: r.i,
+                    j: r.j,
+                    shift: r.shift,
+                    d: r.d,
+                    dist2: r.dist2,
+                };
+                unsafe {
+                    cb(userdata, &raw);
+                }
+            })
+        }
         None => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |_| {}),
     };
     match res {
