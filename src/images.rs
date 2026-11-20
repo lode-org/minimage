@@ -143,6 +143,11 @@ pub fn image_extents(cell: &Cell, periodic: [bool; 3], cutoff: f64) -> Result<[i
 }
 
 #[inline(always)]
+fn positive_half_space(sa: i32, sb: i32, sc: i32) -> bool {
+    sa > 0 || (sa == 0 && (sb > 0 || (sb == 0 && sc > 0)))
+}
+
+#[inline(always)]
 fn image_center(fractional: f64, extent: i32) -> Result<i32, Error> {
     if !fractional.is_finite() {
         return Err(Error::NonFinite);
@@ -208,278 +213,79 @@ where
     }
     let extent = image_extents(cell, periodic, cutoff)?;
     let [a0, a1, a2] = cell.h();
-    let [inv0, inv1, inv2] = cell.hinv();
+    let inv = cell.hinv();
     let [ext0, ext1, ext2] = extent;
-    let [pbc0, pbc1, pbc2] = periodic;
     let cut2 = cutoff * cutoff;
     let mut count = 0usize;
 
-    for &[x, y, z] in xyz {
-        if !(x.is_finite() && y.is_finite() && z.is_finite()) {
-            return Err(Error::NonFinite);
-        }
-    }
-
-    // Precompute lattice shifts (sa * a0 + sb * a1 + sc * a2) and integer
-    // shift offsets [sa, sb, sc] in [-ext0..=ext0] x [-ext1..=ext1] x [-ext2..=ext2].
-    let span0 = (2 * ext0 + 1) as usize;
-    let span1 = (2 * ext1 + 1) as usize;
-    let span2 = (2 * ext2 + 1) as usize;
-    let total_shifts = span0 * span1 * span2;
-    let mut shifts_xyz_stack = [std::mem::MaybeUninit::<[f64; 3]>::uninit(); 1024];
-    let mut shifts_ijk_stack = [std::mem::MaybeUninit::<[i32; 3]>::uninit(); 1024];
-    let mut shifts_xyz_heap = Vec::new();
-    let mut shifts_ijk_heap = Vec::new();
-
-    if half {
-        // Self-images (j == i): displacement -(sa * a0 + sb * a1 + sc * a2) is
-        // identical for every atom i. Scan the positive half-space once and
-        // emit each in-cutoff shift for every atom i, while populating `shifts`.
-        let mut self_shifts =
-            [std::mem::MaybeUninit::<(i32, i32, i32, f64, f64, f64, f64)>::uninit(); 128];
-        let mut n_self = 0usize;
-        let mut self_overflow = Vec::new();
-        let use_stack = total_shifts <= shifts_xyz_stack.len();
-        if !use_stack {
-            shifts_xyz_heap.reserve(total_shifts);
-            shifts_ijk_heap.reserve(total_shifts);
-        }
-        let mut idx = 0usize;
-        for sa in -ext0..=ext0 {
-            let fa = f64::from(sa);
-            let sx_a = fa * a0[0];
-            let sy_a = fa * a0[1];
-            let sz_a = fa * a0[2];
-            for sb in -ext1..=ext1 {
-                let fb = f64::from(sb);
-                let sx_ab = sx_a + fb * a1[0];
-                let sy_ab = sy_a + fb * a1[1];
-                let sz_ab = sz_a + fb * a1[2];
-                for sc in -ext2..=ext2 {
-                    let fc = f64::from(sc);
-                    let sx = sx_ab + fc * a2[0];
-                    let sy = sy_ab + fc * a2[1];
-                    let sz = sz_ab + fc * a2[2];
-                    if use_stack {
-                        shifts_xyz_stack[idx].write([sx, sy, sz]);
-                        shifts_ijk_stack[idx].write([sa, sb, sc]);
-                    } else {
-                        shifts_xyz_heap.push([sx, sy, sz]);
-                        shifts_ijk_heap.push([sa, sb, sc]);
-                    }
-                    idx += 1;
-                    if sa > 0 || (sa == 0 && (sb > 0 || (sb == 0 && sc > 0))) {
-                        let dx = -sx;
-                        let dy = -sy;
-                        let dz = -sz;
-                        let r2 = dx * dx + dy * dy + dz * dz;
-                        if r2 > 0.0 && r2 < cut2 {
-                            let entry = (sa, sb, sc, dx, dy, dz, r2);
-                            if n_self < self_shifts.len() {
-                                self_shifts[n_self].write(entry);
-                            } else {
-                                if n_self == self_shifts.len() {
-                                    // SAFETY: all `self_shifts.len()` elements were written above.
-                                    let init_self: &[(i32, i32, i32, f64, f64, f64, f64)] = unsafe {
-                                        std::slice::from_raw_parts(
-                                            self_shifts.as_ptr().cast(),
-                                            self_shifts.len(),
-                                        )
-                                    };
-                                    self_overflow.extend_from_slice(init_self);
-                                }
-                                self_overflow.push(entry);
+    for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
+        let ii = i as i32;
+        let j_start = if half { i } else { 0 };
+        for (j, &[xj, yj, zj]) in xyz.iter().enumerate().skip(j_start) {
+            let jj = j as i32;
+            let same_atom = i == j;
+            let dx0 = xi - xj;
+            let dy0 = yi - yj;
+            let dz0 = zi - zj;
+            let f0 = inv[0][0] * dx0 + inv[1][0] * dy0 + inv[2][0] * dz0;
+            let f1 = inv[0][1] * dx0 + inv[1][1] * dy0 + inv[2][1] * dz0;
+            let f2 = inv[0][2] * dx0 + inv[1][2] * dy0 + inv[2][2] * dz0;
+            let c0 = if periodic[0] {
+                image_center(f0, ext0)?
+            } else {
+                if !f0.is_finite() {
+                    return Err(Error::NonFinite);
+                }
+                0
+            };
+            let c1 = if periodic[1] {
+                image_center(f1, ext1)?
+            } else {
+                if !f1.is_finite() {
+                    return Err(Error::NonFinite);
+                }
+                0
+            };
+            let c2 = if periodic[2] {
+                image_center(f2, ext2)?
+            } else {
+                if !f2.is_finite() {
+                    return Err(Error::NonFinite);
+                }
+                0
+            };
+            // The partial sums below are the left-to-right terms of
+            // `sa * a0 + sb * a1 + sc * a2` for the absolute shift, so
+            // every `d` and `dist2` is bit-identical to evaluating that
+            // expression per image.
+            for sa in (c0 - ext0)..=(c0 + ext0) {
+                let fa = f64::from(sa);
+                let sx_a = fa * a0[0];
+                let sy_a = fa * a0[1];
+                let sz_a = fa * a0[2];
+                for sb in (c1 - ext1)..=(c1 + ext1) {
+                    let fb = f64::from(sb);
+                    let sx_ab = sx_a + fb * a1[0];
+                    let sy_ab = sy_a + fb * a1[1];
+                    let sz_ab = sz_a + fb * a1[2];
+                    for sc in (c2 - ext2)..=(c2 + ext2) {
+                        if same_atom {
+                            if sa == 0 && sb == 0 && sc == 0 {
+                                continue;
                             }
-                            n_self += 1;
+                            if half && !positive_half_space(sa, sb, sc) {
+                                continue;
+                            }
                         }
-                    }
-                }
-            }
-        }
-        // SAFETY: `idx == total_shifts` elements of `shifts_*_stack` and
-        // `n_self` elements of `self_shifts` were written above.
-        let (shifts_xyz, shifts_ijk): (&[[f64; 3]], &[[i32; 3]]) = if use_stack {
-            unsafe {
-                (
-                    std::slice::from_raw_parts(shifts_xyz_stack.as_ptr().cast(), total_shifts),
-                    std::slice::from_raw_parts(shifts_ijk_stack.as_ptr().cast(), total_shifts),
-                )
-            }
-        } else {
-            (shifts_xyz_heap.as_slice(), shifts_ijk_heap.as_slice())
-        };
-        let self_slice: &[(i32, i32, i32, f64, f64, f64, f64)] = if n_self <= self_shifts.len() {
-            unsafe { std::slice::from_raw_parts(self_shifts.as_ptr().cast(), n_self) }
-        } else {
-            self_overflow.as_slice()
-        };
-
-        for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
-            let ii = i as i32;
-            for &(sa, sb, sc, dx, dy, dz, r2) in self_slice {
-                count += 1;
-                visit(ImagePair {
-                    i: ii,
-                    j: ii,
-                    shift: [sa, sb, sc],
-                    d: [dx, dy, dz],
-                    dist2: r2,
-                });
-            }
-            // Distinct pairs (j > i).
-            for (j, &[xj, yj, zj]) in xyz.iter().enumerate().skip(i + 1) {
-                let jj = j as i32;
-                let dx0 = xi - xj;
-                let dy0 = yi - yj;
-                let dz0 = zi - zj;
-                let f0 = inv0[0] * dx0 + inv1[0] * dy0 + inv2[0] * dz0;
-                let f1 = inv0[1] * dx0 + inv1[1] * dy0 + inv2[1] * dz0;
-                let f2 = inv0[2] * dx0 + inv1[2] * dy0 + inv2[2] * dz0;
-                let c0 = if pbc0 {
-                    image_center(f0, ext0)?
-                } else {
-                    if !f0.is_finite() {
-                        return Err(Error::NonFinite);
-                    }
-                    0
-                };
-                let c1 = if pbc1 {
-                    image_center(f1, ext1)?
-                } else {
-                    if !f1.is_finite() {
-                        return Err(Error::NonFinite);
-                    }
-                    0
-                };
-                let c2 = if pbc2 {
-                    image_center(f2, ext2)?
-                } else {
-                    if !f2.is_finite() {
-                        return Err(Error::NonFinite);
-                    }
-                    0
-                };
-                let fc0 = f64::from(c0);
-                let fc1 = f64::from(c1);
-                let fc2 = f64::from(c2);
-                let rx = dx0 - (fc0 * a0[0] + fc1 * a1[0] + fc2 * a2[0]);
-                let ry = dy0 - (fc0 * a0[1] + fc1 * a1[1] + fc2 * a2[1]);
-                let rz = dz0 - (fc0 * a0[2] + fc1 * a1[2] + fc2 * a2[2]);
-                for (k, &[sx, sy, sz]) in shifts_xyz.iter().enumerate() {
-                    let dx = rx - sx;
-                    let dy = ry - sy;
-                    let dz = rz - sz;
-                    let r2 = dx * dx + dy * dy + dz * dz;
-                    if r2 > 0.0 && r2 < cut2 {
-                        let [da, db, dc] = shifts_ijk[k];
-                        count += 1;
-                        visit(ImagePair {
-                            i: ii,
-                            j: jj,
-                            shift: [c0 + da, c1 + db, c2 + dc],
-                            d: [dx, dy, dz],
-                            dist2: r2,
-                        });
-                    }
-                }
-            }
-        }
-    } else {
-        let use_stack = total_shifts <= shifts_xyz_stack.len();
-        if !use_stack {
-            shifts_xyz_heap.reserve(total_shifts);
-            shifts_ijk_heap.reserve(total_shifts);
-        }
-        let mut idx = 0usize;
-        for sa in -ext0..=ext0 {
-            let fa = f64::from(sa);
-            let sx_a = fa * a0[0];
-            let sy_a = fa * a0[1];
-            let sz_a = fa * a0[2];
-            for sb in -ext1..=ext1 {
-                let fb = f64::from(sb);
-                let sx_ab = sx_a + fb * a1[0];
-                let sy_ab = sy_a + fb * a1[1];
-                let sz_ab = sz_a + fb * a1[2];
-                for sc in -ext2..=ext2 {
-                    let fc = f64::from(sc);
-                    let sx = sx_ab + fc * a2[0];
-                    let sy = sy_ab + fc * a2[1];
-                    let sz = sz_ab + fc * a2[2];
-                    if use_stack {
-                        shifts_xyz_stack[idx].write([sx, sy, sz]);
-                        shifts_ijk_stack[idx].write([sa, sb, sc]);
-                    } else {
-                        shifts_xyz_heap.push([sx, sy, sz]);
-                        shifts_ijk_heap.push([sa, sb, sc]);
-                    }
-                    idx += 1;
-                }
-            }
-        }
-        // SAFETY: `idx == total_shifts` elements of `shifts_*_stack` were written above.
-        let (shifts_xyz, shifts_ijk): (&[[f64; 3]], &[[i32; 3]]) = if use_stack {
-            unsafe {
-                (
-                    std::slice::from_raw_parts(shifts_xyz_stack.as_ptr().cast(), total_shifts),
-                    std::slice::from_raw_parts(shifts_ijk_stack.as_ptr().cast(), total_shifts),
-                )
-            }
-        } else {
-            (shifts_xyz_heap.as_slice(), shifts_ijk_heap.as_slice())
-        };
-        for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
-            let ii = i as i32;
-            for (j, &[xj, yj, zj]) in xyz.iter().enumerate() {
-                let jj = j as i32;
-                let same_atom = i == j;
-                let dx0 = xi - xj;
-                let dy0 = yi - yj;
-                let dz0 = zi - zj;
-                let f0 = inv0[0] * dx0 + inv1[0] * dy0 + inv2[0] * dz0;
-                let f1 = inv0[1] * dx0 + inv1[1] * dy0 + inv2[1] * dz0;
-                let f2 = inv0[2] * dx0 + inv1[2] * dy0 + inv2[2] * dz0;
-                let c0 = if pbc0 {
-                    image_center(f0, ext0)?
-                } else {
-                    if !f0.is_finite() {
-                        return Err(Error::NonFinite);
-                    }
-                    0
-                };
-                let c1 = if pbc1 {
-                    image_center(f1, ext1)?
-                } else {
-                    if !f1.is_finite() {
-                        return Err(Error::NonFinite);
-                    }
-                    0
-                };
-                let c2 = if pbc2 {
-                    image_center(f2, ext2)?
-                } else {
-                    if !f2.is_finite() {
-                        return Err(Error::NonFinite);
-                    }
-                    0
-                };
-                let fc0 = f64::from(c0);
-                let fc1 = f64::from(c1);
-                let fc2 = f64::from(c2);
-                let rx = dx0 - (fc0 * a0[0] + fc1 * a1[0] + fc2 * a2[0]);
-                let ry = dy0 - (fc0 * a0[1] + fc1 * a1[1] + fc2 * a2[1]);
-                let rz = dz0 - (fc0 * a0[2] + fc1 * a1[2] + fc2 * a2[2]);
-                for (k, &[sx, sy, sz]) in shifts_xyz.iter().enumerate() {
-                    let dx = rx - sx;
-                    let dy = ry - sy;
-                    let dz = rz - sz;
-                    let r2 = dx * dx + dy * dy + dz * dz;
-                    if r2 > 0.0 && r2 < cut2 {
-                        let [da, db, dc] = shifts_ijk[k];
-                        let sa = c0 + da;
-                        let sb = c1 + db;
-                        let sc = c2 + dc;
-                        if same_atom && sa == 0 && sb == 0 && sc == 0 {
+                        let fc = f64::from(sc);
+                        let sx = sx_ab + fc * a2[0];
+                        let sy = sy_ab + fc * a2[1];
+                        let sz = sz_ab + fc * a2[2];
+                        let dx = dx0 - sx;
+                        let dy = dy0 - sy;
+                        let dz = dz0 - sz;
+                        let r2 = dx * dx + dy * dy + dz * dz;
+                        if !r2.is_finite() || r2 <= 0.0 || r2 >= cut2 {
                             continue;
                         }
                         count += 1;
@@ -653,6 +459,218 @@ mod tests {
             }
             tested += 1;
         }
+    }
+
+    /// Reference enumeration: for every pair it scans absolute shifts
+    /// around the nearest image and evaluates `sa * a + sb * b + sc * c`
+    /// per image. `visit_pairs_within_images` must reproduce its output
+    /// bit for bit.
+    fn reference_images(
+        cell: &Cell,
+        periodic: [bool; 3],
+        xyz: &[[f64; 3]],
+        cutoff: f64,
+        half: bool,
+        out: &mut Vec<ImagePair>,
+    ) -> Result<usize, Error> {
+        if !cutoff.is_finite() || cutoff < 0.0 {
+            return Err(Error::BadCutoff);
+        }
+        let n = xyz.len();
+        if n > i32::MAX as usize {
+            return Err(Error::BufferSize);
+        }
+        if n == 0 || cutoff == 0.0 {
+            return Ok(0);
+        }
+        let extent = image_extents(cell, periodic, cutoff)?;
+        let h = cell.h();
+        let inv = cell.hinv();
+        let cut2 = cutoff * cutoff;
+        let mut count = 0usize;
+        for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
+            let j_start = if half { i } else { 0 };
+            for (j, &[xj, yj, zj]) in xyz.iter().enumerate().skip(j_start) {
+                let dx0 = xi - xj;
+                let dy0 = yi - yj;
+                let dz0 = zi - zj;
+                let f = [
+                    inv[0][0] * dx0 + inv[1][0] * dy0 + inv[2][0] * dz0,
+                    inv[0][1] * dx0 + inv[1][1] * dy0 + inv[2][1] * dz0,
+                    inv[0][2] * dx0 + inv[1][2] * dy0 + inv[2][2] * dz0,
+                ];
+                let mut c = [0i32; 3];
+                for axis in 0..3 {
+                    c[axis] = if periodic[axis] {
+                        image_center(f[axis], extent[axis])?
+                    } else {
+                        if !f[axis].is_finite() {
+                            return Err(Error::NonFinite);
+                        }
+                        0
+                    };
+                }
+                for sa in i64::from(c[0] - extent[0])..=i64::from(c[0] + extent[0]) {
+                    for sb in i64::from(c[1] - extent[1])..=i64::from(c[1] + extent[1]) {
+                        for sc in i64::from(c[2] - extent[2])..=i64::from(c[2] + extent[2]) {
+                            if i == j {
+                                if sa == 0 && sb == 0 && sc == 0 {
+                                    continue;
+                                }
+                                if half && !(sa > 0 || (sa == 0 && (sb > 0 || (sb == 0 && sc > 0))))
+                                {
+                                    continue;
+                                }
+                            }
+                            let fa = sa as f64;
+                            let fb = sb as f64;
+                            let fc = sc as f64;
+                            let sx = fa * h[0][0] + fb * h[1][0] + fc * h[2][0];
+                            let sy = fa * h[0][1] + fb * h[1][1] + fc * h[2][1];
+                            let sz = fa * h[0][2] + fb * h[1][2] + fc * h[2][2];
+                            let dx = dx0 - sx;
+                            let dy = dy0 - sy;
+                            let dz = dz0 - sz;
+                            let r2 = dx * dx + dy * dy + dz * dz;
+                            if !r2.is_finite() || r2 <= 0.0 || r2 >= cut2 {
+                                continue;
+                            }
+                            count += 1;
+                            out.push(ImagePair {
+                                i: i as i32,
+                                j: j as i32,
+                                shift: [sa as i32, sb as i32, sc as i32],
+                                d: [dx, dy, dz],
+                                dist2: r2,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(count)
+    }
+
+    fn row_bits(p: &ImagePair) -> (i32, i32, [i32; 3], [u64; 3], u64) {
+        (p.i, p.j, p.shift, p.d.map(f64::to_bits), p.dist2.to_bits())
+    }
+
+    fn assert_matches_reference(
+        cell: &Cell,
+        periodic: [bool; 3],
+        xyz: &[[f64; 3]],
+        cutoff: f64,
+        half: bool,
+        label: &str,
+    ) -> Vec<ImagePair> {
+        let mut want = Vec::new();
+        let want_res = reference_images(cell, periodic, xyz, cutoff, half, &mut want);
+        let mut got = Vec::new();
+        let got_res = pairs_within_images(cell, periodic, xyz, cutoff, half, &mut got);
+        assert_eq!(got_res, want_res, "{label}: result");
+        assert_eq!(got.len(), want.len(), "{label}: pair count");
+        for (k, (g, w)) in got.iter().zip(&want).enumerate() {
+            assert_eq!(row_bits(g), row_bits(w), "{label}: row {k}");
+        }
+        got
+    }
+
+    #[test]
+    fn strict_cutoff_pair_on_the_boundary_is_kept() {
+        let cutoff = 7.126293688890819;
+        let rows = [
+            [0.9905281085909224, 0.0, 0.0],
+            [0.06887043744206761, 0.7691075701094676, 0.0],
+            [
+                -0.04573481593352513,
+                -0.06322392794993431,
+                0.9036908834094891,
+            ],
+        ];
+        let cell = Cell::from_ase(rows).unwrap();
+        let xyz = [
+            [0.11886002236630441, 0.6751584729504249, 0.5695034262631785],
+            [-4.977636317950234, 8.155732968152781, -10.08944658032492],
+        ];
+        let got = assert_matches_reference(&cell, [true; 3], &xyz, cutoff, true, "boundary");
+        assert_eq!(got.len(), 4413);
+        let kept = got
+            .iter()
+            .find(|p| p.i == 0 && p.j == 1 && p.shift == [7, -9, 4])
+            .expect("boundary pair (0, 1, [7, -9, 4]) must be visited");
+        assert!(kept.dist2 < cutoff * cutoff);
+    }
+
+    #[test]
+    fn matches_reference_enumeration_bit_for_bit() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
+        };
+        let mut uniform = |lo: f64, hi: f64| lo + (hi - lo) * next();
+
+        let mut cases = 0usize;
+        let mut boundary_cases = 0usize;
+        let mut nonempty = 0usize;
+        while cases < 240 {
+            let ax = uniform(0.8, 6.0);
+            let by = uniform(0.8, 6.0);
+            let cz = uniform(0.8, 6.0);
+            let skew = cases % 4 != 0;
+            let rows = if skew {
+                [
+                    [ax, 0.0, 0.0],
+                    [uniform(-0.5 * ax, 0.5 * ax), by, 0.0],
+                    [
+                        uniform(-0.5 * ax, 0.5 * ax),
+                        uniform(-0.5 * by, 0.5 * by),
+                        cz,
+                    ],
+                ]
+            } else {
+                [[ax, 0.0, 0.0], [0.0, by, 0.0], [0.0, 0.0, cz]]
+            };
+            let cell = Cell::from_ase(rows).unwrap();
+            let n = 1 + cases % 4;
+            let xyz: Vec<[f64; 3]> = (0..n)
+                .map(|_| {
+                    [
+                        uniform(-2.0 * ax, 3.0 * ax),
+                        uniform(-2.0 * by, 3.0 * by),
+                        uniform(-2.0 * cz, 3.0 * cz),
+                    ]
+                })
+                .collect();
+            let periodic = match cases % 5 {
+                0 => [true, true, false],
+                1 => [false, true, true],
+                _ => [true; 3],
+            };
+            let probe = uniform(0.4, 7.0);
+            let half = cases % 2 == 0;
+            let label = format!("case {cases}");
+            let rows_at_probe =
+                assert_matches_reference(&cell, periodic, &xyz, probe, half, &label);
+            if !rows_at_probe.is_empty() {
+                nonempty += 1;
+                let pick = (uniform(0.0, rows_at_probe.len() as f64) as usize)
+                    .min(rows_at_probe.len() - 1);
+                let on_distance = rows_at_probe[pick].dist2.sqrt();
+                let below = f64::from_bits(on_distance.to_bits() - 1);
+                let above = f64::from_bits(on_distance.to_bits() + 1);
+                for c in [below, on_distance, above] {
+                    assert_matches_reference(&cell, periodic, &xyz, c, half, &label);
+                    assert_matches_reference(&cell, periodic, &xyz, c, !half, &label);
+                }
+                boundary_cases += 1;
+            }
+            cases += 1;
+        }
+        assert!(nonempty > 100, "too few cases produced pairs: {nonempty}");
+        assert_eq!(boundary_cases, nonempty);
     }
 
     #[test]
