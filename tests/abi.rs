@@ -745,6 +745,29 @@ fn pairs_within_images_abi_matches_rust() {
     assert_eq!(rc, 0);
     assert_eq!(wrote, count);
 
+    let sentinel = minimage::mi_image_pair {
+        i: 123,
+        ..Default::default()
+    };
+    let mut short = vec![sentinel; count - 1];
+    let mut needed = 0usize;
+    let rc = unsafe {
+        minimage::minimage_pairs_within_images(
+            &raw,
+            pbc.as_ptr(),
+            xyz.as_ptr().cast(),
+            xyz.len(),
+            cutoff,
+            1,
+            short.as_mut_ptr(),
+            short.len(),
+            &mut needed,
+        )
+    };
+    assert_eq!(rc, 1);
+    assert_eq!(needed, count);
+    assert!(short.iter().all(|row| row.i == 123 && row.dist2 == 0.0));
+
     let mut want = Vec::new();
     minimage::pairs_within_images(&cell, [true, true, true], &xyz, cutoff, true, &mut want)
         .unwrap();
@@ -754,4 +777,66 @@ fn pairs_within_images_abi_matches_rust() {
         assert_eq!(got.d.map(f64::to_bits), exp.d.map(f64::to_bits));
         assert_eq!(got.dist2.to_bits(), exp.dist2.to_bits());
     }
+
+    extern "C" fn collect_pair(
+        userdata: *mut std::ffi::c_void,
+        pair: *const minimage::mi_image_pair,
+    ) -> std::ffi::c_int {
+        let dst = unsafe { &mut *(userdata as *mut Vec<minimage::mi_image_pair>) };
+        dst.push(unsafe { *pair });
+        0
+    }
+    let mut visited = Vec::new();
+    let mut visited_count = 0usize;
+    let rc = unsafe {
+        minimage::minimage_visit_pairs_within_images(
+            &raw,
+            pbc.as_ptr(),
+            xyz.as_ptr().cast(),
+            xyz.len(),
+            cutoff,
+            1,
+            Some(collect_pair),
+            (&mut visited as *mut Vec<minimage::mi_image_pair>).cast(),
+            &mut visited_count,
+        )
+    };
+    assert_eq!(rc, 0);
+    assert_eq!(visited_count, count);
+    assert_eq!(visited, out);
+
+    struct StopAfter {
+        seen: Vec<minimage::mi_image_pair>,
+        limit: usize,
+    }
+    extern "C" fn stop_after(
+        userdata: *mut std::ffi::c_void,
+        pair: *const minimage::mi_image_pair,
+    ) -> std::ffi::c_int {
+        let state = unsafe { &mut *(userdata as *mut StopAfter) };
+        state.seen.push(unsafe { *pair });
+        std::ffi::c_int::from(state.seen.len() >= state.limit)
+    }
+    assert!(count > 3);
+    let mut state = StopAfter {
+        seen: Vec::new(),
+        limit: 3,
+    };
+    let mut stopped_count = 0usize;
+    let rc = unsafe {
+        minimage::minimage_visit_pairs_within_images(
+            &raw,
+            pbc.as_ptr(),
+            xyz.as_ptr().cast(),
+            xyz.len(),
+            cutoff,
+            1,
+            Some(stop_after),
+            (&mut state as *mut StopAfter).cast(),
+            &mut stopped_count,
+        )
+    };
+    assert_eq!(rc, 0);
+    assert_eq!(stopped_count, 3);
+    assert_eq!(state.seen, out[..3]);
 }

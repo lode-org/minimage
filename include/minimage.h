@@ -164,6 +164,18 @@ typedef struct mi_image_pair {
     double dist2;
 } mi_image_pair;
 
+/**
+ * Callback invoked for each periodic image pair by
+ * [`minimage_visit_pairs_within_images`].
+ *
+ * Return `0` to continue. A nonzero return stops the visit after the
+ * current pair; the call still succeeds and `out_count` counts the pairs
+ * delivered, including the one that stopped it. The callback must not
+ * unwind (throw or `longjmp`) out of the call.
+ */
+typedef int (*mi_image_pair_visitor)(void *userdata,
+                                     const struct mi_image_pair *pair);
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -750,6 +762,42 @@ int minimage_ring_centroid(const struct mi_cell *simbox,
  * Library version string. Process-static, NUL-terminated. Do not free.
  */
 const char *minimage_version(void);
+
+/**
+ * Visit every periodic image of `n` points strictly inside `cutoff` in a
+ * single pass without allocating a pair buffer.
+ *
+ * `pbc` is three ints (nonzero for a periodic axis) or `NULL` for
+ * fully periodic. `half` nonzero visits `i <= j` and restricts
+ * self-images (`i == j`) to the positive half-space. When `visit` is
+ * non-null, it is called with `(userdata, &pair)` for each emitted image
+ * and a nonzero return value stops the visit early; when `visit` is
+ * `NULL`, only the total count is computed. `out_count`, if non-null,
+ * receives the number of emitted pair images (the number delivered when
+ * the visit was stopped early).
+ *
+ * Returns `0` on success, or `1` on failure (null `simbox` or `xyz` when
+ * `n > 0`, invalid cell or cutoff, extent or shift count past the cap,
+ * non-finite separation, or shift index overflow; inspect
+ * `minimage_last_error()` on this thread).
+ *
+ * # Safety
+ *
+ * `simbox` is one `mi_cell`. `pbc` is `NULL` or three ints. `xyz` is
+ * `n * 3` doubles when `n > 0`. `out_count` is `NULL` or one writable
+ * `size_t`. `visit`, if non-null, is safe to call with `userdata` and a
+ * valid `*const mi_image_pair` for the duration of the call, and must
+ * return normally rather than unwinding through this function.
+ */
+int minimage_visit_pairs_within_images(const struct mi_cell *simbox,
+                                       const int *pbc,
+                                       const double *xyz,
+                                       size_t n,
+                                       double cutoff,
+                                       int half,
+                                       mi_image_pair_visitor visit,
+                                       void *userdata,
+                                       size_t *out_count);
 
 /**
  * Engine wrap of `n` packed difference vectors (`q - p`) into `out`,

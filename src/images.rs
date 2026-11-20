@@ -17,11 +17,16 @@
 //!
 //! Along each periodic axis `a` with face altitude `w_a`, any image
 //! with `|d| < cutoff` has fractional separation `f_a` obeying
-//! `|f_a - s_a| = |n_a . d| / w_a <= |d| / w_a < cutoff / w_a`. The
-//! search centres on `c_a = round(f_a)` (`|f_a - c_a| <= 1/2`), so
-//! `|s_a - c_a| < cutoff / w_a + 1/2 <= ceil(cutoff / w_a)`. Thus
-//! `extent_a = ceil(cutoff / w_a)` shells around `c_a` suffice for any
-//! triclinic cell.
+//! `|f_a - s_a| = |n_a . d| / w_a <= |d| / w_a < q_a`, with
+//! `q_a = cutoff / w_a`. The search centres on `c_a = round(f_a)`
+//! (`|f_a - c_a| <= 1/2`), so `|s_a - c_a| < q_a + 1/2`. Both `s_a` and
+//! `c_a` are integers, so `|s_a - c_a| <= ceil(q_a + 1/2) - 1`, and
+//! `ceil(q_a + 1/2) <= ceil(q_a) + 1` gives `|s_a - c_a| <= ceil(q_a)`.
+//! Thus `extent_a = ceil(cutoff / w_a)` shells around `c_a` suffice for
+//! any triclinic cell. (The real-valued bound `q_a + 1/2` can exceed
+//! `ceil(q_a)`; it is the integrality of the shells that closes the gap.)
+
+use std::ops::ControlFlow;
 
 use crate::{Cell, Error};
 
@@ -143,8 +148,8 @@ pub fn image_extents(cell: &Cell, periodic: [bool; 3], cutoff: f64) -> Result<[i
 }
 
 #[inline(always)]
-fn positive_half_space(h: i64, k: i64, l: i64) -> bool {
-    h > 0 || (h == 0 && (k > 0 || (k == 0 && l > 0)))
+fn positive_half_space(sa: i32, sb: i32, sc: i32) -> bool {
+    sa > 0 || (sa == 0 && (sb > 0 || (sb == 0 && sc > 0)))
 }
 
 #[inline(always)]
@@ -201,6 +206,26 @@ pub fn visit_pairs_within_images<F>(
 where
     F: FnMut(ImagePair),
 {
+    try_visit_pairs_within_images(cell, periodic, xyz, cutoff, half, |pair| {
+        visit(pair);
+        ControlFlow::Continue(())
+    })
+}
+
+/// Same enumeration as [`visit_pairs_within_images`], but the callback
+/// can end the walk early by returning [`ControlFlow::Break`]. The
+/// returned count includes the pair whose callback broke.
+pub(crate) fn try_visit_pairs_within_images<F>(
+    cell: &Cell,
+    periodic: [bool; 3],
+    xyz: &[[f64; 3]],
+    cutoff: f64,
+    half: bool,
+    mut visit: F,
+) -> Result<usize, Error>
+where
+    F: FnMut(ImagePair) -> ControlFlow<()>,
+{
     if !cutoff.is_finite() || cutoff < 0.0 {
         return Err(Error::BadCutoff);
     }
@@ -212,14 +237,18 @@ where
         return Ok(0);
     }
     let extent = image_extents(cell, periodic, cutoff)?;
-    let h = cell.h();
+    let [a0, a1, a2] = cell.h();
     let inv = cell.hinv();
+    let [ext0, ext1, ext2] = extent;
     let cut2 = cutoff * cutoff;
     let mut count = 0usize;
 
     for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
+        let ii = i as i32;
         let j_start = if half { i } else { 0 };
         for (j, &[xj, yj, zj]) in xyz.iter().enumerate().skip(j_start) {
+            let jj = j as i32;
+            let same_atom = i == j;
             let dx0 = xi - xj;
             let dy0 = yi - yj;
             let dz0 = zi - zj;
@@ -227,7 +256,7 @@ where
             let f1 = inv[0][1] * dx0 + inv[1][1] * dy0 + inv[2][1] * dz0;
             let f2 = inv[0][2] * dx0 + inv[1][2] * dy0 + inv[2][2] * dz0;
             let c0 = if periodic[0] {
-                image_center(f0, extent[0])?
+                image_center(f0, ext0)?
             } else {
                 if !f0.is_finite() {
                     return Err(Error::NonFinite);
@@ -235,7 +264,7 @@ where
                 0
             };
             let c1 = if periodic[1] {
-                image_center(f1, extent[1])?
+                image_center(f1, ext1)?
             } else {
                 if !f1.is_finite() {
                     return Err(Error::NonFinite);
@@ -243,60 +272,57 @@ where
                 0
             };
             let c2 = if periodic[2] {
-                image_center(f2, extent[2])?
+                image_center(f2, ext2)?
             } else {
                 if !f2.is_finite() {
                     return Err(Error::NonFinite);
                 }
                 0
             };
-            let h_lo = i64::from(c0 - extent[0]);
-            let h_hi = i64::from(c0 + extent[0]);
-            let k_lo = i64::from(c1 - extent[1]);
-            let k_hi = i64::from(c1 + extent[1]);
-            let l_lo = i64::from(c2 - extent[2]);
-            let l_hi = i64::from(c2 + extent[2]);
-            for sa in h_lo..=h_hi {
-                for sb in k_lo..=k_hi {
-                    for sc in l_lo..=l_hi {
-                        if !periodic[0] && sa != 0 {
-                            continue;
-                        }
-                        if !periodic[1] && sb != 0 {
-                            continue;
-                        }
-                        if !periodic[2] && sc != 0 {
-                            continue;
-                        }
-                        if i == j {
-                            if sa == 0 && sb == 0 && sc == 0 {
-                                continue;
-                            }
-                            if half && !positive_half_space(sa, sb, sc) {
-                                continue;
-                            }
-                        }
-                        let fa = sa as f64;
-                        let fb = sb as f64;
-                        let fc = sc as f64;
-                        let sx = fa * h[0][0] + fb * h[1][0] + fc * h[2][0];
-                        let sy = fa * h[0][1] + fb * h[1][1] + fc * h[2][1];
-                        let sz = fa * h[0][2] + fb * h[1][2] + fc * h[2][2];
+            // The partial sums below are the left-to-right terms of
+            // `sa * a0 + sb * a1 + sc * a2` for the absolute shift, so
+            // every `d` and `dist2` is bit-identical to evaluating that
+            // expression per image.
+            for sa in (c0 - ext0)..=(c0 + ext0) {
+                let fa = f64::from(sa);
+                let sx_a = fa * a0[0];
+                let sy_a = fa * a0[1];
+                let sz_a = fa * a0[2];
+                for sb in (c1 - ext1)..=(c1 + ext1) {
+                    let fb = f64::from(sb);
+                    let sx_ab = sx_a + fb * a1[0];
+                    let sy_ab = sy_a + fb * a1[1];
+                    let sz_ab = sz_a + fb * a1[2];
+                    for sc in (c2 - ext2)..=(c2 + ext2) {
+                        let fc = f64::from(sc);
+                        let sx = sx_ab + fc * a2[0];
+                        let sy = sy_ab + fc * a2[1];
+                        let sz = sz_ab + fc * a2[2];
                         let dx = dx0 - sx;
                         let dy = dy0 - sy;
                         let dz = dz0 - sz;
                         let r2 = dx * dx + dy * dy + dz * dz;
-                        if !r2.is_finite() || r2 <= 0.0 || r2 >= cut2 {
+                        // A NaN or infinite r2 fails this test, as does r2 == 0.
+                        if !(r2 > 0.0 && r2 < cut2) {
+                            continue;
+                        }
+                        if same_atom
+                            && ((sa == 0 && sb == 0 && sc == 0)
+                                || (half && !positive_half_space(sa, sb, sc)))
+                        {
                             continue;
                         }
                         count += 1;
-                        visit(ImagePair {
-                            i: i as i32,
-                            j: j as i32,
-                            shift: [sa as i32, sb as i32, sc as i32],
+                        let pair = ImagePair {
+                            i: ii,
+                            j: jj,
+                            shift: [sa, sb, sc],
                             d: [dx, dy, dz],
                             dist2: r2,
-                        });
+                        };
+                        if visit(pair).is_break() {
+                            return Ok(count);
+                        }
                     }
                 }
             }
@@ -460,6 +486,218 @@ mod tests {
             }
             tested += 1;
         }
+    }
+
+    /// Reference enumeration: for every pair it scans absolute shifts
+    /// around the nearest image and evaluates `sa * a + sb * b + sc * c`
+    /// per image. `visit_pairs_within_images` must reproduce its output
+    /// bit for bit.
+    fn reference_images(
+        cell: &Cell,
+        periodic: [bool; 3],
+        xyz: &[[f64; 3]],
+        cutoff: f64,
+        half: bool,
+        out: &mut Vec<ImagePair>,
+    ) -> Result<usize, Error> {
+        if !cutoff.is_finite() || cutoff < 0.0 {
+            return Err(Error::BadCutoff);
+        }
+        let n = xyz.len();
+        if n > i32::MAX as usize {
+            return Err(Error::BufferSize);
+        }
+        if n == 0 || cutoff == 0.0 {
+            return Ok(0);
+        }
+        let extent = image_extents(cell, periodic, cutoff)?;
+        let h = cell.h();
+        let inv = cell.hinv();
+        let cut2 = cutoff * cutoff;
+        let mut count = 0usize;
+        for (i, &[xi, yi, zi]) in xyz.iter().enumerate() {
+            let j_start = if half { i } else { 0 };
+            for (j, &[xj, yj, zj]) in xyz.iter().enumerate().skip(j_start) {
+                let dx0 = xi - xj;
+                let dy0 = yi - yj;
+                let dz0 = zi - zj;
+                let f = [
+                    inv[0][0] * dx0 + inv[1][0] * dy0 + inv[2][0] * dz0,
+                    inv[0][1] * dx0 + inv[1][1] * dy0 + inv[2][1] * dz0,
+                    inv[0][2] * dx0 + inv[1][2] * dy0 + inv[2][2] * dz0,
+                ];
+                let mut c = [0i32; 3];
+                for axis in 0..3 {
+                    c[axis] = if periodic[axis] {
+                        image_center(f[axis], extent[axis])?
+                    } else {
+                        if !f[axis].is_finite() {
+                            return Err(Error::NonFinite);
+                        }
+                        0
+                    };
+                }
+                for sa in i64::from(c[0] - extent[0])..=i64::from(c[0] + extent[0]) {
+                    for sb in i64::from(c[1] - extent[1])..=i64::from(c[1] + extent[1]) {
+                        for sc in i64::from(c[2] - extent[2])..=i64::from(c[2] + extent[2]) {
+                            if i == j {
+                                if sa == 0 && sb == 0 && sc == 0 {
+                                    continue;
+                                }
+                                if half && !(sa > 0 || (sa == 0 && (sb > 0 || (sb == 0 && sc > 0))))
+                                {
+                                    continue;
+                                }
+                            }
+                            let fa = sa as f64;
+                            let fb = sb as f64;
+                            let fc = sc as f64;
+                            let sx = fa * h[0][0] + fb * h[1][0] + fc * h[2][0];
+                            let sy = fa * h[0][1] + fb * h[1][1] + fc * h[2][1];
+                            let sz = fa * h[0][2] + fb * h[1][2] + fc * h[2][2];
+                            let dx = dx0 - sx;
+                            let dy = dy0 - sy;
+                            let dz = dz0 - sz;
+                            let r2 = dx * dx + dy * dy + dz * dz;
+                            if !r2.is_finite() || r2 <= 0.0 || r2 >= cut2 {
+                                continue;
+                            }
+                            count += 1;
+                            out.push(ImagePair {
+                                i: i as i32,
+                                j: j as i32,
+                                shift: [sa as i32, sb as i32, sc as i32],
+                                d: [dx, dy, dz],
+                                dist2: r2,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(count)
+    }
+
+    fn row_bits(p: &ImagePair) -> (i32, i32, [i32; 3], [u64; 3], u64) {
+        (p.i, p.j, p.shift, p.d.map(f64::to_bits), p.dist2.to_bits())
+    }
+
+    fn assert_matches_reference(
+        cell: &Cell,
+        periodic: [bool; 3],
+        xyz: &[[f64; 3]],
+        cutoff: f64,
+        half: bool,
+        label: &str,
+    ) -> Vec<ImagePair> {
+        let mut want = Vec::new();
+        let want_res = reference_images(cell, periodic, xyz, cutoff, half, &mut want);
+        let mut got = Vec::new();
+        let got_res = pairs_within_images(cell, periodic, xyz, cutoff, half, &mut got);
+        assert_eq!(got_res, want_res, "{label}: result");
+        assert_eq!(got.len(), want.len(), "{label}: pair count");
+        for (k, (g, w)) in got.iter().zip(&want).enumerate() {
+            assert_eq!(row_bits(g), row_bits(w), "{label}: row {k}");
+        }
+        got
+    }
+
+    #[test]
+    fn strict_cutoff_pair_on_the_boundary_is_kept() {
+        let cutoff = 7.126293688890819;
+        let rows = [
+            [0.9905281085909224, 0.0, 0.0],
+            [0.06887043744206761, 0.7691075701094676, 0.0],
+            [
+                -0.04573481593352513,
+                -0.06322392794993431,
+                0.9036908834094891,
+            ],
+        ];
+        let cell = Cell::from_ase(rows).unwrap();
+        let xyz = [
+            [0.11886002236630441, 0.6751584729504249, 0.5695034262631785],
+            [-4.977636317950234, 8.155732968152781, -10.08944658032492],
+        ];
+        let got = assert_matches_reference(&cell, [true; 3], &xyz, cutoff, true, "boundary");
+        assert_eq!(got.len(), 4413);
+        let kept = got
+            .iter()
+            .find(|p| p.i == 0 && p.j == 1 && p.shift == [7, -9, 4])
+            .expect("boundary pair (0, 1, [7, -9, 4]) must be visited");
+        assert!(kept.dist2 < cutoff * cutoff);
+    }
+
+    #[test]
+    fn matches_reference_enumeration_bit_for_bit() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
+        };
+        let mut uniform = |lo: f64, hi: f64| lo + (hi - lo) * next();
+
+        let mut cases = 0usize;
+        let mut boundary_cases = 0usize;
+        let mut nonempty = 0usize;
+        while cases < 240 {
+            let ax = uniform(0.8, 6.0);
+            let by = uniform(0.8, 6.0);
+            let cz = uniform(0.8, 6.0);
+            let skew = cases % 4 != 0;
+            let rows = if skew {
+                [
+                    [ax, 0.0, 0.0],
+                    [uniform(-0.5 * ax, 0.5 * ax), by, 0.0],
+                    [
+                        uniform(-0.5 * ax, 0.5 * ax),
+                        uniform(-0.5 * by, 0.5 * by),
+                        cz,
+                    ],
+                ]
+            } else {
+                [[ax, 0.0, 0.0], [0.0, by, 0.0], [0.0, 0.0, cz]]
+            };
+            let cell = Cell::from_ase(rows).unwrap();
+            let n = 1 + cases % 4;
+            let xyz: Vec<[f64; 3]> = (0..n)
+                .map(|_| {
+                    [
+                        uniform(-2.0 * ax, 3.0 * ax),
+                        uniform(-2.0 * by, 3.0 * by),
+                        uniform(-2.0 * cz, 3.0 * cz),
+                    ]
+                })
+                .collect();
+            let periodic = match cases % 5 {
+                0 => [true, true, false],
+                1 => [false, true, true],
+                _ => [true; 3],
+            };
+            let probe = uniform(0.4, 7.0);
+            let half = cases % 2 == 0;
+            let label = format!("case {cases}");
+            let rows_at_probe =
+                assert_matches_reference(&cell, periodic, &xyz, probe, half, &label);
+            if !rows_at_probe.is_empty() {
+                nonempty += 1;
+                let pick = (uniform(0.0, rows_at_probe.len() as f64) as usize)
+                    .min(rows_at_probe.len() - 1);
+                let on_distance = rows_at_probe[pick].dist2.sqrt();
+                let below = f64::from_bits(on_distance.to_bits() - 1);
+                let above = f64::from_bits(on_distance.to_bits() + 1);
+                for c in [below, on_distance, above] {
+                    assert_matches_reference(&cell, periodic, &xyz, c, half, &label);
+                    assert_matches_reference(&cell, periodic, &xyz, c, !half, &label);
+                }
+                boundary_cases += 1;
+            }
+            cases += 1;
+        }
+        assert!(nonempty > 100, "too few cases produced pairs: {nonempty}");
+        assert_eq!(boundary_cases, nonempty);
     }
 
     #[test]
