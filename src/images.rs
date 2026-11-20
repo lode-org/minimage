@@ -17,11 +17,14 @@
 //!
 //! Along each periodic axis `a` with face altitude `w_a`, any image
 //! with `|d| < cutoff` has fractional separation `f_a` obeying
-//! `|f_a - s_a| = |n_a . d| / w_a <= |d| / w_a < cutoff / w_a`. The
-//! search centres on `c_a = round(f_a)` (`|f_a - c_a| <= 1/2`), so
-//! `|s_a - c_a| < cutoff / w_a + 1/2 <= ceil(cutoff / w_a)`. Thus
-//! `extent_a = ceil(cutoff / w_a)` shells around `c_a` suffice for any
-//! triclinic cell.
+//! `|f_a - s_a| = |n_a . d| / w_a <= |d| / w_a < q_a`, with
+//! `q_a = cutoff / w_a`. The search centres on `c_a = round(f_a)`
+//! (`|f_a - c_a| <= 1/2`), so `|s_a - c_a| < q_a + 1/2`. Both `s_a` and
+//! `c_a` are integers, so `|s_a - c_a| <= ceil(q_a + 1/2) - 1`, and
+//! `ceil(q_a + 1/2) <= ceil(q_a) + 1` gives `|s_a - c_a| <= ceil(q_a)`.
+//! Thus `extent_a = ceil(cutoff / w_a)` shells around `c_a` suffice for
+//! any triclinic cell. (The real-valued bound `q_a + 1/2` can exceed
+//! `ceil(q_a)`; it is the integrality of the shells that closes the gap.)
 
 use crate::{Cell, Error};
 
