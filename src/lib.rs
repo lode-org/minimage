@@ -87,6 +87,7 @@ mod fused;
 mod images;
 mod kernel;
 mod minkowski;
+mod ortho;
 mod pairs;
 mod partial;
 mod selling;
@@ -108,6 +109,7 @@ pub use images::{
     ImagePair, MAX_IMAGE_COUNT, MAX_IMAGE_EXTENT,
 };
 pub use minkowski::{is_minkowski_reduced, minkowski_reduce};
+pub use ortho::wrap_ortho_half_strict;
 pub use pairs::{reduce_pairs, reduce_pairs_packed};
 pub use partial::PartialCell;
 pub use simd::simd_path;

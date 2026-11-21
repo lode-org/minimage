@@ -26,6 +26,13 @@ visitor_cpp = executable(
   build_rpath: meson.project_build_root(),
 )
 
+wrap_ortho_half_strict_cpp = executable(
+  'wrap_ortho_half_strict_cpp',
+  '../tests/cpp/wrap_ortho_half_strict.cpp',
+  dependencies: minimage_dep,
+  build_rpath: meson.project_build_root(),
+)
+
 _test_env = environment()
 if host_machine.system() == 'linux'
   _test_env.prepend('LD_LIBRARY_PATH', meson.project_build_root())
@@ -37,3 +44,4 @@ test('wrap-pair-c', wrap_pair_c, env: _test_env)
 test('wrap-pair-cpp', wrap_pair_cpp, env: _test_env)
 test('visitor-c', visitor_c, env: _test_env)
 test('visitor-cpp', visitor_cpp, env: _test_env)
+test('wrap-ortho-half-strict-cpp', wrap_ortho_half_strict_cpp, env: _test_env)

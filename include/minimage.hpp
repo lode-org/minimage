@@ -10,6 +10,7 @@ extern "C" {
 }
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -277,6 +278,21 @@ struct Cell {
           "minimage: dist2_euclidean_pairs_warm failed");
   }
 };
+
+/// Wrap one orthorhombic component into the closed interval
+/// `[-length / 2, length / 2]` using strict boundary comparisons.
+///
+/// Exact positive and negative half-box ties retain their sign. `delta` must
+/// be finite and `length` finite and strictly positive.
+[[nodiscard]] inline double wrap_ortho_half_strict(double delta,
+                                                    double length) noexcept {
+  const double half = 0.5 * length;
+  double wrapped = delta - length * std::floor(delta / length + 0.5);
+  if (wrapped == -half && delta > 0.0) {
+    wrapped = half;
+  }
+  return wrapped;
+}
 
 /// Orthorhombic wrap of `n` precomputed SoA differences `(dx, dy, dz)`
 /// with box lengths `(bx, by, bz)` into `out` (`n` squared distances).
