@@ -439,7 +439,10 @@ pub unsafe extern "C" fn minimage_cell_from_con_box_exact(
 ///
 /// `simbox` is one `mi_cell`. `out` is one writable double.
 #[no_mangle]
-pub unsafe extern "C" fn minimage_unique_image_radius(simbox: *const mi_cell, out: *mut f64) -> c_int {
+pub unsafe extern "C" fn minimage_unique_image_radius(
+    simbox: *const mi_cell,
+    out: *mut f64,
+) -> c_int {
     if simbox.is_null() || out.is_null() {
         return fail_msg("null unique-image radius");
     }
