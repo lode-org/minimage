@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "minimage"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "mimalloc",
  "sha2",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "minimage-python"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "minimage",
  "pyo3",
