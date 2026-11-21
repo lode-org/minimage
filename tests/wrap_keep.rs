@@ -324,3 +324,60 @@ fn empty_batch_and_a_short_buffer_are_unchanged() {
         Err(Error::BufferSize)
     );
 }
+
+#[test]
+fn non_primary_half_integer_images_still_wrap() {
+    let cell = ortho();
+    let widths = cell.widths();
+    let slack = WrapConfig::face_slack();
+    for (axis, &width) in widths.iter().enumerate() {
+        let rows = [
+            row_on_axis(axis, width * 1.5),
+            row_on_axis(axis, width * 2.5),
+            row_on_axis(axis, width * -1.5),
+            row_on_axis(axis, width * (1.5 + slack / 2.0)),
+            row_on_axis(axis, width * (-1.5 - slack / 2.0)),
+        ];
+        let folded = engine(&cell, &rows);
+        let stay = kept(&cell, &rows);
+        for (got, want) in stay.iter().zip(folded.iter()) {
+            assert_eq!(bits(*got), bits(*want));
+        }
+    }
+
+    let mixed = [widths[0] * 0.5, widths[1] * 1.5, widths[2] * -2.5];
+    let mixed_folded = engine(&cell, &[mixed]);
+    let mixed_stay = kept(&cell, &[mixed]);
+    assert_eq!(mixed_stay[0][0].to_bits(), (widths[0] * 0.5).to_bits());
+    assert_eq!(mixed_stay[0][1].to_bits(), mixed_folded[0][1].to_bits());
+    assert_eq!(mixed_stay[0][2].to_bits(), mixed_folded[0][2].to_bits());
+
+    for tri in [lammpc_triclinic(), general_triclinic()] {
+        let rows = [
+            at(&tri, [1.5, 0.0, 0.0]),
+            at(&tri, [-1.5, 0.0, 0.0]),
+            at(&tri, [2.5, -1.5, 0.0]),
+            at(&tri, [1.5 + slack / 2.0, 0.1, -0.2]),
+            at(&tri, [-1.5 - slack / 2.0, -0.1, 0.2]),
+        ];
+        let folded = engine(&tri, &rows);
+        let stay = kept(&tri, &rows);
+        for (got, want) in stay.iter().zip(folded.iter()) {
+            assert_eq!(bits(*got), bits(*want));
+        }
+
+        let tri_mixed = at(&tri, [0.5, 1.5, -1.5]);
+        let tri_got = kept(&tri, &[tri_mixed])[0];
+        let tri_want = at(&tri, [0.5, -0.5, 0.5]);
+        for k in 0..3 {
+            assert!((tri_got[k] - tri_want[k]).abs() <= 1e-14);
+        }
+    }
+
+    let lam = lammpc_triclinic();
+    let lam_mixed = at(&lam, [0.5, 1.5, -1.5]);
+    assert_eq!(
+        bits(kept(&lam, &[lam_mixed])[0]),
+        bits(at(&lam, [0.5, -0.5, 0.5]))
+    );
+}

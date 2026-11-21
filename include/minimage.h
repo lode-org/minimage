@@ -603,8 +603,8 @@ struct mi_wrap_config mi_wrap_config_default(void);
 /**
  * Fractional half-width of the face band, `128 ε`.
  *
- * `256 * (ε/2)`. A fractional coordinate within this distance of a
- * half-integer lies on a box face. See [`mi_wrap_config`].
+ * `256 * (ε/2)`. A fractional coordinate within this distance of
+ * `±1/2` lies on a primary box face. See [`mi_wrap_config`].
  */
 double mi_wrap_face_slack(void);
 

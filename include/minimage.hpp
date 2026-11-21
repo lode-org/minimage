@@ -204,7 +204,7 @@ inline void dist2_ortho_diffs(const double *dx, const double *dy,
 /// Fractional half-width of the face band, `128 ε`.
 ///
 /// 256 units of roundoff (`ε/2` each). A fractional coordinate within
-/// this distance of a half-integer lies on a box face.
+/// this distance of `±1/2` lies on a primary box face.
 [[nodiscard]] inline double wrap_face_slack() { return mi_wrap_face_slack(); }
 
 /// Cartesian half-width of the face band on a face of length `box_length`.

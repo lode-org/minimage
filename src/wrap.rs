@@ -21,7 +21,7 @@
 //! the width cancels. [`WrapConfig::face_slack`] is that fractional
 //! half-width. [`WrapConfig::face_tolerance`] multiplies it by `W`.
 
-use crate::kernel::{self, INTEGRAL};
+use crate::kernel;
 use crate::Cell;
 
 /// Flops in the first-order bound `γ_n ≈ n u`.
@@ -72,9 +72,9 @@ impl WrapConfig {
 
     /// Fractional half-width of the face band, `128 ε`.
     ///
-    /// A fractional coordinate within this distance of a half-integer
-    /// lies on a box face. See the module docs for the `256 u` bound
-    /// this number comes from.
+    /// A fractional coordinate within this distance of `±1/2` lies on a
+    /// primary box face. See the module docs for the `256 u` bound this
+    /// number comes from.
     #[must_use]
     pub fn face_slack() -> f64 {
         face_bound_ulps()
@@ -118,7 +118,7 @@ fn restore_one(cell: &Cell, d: [f64; 3], w: [f64; 3]) -> [f64; 3] {
         any_near |= near;
         let image = (s[i] - sw[i]).round();
         let folded = image != 0.0;
-        if folded && near {
+        if near && image.abs() == 1.0 {
             any_undo = true;
             if cell.is_ortho() {
                 out[i] += image * widths[i];
@@ -162,22 +162,15 @@ fn fractional(cell: &Cell, d: [f64; 3]) -> [f64; 3] {
     kernel::mul(cell.hinv(), d)
 }
 
-/// Distance from `s` to the nearest half-integer, or `None` when `s`
-/// has no fractional part left.
+/// Distance from `s` to the nearest primary face `±1/2`, or `None` when
+/// `s` is not finite.
 ///
-/// Split off the integer with `trunc` first. `s - trunc(s)` is exact,
-/// and the remainder sits in `(-1, 1)`, where the nearest face is
-/// `±1/2`. Subtracting that face is exact too, so one extra ulp past
-/// the band is still outside it.
+/// For `|s| ∈ [1/4, 1]` the subtraction `|s| - 1/2` is exact by Sterbenz's
+/// lemma, so one extra ulp past the band is still outside it, and any
+/// non-primary image (`|s| >= 1`) stays outside the band.
 fn fractional_face_distance(s: f64) -> Option<f64> {
-    if !s.is_finite() || s.abs() >= INTEGRAL {
+    if !s.is_finite() {
         return None;
     }
-    let frac = s - s.trunc();
-    let dist = if frac >= 0.0 {
-        (frac - 0.5).abs()
-    } else {
-        (frac + 0.5).abs()
-    };
-    Some(dist)
+    Some((s.abs() - 0.5).abs())
 }
