@@ -745,6 +745,49 @@ fn pairs_within_images_abi_matches_rust() {
     assert_eq!(rc, 0);
     assert_eq!(wrote, count);
 
+    let sentinel = minimage::mi_image_pair {
+        i: 123,
+        ..Default::default()
+    };
+    let mut short = vec![sentinel; count - 1];
+    let mut needed = 0usize;
+    let rc = unsafe {
+        minimage::minimage_pairs_within_images(
+            &raw,
+            pbc.as_ptr(),
+            xyz.as_ptr().cast(),
+            xyz.len(),
+            cutoff,
+            1,
+            short.as_mut_ptr(),
+            short.len(),
+            &mut needed,
+        )
+    };
+    assert_eq!(rc, 1);
+    assert_eq!(needed, count);
+    assert!(short.iter().all(|row| row.i == 123 && row.dist2 == 0.0));
+
+    let overflow_xyz = [[0.0, 0.0, 0.0], [1e15, 0.0, 0.0]];
+    let mut untouched = vec![sentinel; 64];
+    let mut untouched_count = 777usize;
+    let rc = unsafe {
+        minimage::minimage_pairs_within_images(
+            &raw,
+            pbc.as_ptr(),
+            overflow_xyz.as_ptr().cast(),
+            overflow_xyz.len(),
+            cutoff,
+            1,
+            untouched.as_mut_ptr(),
+            untouched.len(),
+            &mut untouched_count,
+        )
+    };
+    assert_eq!(rc, 1);
+    assert_eq!(untouched_count, 777);
+    assert!(untouched.iter().all(|row| row.i == 123 && row.dist2 == 0.0));
+
     let mut want = Vec::new();
     minimage::pairs_within_images(&cell, [true, true, true], &xyz, cutoff, true, &mut want)
         .unwrap();

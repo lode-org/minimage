@@ -1734,20 +1734,17 @@ pub unsafe extern "C" fn minimage_pairs_within_images(
             Err(e) => fail(e),
         }
     } else {
-        let mut written = 0usize;
+        let mut rows = Vec::new();
         match crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
-            if written < cap {
-                unsafe {
-                    *out.add(written) = mi_image_pair {
-                        i: r.i,
-                        j: r.j,
-                        shift: r.shift,
-                        d: r.d,
-                        dist2: r.dist2,
-                    };
-                }
+            if rows.len() < cap {
+                rows.push(mi_image_pair {
+                    i: r.i,
+                    j: r.j,
+                    shift: r.shift,
+                    d: r.d,
+                    dist2: r.dist2,
+                });
             }
-            written += 1;
         }) {
             Ok(count) => {
                 unsafe {
@@ -1755,6 +1752,11 @@ pub unsafe extern "C" fn minimage_pairs_within_images(
                 }
                 if count > cap {
                     return fail_msg("image pair buffer is shorter than the pair count");
+                }
+                if count > 0 {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(rows.as_ptr(), out, count);
+                    }
                 }
                 clear_error();
                 0
@@ -1819,18 +1821,20 @@ pub unsafe extern "C" fn minimage_visit_pairs_within_images(
         Err(e) => return e,
     };
     let res = match visit {
-        Some(cb) => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
-            let raw = mi_image_pair {
-                i: r.i,
-                j: r.j,
-                shift: r.shift,
-                d: r.d,
-                dist2: r.dist2,
-            };
-            unsafe {
-                cb(userdata, &raw);
-            }
-        }),
+        Some(cb) => {
+            crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |r| {
+                let raw = mi_image_pair {
+                    i: r.i,
+                    j: r.j,
+                    shift: r.shift,
+                    d: r.d,
+                    dist2: r.dist2,
+                };
+                unsafe {
+                    cb(userdata, &raw);
+                }
+            })
+        }
         None => crate::visit_pairs_within_images(&cell, periodic, pts, cutoff, half != 0, |_| {}),
     };
     match res {
