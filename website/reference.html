@@ -246,6 +246,11 @@ process-static string and neither reads nor modifies the error slot.
 </tr>
 
 <tr>
+<td class="org-left"><code>minimage_visit_pairs_within_images</code></td>
+<td class="org-left">Single-pass callback visitor over periodic images within <code>cutoff</code></td>
+</tr>
+
+<tr>
 <td class="org-left"><code>minimage_reduce_pairs</code></td>
 <td class="org-left">Drop self images, sort and deduplicate <code>(i, j)</code> pairs</td>
 </tr>
@@ -347,6 +352,11 @@ throws <code>minimage::Error</code> (with <code>status()</code> and <code>what()
 <tr>
 <td class="org-left"><code>minimage::dist2_ortho_diffs</code></td>
 <td class="org-left">SoA orthorhombic batch wrap</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::visit_pairs_within_images</code>, <code>pairs_within_images</code></td>
+<td class="org-left">Single-pass visitor and vector collector for periodic images within <code>cutoff</code></td>
 </tr>
 
 <tr>
