@@ -14,6 +14,7 @@ extern "C" {
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -279,19 +280,54 @@ struct Cell {
   }
 };
 
+namespace detail {
+/// Fold `|rem| < length` into `[-length / 2, length / 2]`. Each branch
+/// subtracts values within a factor of two of each other, so it is exact
+/// by Sterbenz's lemma.
+inline double fold_remainder(double rem, double length) noexcept {
+  const double half = 0.5 * length;
+  if (rem > half) {
+    return rem - length;
+  }
+  if (rem < -half) {
+    return rem + length;
+  }
+  return rem;
+}
+} // namespace detail
+
 /// Wrap one orthorhombic component into the closed interval
-/// `[-length / 2, length / 2]` using strict boundary comparisons.
+/// `[-length / 2, length / 2]`.
 ///
-/// Exact positive and negative half-box ties retain their sign. `delta` must
-/// be finite and `length` finite and strictly positive.
+/// The result is the nearest periodic image `delta - n * length` for an
+/// integer `n`, computed without rounding: `std::fmod(delta, length)` is
+/// exact, and at most one exact subtraction or addition of `length` folds
+/// it into the interval. Values just inside `+-length / 2` are kept, and
+/// multiples far larger than `length` still give a finite, in-range result.
+///
+/// When the remainder equals `length / 2` exactly in binary, the result
+/// keeps the sign of `delta` (`15.0` and `-15.0` with length `10.0` give
+/// `5.0` and `-5.0`). A decimal tie such as `0.45` against `0.3` is not a
+/// binary tie and returns its nearest image. The sign of a zero result
+/// follows `delta`.
+///
+/// Returns NaN when `delta` is not finite, or `length` is not finite or not
+/// strictly positive. Behaves identically to the Rust
+/// `minimage::wrap_ortho_half_strict`.
 [[nodiscard]] inline double wrap_ortho_half_strict(double delta,
                                                     double length) noexcept {
-  const double half = 0.5 * length;
-  double wrapped = delta - length * std::floor(delta / length + 0.5);
-  if (wrapped == -half && delta > 0.0) {
-    wrapped = half;
+  if (!std::isfinite(delta) || !std::isfinite(length) || length <= 0.0) {
+    return std::numeric_limits<double>::quiet_NaN();
   }
-  return wrapped;
+  const double rem = std::fmod(delta, length);
+  // 0.5 * length is inexact for a subnormal length with an odd last bit.
+  constexpr double small_length = 0x1p-1000;
+  constexpr double small_scale = 0x1p64;
+  if (length < small_length) {
+    return detail::fold_remainder(rem * small_scale, length * small_scale) /
+           small_scale;
+  }
+  return detail::fold_remainder(rem, length);
 }
 
 /// Orthorhombic wrap of `n` precomputed SoA differences `(dx, dy, dz)`
