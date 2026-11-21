@@ -1,1 +1,0 @@
-Two C functions: `minimage_cell_from_con_box_exact` builds a cell from CON lengths and angles with an angle equal to 90 degrees taken as an exact right angle, so an orthogonal box is the diagonal of its lengths, and `minimage_unique_image_radius` returns the radius inside which a pair displacement has one nearest image.

@@ -2,6 +2,22 @@
 
 <!-- towncrier release notes start -->
 
+## 0.3.0 - 2026-11-21
+
+### Added
+
+The C ABI adds `minimage_visit_pairs_within_images` and the
+`mi_image_pair_visitor` callback type, and the C++ header adds
+`minimage::visit_pairs_within_images`. They walk every periodic image within
+a cutoff in one pass without allocating a pair buffer. A nonzero callback
+return stops the C walk early, and a C++ visitor that throws stops the walk
+and has its exception rethrown to the caller once the C call has returned.
+`minimage::pairs_within_images` now collects through the same visitor.
+
+`Cell::from_con_box_exact` and the C function `minimage_cell_from_con_box_exact` build a cell from CON lengths and angles with an angle equal to 90 degrees taken as an exact right angle, so an orthogonal box is the diagonal of its lengths. `Cell::unique_image_radius` and the C function `minimage_unique_image_radius` return the radius inside which a pair displacement has one nearest image.
+
+`pairs_within_images`, `visit_pairs_within_images`, `cutoff_exceeds_half_width`, `image_extents`, and `ImagePair` enumerate every periodic image of a point set strictly inside a cutoff for small or skewed cells where `2 * cutoff` reaches or exceeds a periodic face altitude. The C ABI exposes `mi_image_pair`, `minimage_pairs_within_images`, `minimage_cutoff_exceeds_half_width`, and `minimage_face_spacing`, and the C++ header exposes `minimage::pairs_within_images`.
+
 ## 0.2.3 - 2026-11-19
 
 ### Changed
