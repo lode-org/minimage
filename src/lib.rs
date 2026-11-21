@@ -27,6 +27,11 @@
 //!   boxes use the triangular `lamda` step. [`Cell::reduce_tilts`] is
 //!   GROMACS `correct_box`; [`Cell::to_restricted`] is the LAMMPS
 //!   general-to-restricted rotation.
+//! - **Strict scalar wrap**: [`wrap_ortho_half_strict`] wraps one
+//!   component into the closed interval `[-L/2, L/2]` from an exact
+//!   remainder, so the result is the exact nearest image for any finite
+//!   input. An exact binary tie keeps the sign of the input, unlike the
+//!   engine wrap above, which maps `+L/2` to `-L/2`.
 //! - **Euclidean nearest image**: [`Cell::displacement_euclidean`] runs
 //!   Smith's half-altitude test, then Babai's rounding and the
 //!   Sommer-Feder-Shalvi slicer on the Selling superbasis cached on the
@@ -56,6 +61,8 @@
 //! [`Error::Empty`] signals an empty or misaligned ring-polymer input.
 //! Individual distance and displacement methods on [`Cell`] and
 //! [`PartialCell`] are infallible once the cell has been constructed.
+//! [`wrap_ortho_half_strict`] never panics and returns `NaN` for a
+//! non-finite component or a non-finite or non-positive length.
 //!
 //! It is a LODE library. The Rust crate is the implementation. The C
 //! ABI (`minimage_*`) is the hourglass waist, the same shape as

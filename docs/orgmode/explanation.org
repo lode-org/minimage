@@ -55,6 +55,12 @@ a single subtraction. The half-box tie keeps =-L/2= and maps =+L/2=
 onto =-L/2=, matching LAMMPS dump =relDist= in d-SEAMS (Goswami et al.,
 *J. Chem. Inf. Model.* 60, 2169, 2020,
 [[https://doi.org/10.1021/acs.jcim.0c00031][doi:10.1021/acs.jcim.0c00031]]).
+=wrap_ortho_half_strict= is the scalar alternative for a closed
+interval. It folds the exact remainder =fmod(d, L)= with at most one
+addition or subtraction of =L=, which is exact by Sterbenz's lemma, so
+it never rounds a quotient: a value one ulp inside =L/2= stays put and
+=1e308= against =0.5= gives =0=. An exact binary tie keeps the sign of
+=d=, so =+L/2= and =-L/2= are both reachable.
 Two positions folded into the box are less than one length apart on
 every axis, so the wrap is two selects and the floor runs only past
 that. A squared distance needs no sign: for =|d| < L= the wrapped
@@ -276,6 +282,8 @@ the CPU.
   or misaligned bead lengths in =ring_centroid=. Once constructed,
   per-pair methods on =Cell= and =PartialCell= are infallible
   (=dist2_shifted_indexed= panics on an out-of-bounds index).
+  =wrap_ortho_half_strict= returns NaN, without panicking, for a
+  non-finite component or a non-finite or non-positive length.
 - **C ABI (=minimage_*=)**: every =int=-returning function returns =0= on
   success and =1= on failure (null pointer, invalid cell, length/index
   error, or integer overflow). On failure, a thread-local NUL-terminated
@@ -287,7 +295,8 @@ the CPU.
   =minimage::Error= (carrying =status()= and =what()= from
   =minimage_last_error()=). =Cell::ortho= is =noexcept= and defers
   validation until a query runs; the other constructors validate
-  immediately.
+  immediately. =minimage::wrap_ortho_half_strict= is =noexcept= and
+  returns NaN for the same invalid inputs as the Rust function.
 - **Python**: raises =ValueError= on invalid cells, length-3 / 3x3 /
   =(N, 3)= shape errors, or length mismatches; =TypeError= on unsupported
   dtypes, non-CPU DLPack devices, or invalid DLPack objects; and
