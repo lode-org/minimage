@@ -84,6 +84,12 @@ a single subtraction. The half-box tie keeps <code>-L/2</code> and maps <code>+L
 onto <code>-L/2</code>, matching LAMMPS dump <code>relDist</code> in d-SEAMS (Goswami et al.,
 <strong>J. Chem. Inf. Model.</strong> 60, 2169, 2020,
 <a href="https://doi.org/10.1021/acs.jcim.0c00031">doi:10.1021/acs.jcim.0c00031</a>).
+<code>wrap_ortho_half_strict</code> is the scalar alternative for a closed
+interval. It folds the exact remainder <code>fmod(d, L)</code> with at most one
+addition or subtraction of <code>L</code>, which is exact by Sterbenz's lemma, so
+it never rounds a quotient: a value one ulp inside <code>L/2</code> stays put and
+<code>1e308</code> against <code>0.5</code> gives <code>0</code>. An exact binary tie keeps the sign of
+<code>d</code>, so <code>+L/2</code> and <code>-L/2</code> are both reachable.
 Two positions folded into the box are less than one length apart on
 every axis, so the wrap is two selects and the floor runs only past
 that. A squared distance needs no sign: for <code>|d| &lt; L</code> the wrapped
@@ -364,7 +370,9 @@ covers mismatched slice lengths or out-of-range atom indices in
 <code>filter_shifted</code>. <code>Error::Empty</code> covers zero beads, empty coordinates,
 or misaligned bead lengths in <code>ring_centroid</code>. Once constructed,
 per-pair methods on <code>Cell</code> and <code>PartialCell</code> are infallible
-(<code>dist2_shifted_indexed</code> panics on an out-of-bounds index).</li>
+(<code>dist2_shifted_indexed</code> panics on an out-of-bounds index).
+<code>wrap_ortho_half_strict</code> returns NaN, without panicking, for a
+non-finite component or a non-finite or non-positive length.</li>
 <li><strong><strong>C ABI (<code>minimage_*</code>)</strong></strong>: every <code>int</code>-returning function returns <code>0</code> on
 success and <code>1</code> on failure (null pointer, invalid cell, length/index
 error, or integer overflow). On failure, a thread-local NUL-terminated
@@ -376,7 +384,8 @@ neither reads nor modifies the slot.</li>
 <code>minimage::Error</code> (carrying <code>status()</code> and <code>what()</code> from
 <code>minimage_last_error()</code>). <code>Cell::ortho</code> is <code>noexcept</code> and defers
 validation until a query runs; the other constructors validate
-immediately.</li>
+immediately. <code>minimage::wrap_ortho_half_strict</code> is <code>noexcept</code> and
+returns NaN for the same invalid inputs as the Rust function.</li>
 <li><strong><strong>Python</strong></strong>: raises <code>ValueError</code> on invalid cells, length-3 / 3x3 /
 <code>(N, 3)</code> shape errors, or length mismatches; <code>TypeError</code> on unsupported
 dtypes, non-CPU DLPack devices, or invalid DLPack objects; and

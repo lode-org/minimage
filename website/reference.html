@@ -355,6 +355,11 @@ throws <code>minimage::Error</code> (with <code>status()</code> and <code>what()
 </tr>
 
 <tr>
+<td class="org-left"><code>minimage::wrap_ortho_half_strict</code></td>
+<td class="org-left"><code>noexcept</code> scalar wrap into the closed interval <code>[-L/2, L/2]</code>; NaN on invalid input</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>minimage::visit_pairs_within_images</code>, <code>pairs_within_images</code></td>
 <td class="org-left">Single-pass visitor and vector collector for periodic images within <code>cutoff</code>; an exception thrown by the visitor stops the walk and is rethrown to the caller</td>
 </tr>
@@ -433,6 +438,11 @@ Fallible functions return <code>Result&lt;_, Error&gt;</code> with variants
 </tr>
 
 <tr>
+<td class="org-left"><code>wrap_ortho_half_strict</code></td>
+<td class="org-left">Scalar wrap into the closed interval <code>[-L/2, L/2]</code>; NaN on invalid input</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>dist2_euclidean_many</code>, <code>dist2_euclidean_pairs</code>, <code>dist2_euclidean_pairs_warm</code></td>
 <td class="org-left">Batched and warm-started Euclidean nearest-image distances</td>
 </tr>
@@ -481,6 +491,22 @@ along its one. The component normal to the periodic vectors is kept. A
 half-box tie keeps the engine wrap <code>s - floor(s + 1/2)</code>, as
 <code>Cell::displacement_euclidean</code> does. With all three axes periodic a
 <code>PartialCell</code> is a <code>Cell</code> and returns its displacement bit for bit.
+</p>
+
+<p>
+<code>wrap_ortho_half_strict(delta, length)</code> (Rust) and
+<code>minimage::wrap_ortho_half_strict(delta, length)</code> (C++) give identical
+results. The result is <code>delta - n * length</code> for an integer
+<code>n</code>, folded from the exact remainder <code>fmod(delta, length)</code> into the
+closed interval <code>[-length/2, length/2]</code>, so it is finite and in range for
+any finite <code>delta</code> and finite positive <code>length</code>, including large
+multiples such as <code>1e308</code> against <code>0.5</code>. When the remainder equals
+<code>length/2</code> exactly in binary the result keeps the sign of <code>delta</code>:
+<code>15</code> and <code>-15</code> against <code>10</code> give <code>5</code> and <code>-5</code>. A decimal tie such as
+<code>0.45</code> against <code>0.3</code> is not a binary tie and returns its nearest image,
+<code>-0.14999999999999997</code>. A non-finite <code>delta</code>, or a <code>length</code> that is not
+finite or not strictly positive, returns NaN; Rust does not panic and
+the C++ function stays <code>noexcept</code>.
 </p>
 
 <p>

@@ -99,6 +99,7 @@ throws =minimage::Error= (with =status()= and =what()=) on failure.
 | =minimage::Cell::dist2_many=, =dist2_shifted_many= | Packed candidate batches (engine MIC and shifted) |
 | =minimage::Cell::dist2_euclidean_many=, =dist2_euclidean_pairs=, =dist2_euclidean_pairs_warm= | Batched and warm-started Euclidean nearest-image distances |
 | =minimage::dist2_ortho_diffs= | SoA orthorhombic batch wrap |
+| =minimage::wrap_ortho_half_strict= | =noexcept= scalar wrap into the closed interval =[-L/2, L/2]=; NaN on invalid input |
 | =minimage::visit_pairs_within_images=, =pairs_within_images= | Single-pass visitor and vector collector for periodic images within =cutoff=; an exception thrown by the visitor stops the walk and is rethrown to the caller |
 | =minimage::reduce_pairs= | Sorted unique pairs with self images dropped |
 
@@ -118,6 +119,7 @@ Fallible functions return =Result<_, Error>= with variants
 | =minkowski_reduce=, =is_minkowski_reduced= | 3D Minkowski basis reduction and predicate |
 | =Cell::fixed=, =displacement_fixed=, =dist2_fixed=, =fixed32=, =displacement_fixed32=, =dist2_fixed32= | 64-bit and 32-bit fixed-point fractional wraps |
 | =wrap_many=, =dist2_many=, =dist2_pairs=, =dist2_ortho_diffs= | Batched engine MIC wraps and squared distances |
+| =wrap_ortho_half_strict= | Scalar wrap into the closed interval =[-L/2, L/2]=; NaN on invalid input |
 | =dist2_euclidean_many=, =dist2_euclidean_pairs=, =dist2_euclidean_pairs_warm= | Batched and warm-started Euclidean nearest-image distances |
 | =fixed_many=, =dist2_many_fixed=, =dist2_pairs_fixed=, =fixed32_many=, =dist2_many_fixed32=, =dist2_pairs_fixed32= | Batched fixed-point conversions and distances |
 | =PartialCell::from_ase=, =periodic_count=, =full=, =displacement_euclidean=, =dist2_euclidean= | Slabs (2D), wires (1D), open (0D), and full (3D) cells |
@@ -133,6 +135,20 @@ along its one. The component normal to the periodic vectors is kept. A
 half-box tie keeps the engine wrap =s - floor(s + 1/2)=, as
 =Cell::displacement_euclidean= does. With all three axes periodic a
 =PartialCell= is a =Cell= and returns its displacement bit for bit.
+
+=wrap_ortho_half_strict(delta, length)= (Rust) and
+=minimage::wrap_ortho_half_strict(delta, length)= (C++) give identical
+results. The result is =delta - n * length= for an integer
+=n=, folded from the exact remainder =fmod(delta, length)= into the
+closed interval =[-length/2, length/2]=, so it is finite and in range for
+any finite =delta= and finite positive =length=, including large
+multiples such as =1e308= against =0.5=. When the remainder equals
+=length/2= exactly in binary the result keeps the sign of =delta=:
+=15= and =-15= against =10= give =5= and =-5=. A decimal tie such as
+=0.45= against =0.3= is not a binary tie and returns its nearest image,
+=-0.14999999999999997=. A non-finite =delta=, or a =length= that is not
+finite or not strictly positive, returns NaN; Rust does not panic and
+the C++ function stays =noexcept=.
 
 =MINIMAGE_SIMD= overrides the SIMD path choice. An unknown name is
 ignored. A name this CPU cannot run selects =scalar=. The selection is
