@@ -41,6 +41,7 @@ process-static string and neither reads nor modifies the error slot.
 | =minimage_cell_from_ase= | Row-major 3x3 plus optional origin (=NULL= -> zero) |
 | =minimage_cell_from_con= | CON 3x3 (zero origin) |
 | =minimage_cell_from_con_box= | Lengths and angles in degrees (zero origin) |
+| =minimage_cell_from_con_box_exact= | As =minimage_cell_from_con_box=, with an angle equal to 90 degrees taken as an exact right angle |
 | =minimage_cell_from_vesin= | vesin 3x3 (zero origin) |
 | =minimage_displacement= | Engine wrapped =q - p= |
 | =minimage_displacement_euclidean= | Smith test, else the Selling slicer (exact Voronoi MIC) |
@@ -66,6 +67,7 @@ process-static string and neither reads nor modifies the error slot.
 | =minimage_filter_shifted= | Filter =(ii, jj, shift)= pairs below =cut2=; =out_vector= may be =NULL= |
 | =minimage_ring_centroid= | Bead-major ring-polymer centroids wrapped into primary cell |
 | =minimage_face_spacing= | Perpendicular altitude of the face opposite a lattice axis |
+| =minimage_unique_image_radius= | Radius inside which a pair displacement has one nearest image; zero when no axis is periodic |
 | =minimage_cutoff_exceeds_half_width= | Nonzero when =2 * cutoff= reaches or exceeds a periodic face altitude |
 | =mi_image_pair= | One periodic image =(i, j, shift, d, dist2)= within a cutoff |
 | =minimage_pairs_within_images= | Enumerate all periodic images within =cutoff= (half or full list) |
