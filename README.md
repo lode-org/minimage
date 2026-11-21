@@ -72,7 +72,7 @@ As a wrap, Meson exposes `minimage_dep`:
 ```
 [wrap-git]
 url = https://github.com/lode-org/minimage.git
-revision = v0.2.3
+revision = v0.3.0
 depth = 1
 
 [provide]
@@ -92,7 +92,7 @@ cmake --install build
 ```
 
 ```cmake
-find_package(minimage 0.2 REQUIRED)
+find_package(minimage 0.3 REQUIRED)
 target_link_libraries(app PRIVATE minimage::minimage)
 ```
 
