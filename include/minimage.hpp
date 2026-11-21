@@ -324,13 +324,15 @@ visit_pairs_within_images(const Cell &cell, const double *xyz, std::size_t n,
   const mi_cell box = cell.raw();
   const int pbc[3] = {periodic[0] ? 1 : 0, periodic[1] ? 1 : 0,
                       periodic[2] ? 1 : 0};
+  struct VisitorRef {
+    F &&fn;
+  } ref{std::forward<F>(visit)};
   auto thunk = [](void *userdata, const mi_image_pair *pair) {
-    (*static_cast<std::decay_t<F> *>(userdata))(*pair);
+    static_cast<VisitorRef *>(userdata)->fn(*pair);
   };
-  std::decay_t<F> fn(std::forward<F>(visit));
   std::size_t count = 0;
   check(minimage_visit_pairs_within_images(&box, pbc, xyz, n, cutoff,
-                                           half ? 1 : 0, thunk, &fn, &count),
+                                           half ? 1 : 0, thunk, &ref, &count),
         "minimage: visit_pairs_within_images failed");
   return count;
 }
