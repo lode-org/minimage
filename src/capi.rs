@@ -401,7 +401,7 @@ pub unsafe extern "C" fn minimage_cell_from_con_box_exact(
     // matrix, and it is not an invertible Cell.
     if angles == [90.0, 90.0, 90.0]
         && boxl.iter().all(|v| v.is_finite() && *v >= 0.0)
-        && boxl.iter().any(|v| *v == 0.0)
+        && boxl.contains(&0.0)
     {
         unsafe {
             *out = mi_cell {
@@ -439,7 +439,10 @@ pub unsafe extern "C" fn minimage_cell_from_con_box_exact(
 ///
 /// `simbox` is one `mi_cell`. `out` is one writable double.
 #[no_mangle]
-pub unsafe extern "C" fn minimage_unique_image_radius(simbox: *const mi_cell, out: *mut f64) -> c_int {
+pub unsafe extern "C" fn minimage_unique_image_radius(
+    simbox: *const mi_cell,
+    out: *mut f64,
+) -> c_int {
     if simbox.is_null() || out.is_null() {
         return fail_msg("null unique-image radius");
     }

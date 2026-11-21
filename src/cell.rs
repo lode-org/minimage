@@ -379,7 +379,12 @@ impl Cell {
             if lx < 0.0 || ly < 0.0 || lz < 0.0 {
                 return Err(Error::BadBox);
             }
-            return Self::from_rows([lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz], [0.0, 0.0, 0.0]);
+            return Self::from_rows(
+                [lx, 0.0, 0.0],
+                [0.0, ly, 0.0],
+                [0.0, 0.0, lz],
+                [0.0, 0.0, 0.0],
+            );
         }
         if !(lx > 0.0 && ly > 0.0 && lz > 0.0) {
             return Err(Error::BadBox);
@@ -527,7 +532,7 @@ impl Cell {
             rows[1].iter().any(|v| *v != 0.0),
             rows[2].iter().any(|v| *v != 0.0),
         ];
-        if !periodic.iter().any(|p| *p) {
+        if !periodic.contains(&true) {
             return 0.0;
         }
         let mut radius = f64::INFINITY;
@@ -564,7 +569,11 @@ impl Cell {
             let height = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
             radius = radius.min(0.5 * height);
         }
-        if radius.is_finite() { radius } else { 0.0 }
+        if radius.is_finite() {
+            radius
+        } else {
+            0.0
+        }
     }
 
     /// Perpendicular widths `|a . n_a|`, `|b . n_b|`, `|c . n_c|` of the
@@ -1234,25 +1243,27 @@ mod cartesian_tests {
 
     #[test]
     fn unique_image_radius_is_half_the_row_spacing() {
-        assert!((Cell::unique_image_radius([
-            [10.862, 0.0, 0.0],
-            [0.0, 10.862, 0.0],
-            [0.0, 0.0, 10.862],
-        ]) - 5.431)
-            .abs()
-            < 1e-12);
+        assert!(
+            (Cell::unique_image_radius([
+                [10.862, 0.0, 0.0],
+                [0.0, 10.862, 0.0],
+                [0.0, 0.0, 10.862],
+            ]) - 5.431)
+                .abs()
+                < 1e-12
+        );
         let s = 3.0_f64.sqrt();
-        assert!((Cell::unique_image_radius([
-            [4.0, 0.0, 0.0],
-            [-2.0, 2.0 * s, 0.0],
-            [0.0, 0.0, 10.0],
-        ]) - s)
-            .abs()
-            < 1e-12);
-        assert!((Cell::unique_image_radius([[4.0, 0.0, 0.0], [0.0, 6.0, 0.0], [0.0, 0.0, 0.0]])
-            - 2.0)
-            .abs()
-            < 1e-12);
+        assert!(
+            (Cell::unique_image_radius([[4.0, 0.0, 0.0], [-2.0, 2.0 * s, 0.0], [0.0, 0.0, 10.0],])
+                - s)
+                .abs()
+                < 1e-12
+        );
+        assert!(
+            (Cell::unique_image_radius([[4.0, 0.0, 0.0], [0.0, 6.0, 0.0], [0.0, 0.0, 0.0]]) - 2.0)
+                .abs()
+                < 1e-12
+        );
         assert_eq!(
             Cell::unique_image_radius([[0.0; 3], [0.0; 3], [0.0; 3]]),
             0.0
