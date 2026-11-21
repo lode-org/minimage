@@ -527,7 +527,7 @@ impl Cell {
             rows[1].iter().any(|v| *v != 0.0),
             rows[2].iter().any(|v| *v != 0.0),
         ];
-        if !periodic.iter().any(|p| *p) {
+        if !periodic.contains(&true) {
             return 0.0;
         }
         let mut radius = f64::INFINITY;
