@@ -187,6 +187,32 @@ struct Cell {
   /// Explicit conversion to `mi_cell`.
   [[nodiscard]] explicit operator mi_cell() const noexcept { return raw(); }
 
+  /// Inverse cell matrix as three consecutive columns.
+  [[nodiscard]] std::array<double, 9> hinv() const {
+    const mi_cell box = raw();
+    std::array<double, 9> out{};
+    check(minimage_cell_hinv(&box, out.data()), "minimage: hinv failed");
+    return out;
+  }
+
+  /// Perpendicular face widths in lattice-axis order.
+  [[nodiscard]] std::array<double, 3> widths() const {
+    const mi_cell box = raw();
+    std::array<double, 3> out{};
+    check(minimage_cell_widths(&box, out.data()), "minimage: widths failed");
+    return out;
+  }
+
+  /// Wrapped fractional coordinates of a Cartesian position.
+  [[nodiscard]] std::array<double, 3>
+  fractional(std::array<double, 3> position) const {
+    const mi_cell box = raw();
+    std::array<double, 3> out{};
+    check(minimage_fractional(&box, position.data(), out.data()),
+          "minimage: fractional failed");
+    return out;
+  }
+
   /// Engine minimum-image displacement from `p` to `q`: `wrap(q - p)` in
   /// cell length units. Throws `minimage::Error` on an invalid cell.
   [[nodiscard]] std::array<double, 3>

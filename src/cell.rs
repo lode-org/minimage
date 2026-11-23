@@ -17,6 +17,36 @@ use crate::Error;
 
 pub(crate) use crate::kernel::mul;
 
+/// Numerical validation settings for cell construction.
+///
+/// The default accepts cells whose infinity-norm condition estimate is
+/// at most [`Self::max_condition`]. Raising the limit admits cells whose
+/// fractional coordinates lose correspondingly more floating-point
+/// precision.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct CellConfig {
+    /// Largest accepted infinity-norm condition estimate.
+    pub max_condition: f64,
+}
+
+impl Default for CellConfig {
+    fn default() -> Self {
+        Self {
+            max_condition: 1.0e12,
+        }
+    }
+}
+
+impl CellConfig {
+    /// Return this configuration with a new condition-number limit.
+    #[must_use]
+    pub fn with_max_condition(mut self, max_condition: f64) -> Self {
+        self.max_condition = max_condition;
+        self
+    }
+}
+
 /// Periodic parallelepiped: columns of H, origin, and an ortho flag.
 ///
 /// ```
@@ -61,8 +91,9 @@ impl Cell {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::BadBox`] if `lx * ly * lz` is non-finite or
-    /// `|lx * ly * lz| < 1e-18`.
+    /// Returns [`Error::BadBox`] for zero or non-finite lengths and
+    /// [`Error::IllConditioned`] when their ratio exceeds the default
+    /// condition limit.
     ///
     /// ```
     /// use minimage::{Cell, Error};
@@ -80,6 +111,7 @@ impl Cell {
             [0.0, ly, 0.0],
             [0.0, 0.0, lz],
             [0.0, 0.0, 0.0],
+            CellConfig::default(),
         )
     }
 
@@ -88,10 +120,17 @@ impl Cell {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::BadBox`] if `lx * ly * lz` is non-finite or
-    /// `|lx * ly * lz| < 1e-18`.
+    /// Returns [`Error::BadBox`] for zero or non-finite lengths and
+    /// [`Error::IllConditioned`] when their ratio exceeds the default
+    /// condition limit.
     pub fn ortho_origin(lx: f64, ly: f64, lz: f64, origin: [f64; 3]) -> Result<Self, Error> {
-        Self::from_rows([lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz], origin)
+        Self::from_rows(
+            [lx, 0.0, 0.0],
+            [0.0, ly, 0.0],
+            [0.0, 0.0, lz],
+            origin,
+            CellConfig::default(),
+        )
     }
 
     /// Parallelepiped from lattice vectors `a`, `b`, `c` and an origin,
@@ -105,9 +144,10 @@ impl Cell {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::BadBox`] if `det(H)` is non-finite,
-    /// `|det(H)| < 1e-18`, or any perpendicular face width is not
-    /// strictly positive.
+    /// Returns [`Error::BadBox`] if `H` is singular or non-finite, or
+    /// any perpendicular face width is not strictly positive. Returns
+    /// [`Error::IllConditioned`] when the scaled infinity-norm condition
+    /// estimate exceeds the default limit.
     ///
     /// ```
     /// use minimage::Cell;
@@ -131,53 +171,67 @@ impl Cell {
         c: [f64; 3],
         origin: [f64; 3],
     ) -> Result<Self, Error> {
+        Self::from_vectors_with_config(a, b, c, origin, CellConfig::default())
+    }
+
+    /// [`Self::from_vectors`] with explicit numerical validation settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BadBox`] for a singular, non-finite, or invalid
+    /// configuration and [`Error::IllConditioned`] when the scaled
+    /// infinity-norm condition estimate exceeds
+    /// [`CellConfig::max_condition`].
+    #[inline(always)]
+    pub fn from_vectors_with_config(
+        a: [f64; 3],
+        b: [f64; 3],
+        c: [f64; 3],
+        origin: [f64; 3],
+        config: CellConfig,
+    ) -> Result<Self, Error> {
         // Read each element on its own. A 16-byte load of two neighbours
         // straddles a row the caller has just stored as 8 + 16 or 16 + 8
         // bytes, cannot forward from the store buffer, and stalls the
         // construction. For the origin, which is only copied, the middle
         // element is enough: it keeps the outer two apart.
         let [ox, oy, oz] = origin;
-        Self::from_rows(opaque3(a), opaque3(b), opaque3(c), [ox, opaque(oy), oz])
+        Self::from_rows(
+            opaque3(a),
+            opaque3(b),
+            opaque3(c),
+            [ox, opaque(oy), oz],
+            config,
+        )
     }
 
     /// [`Self::from_vectors`] for rows the caller assembled from scalars:
     /// no barrier, so literal zeros fold the dispatch away.
     #[inline(always)]
-    fn from_rows(a: [f64; 3], b: [f64; 3], c: [f64; 3], origin: [f64; 3]) -> Result<Self, Error> {
+    fn from_rows(
+        a: [f64; 3],
+        b: [f64; 3],
+        c: [f64; 3],
+        origin: [f64; 3],
+        config: CellConfig,
+    ) -> Result<Self, Error> {
         let [ax, ay, az] = a;
         let [bx, by, bz] = b;
         let [cx, cy, cz] = c;
         let [ox, oy, oz] = origin;
+        if !(ox.is_finite() && oy.is_finite() && oz.is_finite()) {
+            return Err(Error::BadBox);
+        }
         if ay == 0.0 && az == 0.0 && bz == 0.0 {
             if bx == 0.0 && cx == 0.0 && cy == 0.0 {
-                return Self::diagonal(ax, by, cz, origin);
+                return Self::diagonal(ax, by, cz, origin, config);
             }
             if ax.abs() >= 1e-18 && by.abs() >= 1e-18 && cz.abs() >= 1e-18 {
-                return Self::lamda(a, b, c, origin);
+                return Self::lamda(a, b, c, origin, config);
             }
         }
-        // b × c, c × a, a × b. The determinant is a · (b × c).
-        let bcx = by * cz - bz * cy;
-        let bcy = bz * cx - bx * cz;
-        let bcz = bx * cy - by * cx;
-        let cax = cy * az - cz * ay;
-        let cay = cz * ax - cx * az;
-        let caz = cx * ay - cy * ax;
-        let abx = ay * bz - az * by;
-        let aby = az * bx - ax * bz;
-        let abz = ax * by - ay * bx;
-        let det = ax * bcx + ay * bcy + az * bcz;
-        if !det.is_finite() || det.abs() < 1e-18 {
-            return Err(Error::BadBox);
-        }
-        let invdet = 1.0 / det;
-        let ad = det.abs();
-        let wa = ad / (bcx * bcx + bcy * bcy + bcz * bcz).sqrt();
-        let wb = ad / (cax * cax + cay * cay + caz * caz).sqrt();
-        let wc = ad / (abx * abx + aby * aby + abz * abz).sqrt();
-        if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
-            return Err(Error::BadBox);
-        }
+        let (hinv, widths) = scaled_geometry(a, b, c, config)?;
+        let [wa, wb, wc] = widths;
         // Each face width is at most that edge length, so this scale is
         // at most the length sum. The frame tests stay the stricter ones
         // and do not take another three square roots.
@@ -197,11 +251,7 @@ impl Cell {
         };
         Ok(Self {
             h: [[ax, ay, az], [bx, by, bz], [cx, cy, cz]],
-            hinv: [
-                [bcx * invdet, cax * invdet, abx * invdet],
-                [bcy * invdet, cay * invdet, aby * invdet],
-                [bcz * invdet, caz * invdet, abz * invdet],
-            ],
+            hinv,
             origin: [ox, oy, oz],
             widths: [wa, wb, wc],
             ortho,
@@ -213,14 +263,28 @@ impl Cell {
     /// Exactly diagonal H: three reciprocals, no cross products and no
     /// square roots. The widths are the edge lengths themselves.
     #[inline(always)]
-    fn diagonal(lx: f64, ly: f64, lz: f64, origin: [f64; 3]) -> Result<Self, Error> {
-        let det = lx * ly * lz;
-        if !det.is_finite() || det.abs() < 1e-18 {
+    fn diagonal(
+        lx: f64,
+        ly: f64,
+        lz: f64,
+        origin: [f64; 3],
+        config: CellConfig,
+    ) -> Result<Self, Error> {
+        if !(valid_config(config) && lx.is_finite() && ly.is_finite() && lz.is_finite()) {
             return Err(Error::BadBox);
         }
+        let largest = lx.abs().max(ly.abs()).max(lz.abs());
+        let smallest = lx.abs().min(ly.abs()).min(lz.abs());
+        if smallest == 0.0 {
+            return Err(Error::BadBox);
+        }
+        guard_condition(largest / smallest, config)?;
         let inv_lx = 1.0 / lx;
         let inv_ly = 1.0 / ly;
         let inv_lz = 1.0 / lz;
+        if !(inv_lx.is_finite() && inv_ly.is_finite() && inv_lz.is_finite()) {
+            return Err(Error::BadBox);
+        }
         Ok(Self {
             h: [[lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz]],
             hinv: [[inv_lx, 0.0, 0.0], [0.0, inv_ly, 0.0], [0.0, 0.0, inv_lz]],
@@ -237,41 +301,26 @@ impl Cell {
     /// products, the c-face width is `|c_z|`, and the other two widths
     /// share one paired square root and division.
     #[inline(always)]
-    fn lamda(a: [f64; 3], b: [f64; 3], c: [f64; 3], origin: [f64; 3]) -> Result<Self, Error> {
+    fn lamda(
+        a: [f64; 3],
+        b: [f64; 3],
+        c: [f64; 3],
+        origin: [f64; 3],
+        config: CellConfig,
+    ) -> Result<Self, Error> {
         let lx = a[0];
         let [xy, ly, _] = b;
         let [xz, yz, lz] = c;
-        let det = lx * (ly * lz);
-        if !det.is_finite() || det.abs() < 1e-18 {
-            return Err(Error::BadBox);
-        }
-        let ad = det.abs();
-        // b × c is (ly lz, -xy lz, xy yz - ly xz); c × a is (0, lz lx, -yz lx).
-        let bcx = ly * lz;
-        let bcy = -(xy * lz);
-        let bcz = xy * yz - ly * xz;
-        let cay = lz * lx;
-        let caz = -(yz * lx);
-        let wa = ad / (bcx * bcx + bcy * bcy + bcz * bcz).sqrt();
-        let wb = ad / (cay * cay + caz * caz).sqrt();
-        let wc = lz.abs();
-        if !(wa > 0.0 && wb > 0.0 && wc > 0.0) {
-            return Err(Error::BadBox);
-        }
+        let (hinv, widths) = scaled_geometry(a, b, c, config)?;
+        let [wa, wb, wc] = widths;
         let inv_lx = 1.0 / lx;
         let inv_ly = 1.0 / ly;
         let inv_lz = 1.0 / lz;
-        let inv_xy = inv_lx * inv_ly;
-        let inv_yz = inv_ly * inv_lz;
         let scale = larger(wa + wb + wc, 1.0);
         let tol = 1e-12 * scale;
         Ok(Self {
             h: [[lx, 0.0, 0.0], [xy, ly, 0.0], [xz, yz, lz]],
-            hinv: [
-                [inv_lx, 0.0, 0.0],
-                [-(xy * inv_xy), inv_ly, 0.0],
-                [bcz * (inv_xy * inv_lz), -(yz * inv_yz), inv_lz],
-            ],
+            hinv,
             origin,
             widths: [wa, wb, wc],
             ortho: larger(larger(xy.abs(), xz.abs()), yz.abs()) <= tol,
@@ -299,7 +348,12 @@ impl Cell {
     /// # }
     /// ```
     pub fn from_ase(rows: [[f64; 3]; 3]) -> Result<Self, Error> {
-        Self::from_vectors(rows[0], rows[1], rows[2], [0.0, 0.0, 0.0])
+        Self::from_ase_with_config(rows, CellConfig::default())
+    }
+
+    /// [`Self::from_ase`] with explicit numerical validation settings.
+    pub fn from_ase_with_config(rows: [[f64; 3]; 3], config: CellConfig) -> Result<Self, Error> {
+        Self::from_vectors_with_config(rows[0], rows[1], rows[2], [0.0; 3], config)
     }
 
     /// CON lattice: rows are lattice vectors `a`, `b`, `c`, origin zero.
@@ -362,7 +416,13 @@ impl Cell {
         if cz2 <= 0.0 {
             return Err(Error::BadBox);
         }
-        Self::from_rows(a, b, [cx, cy, cz2.sqrt()], [0.0, 0.0, 0.0])
+        Self::from_rows(
+            a,
+            b,
+            [cx, cy, cz2.sqrt()],
+            [0.0, 0.0, 0.0],
+            CellConfig::default(),
+        )
     }
 
     /// vesin box: rows are lattice vectors `a`, `b`, `c`, origin zero.
@@ -439,7 +499,7 @@ impl Cell {
         zlo_b: f64,
     ) -> Result<Self, Error> {
         let (h, origin) = dump_bounds_to_h(xspan, yspan, zspan, xy, xz, yz, xlo_b, ylo_b, zlo_b);
-        Self::from_rows(h[0], h[1], h[2], origin)
+        Self::from_rows(h[0], h[1], h[2], origin, CellConfig::default())
     }
 
     /// True when `H` is diagonal within `1e-12 * max(wa + wb + wc, 1)`.
@@ -495,9 +555,9 @@ impl Cell {
     pub fn fractional(&self, r: [f64; 3]) -> [f64; 3] {
         if self.ortho {
             return [
-                wrap01((r[0] - self.origin[0]) / self.widths[0]),
-                wrap01((r[1] - self.origin[1]) / self.widths[1]),
-                wrap01((r[2] - self.origin[2]) / self.widths[2]),
+                wrap01((r[0] - self.origin[0]) * self.hinv[0][0]),
+                wrap01((r[1] - self.origin[1]) * self.hinv[1][1]),
+                wrap01((r[2] - self.origin[2]) * self.hinv[2][2]),
             ];
         }
         let d = [
@@ -668,9 +728,9 @@ impl Cell {
     pub fn lattice_shift(&self, na: i32, nb: i32, nc: i32) -> [f64; 3] {
         if self.ortho {
             [
-                f64::from(na) * self.widths[0],
-                f64::from(nb) * self.widths[1],
-                f64::from(nc) * self.widths[2],
+                f64::from(na) * self.h[0][0],
+                f64::from(nb) * self.h[1][1],
+                f64::from(nc) * self.h[2][2],
             ]
         } else {
             let a = self.h[0];
@@ -1403,6 +1463,91 @@ fn larger(a: f64, b: f64) -> f64 {
     } else {
         b
     }
+}
+
+#[inline]
+fn valid_config(config: CellConfig) -> bool {
+    config.max_condition.is_finite() && config.max_condition >= 1.0
+}
+
+#[inline]
+fn guard_condition(condition: f64, config: CellConfig) -> Result<(), Error> {
+    if condition > config.max_condition {
+        Err(Error::IllConditioned {
+            condition,
+            limit: config.max_condition,
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Scale H before forming cofactors, use fused multiply-add for every
+/// subtraction and determinant accumulation, and estimate
+/// `||H||_inf * ||H^-1||_inf` on the scaled matrices.
+fn scaled_geometry(
+    a: [f64; 3],
+    b: [f64; 3],
+    c: [f64; 3],
+    config: CellConfig,
+) -> Result<([[f64; 3]; 3], [f64; 3]), Error> {
+    if !valid_config(config) {
+        return Err(Error::BadBox);
+    }
+    let scale = a
+        .iter()
+        .chain(&b)
+        .chain(&c)
+        .fold(0.0_f64, |m, x| m.max(x.abs()));
+    if !scale.is_finite() || scale == 0.0 {
+        return Err(Error::BadBox);
+    }
+    let [ax, ay, az] = a.map(|x| x / scale);
+    let [bx, by, bz] = b.map(|x| x / scale);
+    let [cx, cy, cz] = c.map(|x| x / scale);
+
+    let bcx = by.mul_add(cz, -(bz * cy));
+    let bcy = bz.mul_add(cx, -(bx * cz));
+    let bcz = bx.mul_add(cy, -(by * cx));
+    let cax = cy.mul_add(az, -(cz * ay));
+    let cay = cz.mul_add(ax, -(cx * az));
+    let caz = cx.mul_add(ay, -(cy * ax));
+    let abx = ay.mul_add(bz, -(az * by));
+    let aby = az.mul_add(bx, -(ax * bz));
+    let abz = ax.mul_add(by, -(ay * bx));
+    let det = ax.mul_add(bcx, ay.mul_add(bcy, az * bcz));
+    if !det.is_finite() || det == 0.0 {
+        return Err(Error::BadBox);
+    }
+    let invdet = 1.0 / det;
+    let inv_scaled = [
+        [bcx * invdet, cax * invdet, abx * invdet],
+        [bcy * invdet, cay * invdet, aby * invdet],
+        [bcz * invdet, caz * invdet, abz * invdet],
+    ];
+    let h_norm = (ax.abs() + bx.abs() + cx.abs())
+        .max(ay.abs() + by.abs() + cy.abs())
+        .max(az.abs() + bz.abs() + cz.abs());
+    let inv_norm = (inv_scaled[0][0].abs() + inv_scaled[1][0].abs() + inv_scaled[2][0].abs())
+        .max(inv_scaled[0][1].abs() + inv_scaled[1][1].abs() + inv_scaled[2][1].abs())
+        .max(inv_scaled[0][2].abs() + inv_scaled[1][2].abs() + inv_scaled[2][2].abs());
+    guard_condition(h_norm * inv_norm, config)?;
+
+    let ad = det.abs();
+    let wa = scale * ad / bcx.hypot(bcy).hypot(bcz);
+    let wb = scale * ad / cax.hypot(cay).hypot(caz);
+    let wc = scale * ad / abx.hypot(aby).hypot(abz);
+    if !(wa.is_finite() && wb.is_finite() && wc.is_finite() && wa > 0.0 && wb > 0.0 && wc > 0.0) {
+        return Err(Error::BadBox);
+    }
+    let inv_scale = 1.0 / scale;
+    if !inv_scale.is_finite() {
+        return Err(Error::BadBox);
+    }
+    Ok((
+        inv_scaled.map(|col| col.map(|x| x * inv_scale)),
+        [wa, wb, wc],
+    ))
 }
 
 /// The three reciprocals of a nearly restricted general cell. Out of

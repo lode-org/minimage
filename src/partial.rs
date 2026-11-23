@@ -36,6 +36,8 @@ use crate::{Cell, Error};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PartialCell {
     kind: Kind,
+    rows: [[f64; 3]; 3],
+    periodic: [bool; 3],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -184,7 +186,27 @@ impl PartialCell {
             }
             _ => Kind::Full(Cell::from_ase(rows)?),
         };
-        Ok(Self { kind })
+        Ok(Self {
+            kind,
+            rows,
+            periodic,
+        })
+    }
+
+    /// Explicit per-lattice-axis periodicity flags.
+    ///
+    /// These are exactly the flags passed to [`Self::from_ase`];
+    /// periodicity is never inferred from Cartesian components.
+    pub fn periodic(&self) -> [bool; 3] {
+        self.periodic
+    }
+
+    /// ASE-style lattice rows supplied at construction.
+    ///
+    /// Open-axis rows are preserved even though they do not contribute
+    /// images.
+    pub fn rows(&self) -> [[f64; 3]; 3] {
+        self.rows
     }
 
     /// Number of periodic axes (`0`, `1`, `2`, or `3`).

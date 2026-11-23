@@ -1,0 +1,1 @@
+Cell construction now uses a scaled FMA inverse with a configurable condition guard, exposes complete inverse and face-width geometry through C and C++, preserves explicit per-axis periodicity for arbitrary cell orientations, and covers rotated, primitive, left-handed, skewed, and mixed-periodic cells against brute-force image sums.

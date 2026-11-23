@@ -42,6 +42,9 @@ process-static string and neither reads nor modifies the error slot.
 | =minimage_cell_from_con= | CON 3x3 (zero origin) |
 | =minimage_cell_from_con_box= | Lengths and angles in degrees (zero origin) |
 | =minimage_cell_from_vesin= | vesin 3x3 (zero origin) |
+| =minimage_cell_hinv= | Validated inverse matrix as three consecutive columns |
+| =minimage_cell_widths= | Three perpendicular face widths in lattice-axis order |
+| =minimage_fractional= | Cartesian position to wrapped fractional coordinates |
 | =minimage_displacement= | Engine wrapped =q - p= |
 | =minimage_displacement_euclidean= | Smith test, else the Selling slicer (exact Voronoi MIC) |
 | =minimage_wrap_many= | Engine wrap of =n= packed difference vectors |
@@ -92,6 +95,7 @@ throws =minimage::Error= (with =status()= and =what()=) on failure.
 | =minimage::Cell::from_vectors=, =from_lammps=, =from_lammps_bounds= | Column / LAMMPS dump-bound constructors |
 | =minimage::Cell::from_ase=, =from_con=, =from_con_box=, =from_vesin= | Row-major / crystallographic constructors |
 | =minimage::Cell::raw=, =operator mi_cell= | Convert back to C =mi_cell= |
+| =minimage::Cell::hinv=, =widths=, =fractional= | Validated inverse, perpendicular face widths, and wrapped fractional coordinates |
 | =minimage::Cell::displacement=, =dist2= | Single-pair engine MIC displacement and squared distance |
 | =minimage::Cell::displacement_euclidean= | Single-pair Euclidean nearest-image displacement |
 | =minimage::Cell::dist2_many=, =dist2_shifted_many= | Packed candidate batches (engine MIC and shifted) |
@@ -108,7 +112,8 @@ Fallible functions return =Result<_, Error>= with variants
 
 | Item | Role |
 |------+------|
-| =Cell::ortho=, =ortho_origin=, =from_vectors=, =from_lammps=, =from_lammps_bounds=, =from_ase=, =from_con=, =from_con_box=, =from_vesin= | Periodic cell constructors |
+| =Cell::ortho=, =ortho_origin=, =from_vectors=, =from_vectors_with_config=, =from_ase=, =from_ase_with_config=, =from_lammps=, =from_lammps_bounds=, =from_con=, =from_con_box=, =from_vesin= | Periodic cell constructors |
+| =CellConfig= | Non-exhaustive numerical validation settings; =Default= plus =with_max_condition= |
 | =Cell::a=, =b=, =c=, =origin=, =widths=, =h=, =hinv=, =is_ortho=, =is_restricted=, =tilts_reduced= | Cell geometry and basis queries |
 | =Cell::fractional=, =cartesian=, =lattice_shift=, =displacement=, =dist2=, =dist2_shifted=, =dist2_shifted_many=, =dist2_shifted_indexed= | Engine wrap, coordinate conversion, and linked-cell shifts |
 | =Cell::displacement_cartesian=, =fractional_matches_cartesian=, =displacement_euclidean=, =dist2_euclidean= | 27-image check and exact Selling-superbasis Euclidean MIC |
@@ -118,12 +123,12 @@ Fallible functions return =Result<_, Error>= with variants
 | =wrap_many=, =dist2_many=, =dist2_pairs=, =dist2_ortho_diffs= | Batched engine MIC wraps and squared distances |
 | =dist2_euclidean_many=, =dist2_euclidean_pairs=, =dist2_euclidean_pairs_warm= | Batched and warm-started Euclidean nearest-image distances |
 | =fixed_many=, =dist2_many_fixed=, =dist2_pairs_fixed=, =fixed32_many=, =dist2_many_fixed32=, =dist2_pairs_fixed32= | Batched fixed-point conversions and distances |
-| =PartialCell::from_ase=, =periodic_count=, =full=, =displacement_euclidean=, =dist2_euclidean= | Slabs (2D), wires (1D), open (0D), and full (3D) cells |
+| =PartialCell::from_ase=, =periodic=, =rows=, =periodic_count=, =full=, =displacement_euclidean=, =dist2_euclidean= | Explicit per-axis periodicity for slabs (2D), wires (1D), open (0D), and full (3D) cells |
 | =filter_shifted=, =FilterOut=, =ring_centroid= | Verlet-skin candidate filter and ring-polymer bead centroids |
 | =pairs_within_images=, =visit_pairs_within_images=, =cutoff_exceeds_half_width=, =image_extents=, =ImagePair= | Multi-image cutoff enumeration for small or skewed cells |
 | =reduce_pairs=, =reduce_pairs_packed=, =dump_bounds_to_h= | vesin pair deduplication and LAMMPS dump bound conversion |
 | =simd_path()= | Active SIMD path: =scalar=, =avx=, =avx2=, =avx512=, or =neon= |
-| =Error= | =BadBox=, =BufferSize=, =Empty= |
+| =Error= | Includes =BadBox= for singular cells and =IllConditioned= for cells past the configured condition limit |
 
 A slab rounds its in-plane coordinates and tries the nine neighbouring
 images on a Lagrange-reduced basis of its two vectors; a wire rounds
@@ -131,6 +136,9 @@ along its one. The component normal to the periodic vectors is kept. A
 half-box tie keeps the engine wrap =s - floor(s + 1/2)=, as
 =Cell::displacement_euclidean= does. With all three axes periodic a
 =PartialCell= is a =Cell= and returns its displacement bit for bit.
+Periodicity always comes from the three flags supplied to
+=PartialCell::from_ase= or =mi_pbc_cell=; it is never inferred from
+diagonal Cartesian entries.
 
 =MINIMAGE_SIMD= overrides the SIMD path choice. An unknown name is
 ignored. A name this CPU cannot run selects =scalar=. The selection is

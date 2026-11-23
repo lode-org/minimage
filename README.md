@@ -146,6 +146,7 @@ All exported C ABI functions use the `minimage_` prefix, including
 `minimage_displacement_euclidean`, `minimage_dist2`, `minimage_dist2_many`,
 `minimage_dist2_pairs`, `minimage_wrap_many`, `minimage_pbc_cell_from_ase`,
 `minimage_displacement_euclidean_pbc`, `minimage_filter_shifted`,
+`minimage_cell_hinv`, `minimage_cell_widths`, `minimage_fractional`,
 `minimage_ring_centroid`, and `minimage_reduce_pairs`.
 
 ```c
@@ -186,8 +187,16 @@ if (minimage_displacement_euclidean(&cell, p, q, dr) != 0) {
   into that frame, and `displacement_euclidean` (`minimage_displacement_euclidean`)
   checks Smith's half-altitude bound and falls back to the Selling
   superbasis slicer for exact Voronoi nearest images.
+- **Geometry and periodicity**: `Cell::hinv()` and `Cell::widths()` expose
+  the validated inverse and perpendicular face widths. `PartialCell` and
+  `mi_pbc_cell` carry three explicit lattice-axis flags for any cell
+  orientation; periodicity is never inferred from diagonal entries.
+- **Numerical guard**: construction scales the cell before an FMA-based
+  inverse and rejects cells above `CellConfig::max_condition` with
+  `Error::IllConditioned`. `CellConfig::default()` and
+  `with_max_condition()` provide forward-compatible configuration.
 - **Errors**: Rust returns `Result<_, Error>` (`BadBox`, `BufferSize`,
-  `Empty`). C ABI functions return `0` on success and `1` on failure and
+  `Empty`, `IllConditioned`). C ABI functions return `0` on success and `1` on failure and
   record a thread-local message in `minimage_last_error()` (cleared on
   the next success on that thread; `minimage_version()` leaves it
   untouched). C++ throws `minimage::Error`, and Python raises

@@ -111,6 +111,21 @@ process-static string and neither reads nor modifies the error slot.
 </tr>
 
 <tr>
+<td class="org-left"><code>minimage_cell_hinv</code></td>
+<td class="org-left">Validated inverse matrix as three consecutive columns</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_cell_widths</code></td>
+<td class="org-left">Three perpendicular face widths in lattice-axis order</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_fractional</code></td>
+<td class="org-left">Cartesian position to wrapped fractional coordinates</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>minimage_displacement</code></td>
 <td class="org-left">Engine wrapped <code>q - p</code></td>
 </tr>
@@ -330,6 +345,11 @@ throws <code>minimage::Error</code> (with <code>status()</code> and <code>what()
 </tr>
 
 <tr>
+<td class="org-left"><code>minimage::Cell::hinv</code>, <code>widths</code>, <code>fractional</code></td>
+<td class="org-left">Validated inverse, perpendicular face widths, and wrapped fractional coordinates</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>minimage::Cell::displacement</code>, <code>dist2</code></td>
 <td class="org-left">Single-pair engine MIC displacement and squared distance</td>
 </tr>
@@ -393,8 +413,13 @@ Fallible functions return <code>Result&lt;_, Error&gt;</code> with variants
 </thead>
 <tbody>
 <tr>
-<td class="org-left"><code>Cell::ortho</code>, <code>ortho_origin</code>, <code>from_vectors</code>, <code>from_lammps</code>, <code>from_lammps_bounds</code>, <code>from_ase</code>, <code>from_con</code>, <code>from_con_box</code>, <code>from_vesin</code></td>
+<td class="org-left"><code>Cell::ortho</code>, <code>ortho_origin</code>, <code>from_vectors</code>, <code>from_vectors_with_config</code>, <code>from_ase</code>, <code>from_ase_with_config</code>, <code>from_lammps</code>, <code>from_lammps_bounds</code>, <code>from_con</code>, <code>from_con_box</code>, <code>from_vesin</code></td>
 <td class="org-left">Periodic cell constructors</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>CellConfig</code></td>
+<td class="org-left">Non-exhaustive numerical validation settings; <code>Default</code> plus <code>with_max_condition</code></td>
 </tr>
 
 <tr>
@@ -443,8 +468,8 @@ Fallible functions return <code>Result&lt;_, Error&gt;</code> with variants
 </tr>
 
 <tr>
-<td class="org-left"><code>PartialCell::from_ase</code>, <code>periodic_count</code>, <code>full</code>, <code>displacement_euclidean</code>, <code>dist2_euclidean</code></td>
-<td class="org-left">Slabs (2D), wires (1D), open (0D), and full (3D) cells</td>
+<td class="org-left"><code>PartialCell::from_ase</code>, <code>periodic</code>, <code>rows</code>, <code>periodic_count</code>, <code>full</code>, <code>displacement_euclidean</code>, <code>dist2_euclidean</code></td>
+<td class="org-left">Explicit per-axis periodicity for slabs (2D), wires (1D), open (0D), and full (3D) cells</td>
 </tr>
 
 <tr>
@@ -469,7 +494,7 @@ Fallible functions return <code>Result&lt;_, Error&gt;</code> with variants
 
 <tr>
 <td class="org-left"><code>Error</code></td>
-<td class="org-left"><code>BadBox</code>, <code>BufferSize</code>, <code>Empty</code></td>
+<td class="org-left">Includes <code>BadBox</code> for singular cells and <code>IllConditioned</code> for cells past the configured condition limit</td>
 </tr>
 </tbody>
 </table>
@@ -481,6 +506,9 @@ along its one. The component normal to the periodic vectors is kept. A
 half-box tie keeps the engine wrap <code>s - floor(s + 1/2)</code>, as
 <code>Cell::displacement_euclidean</code> does. With all three axes periodic a
 <code>PartialCell</code> is a <code>Cell</code> and returns its displacement bit for bit.
+Periodicity always comes from the three flags supplied to
+<code>PartialCell::from_ase</code> or <code>mi_pbc_cell</code>; it is never inferred from
+diagonal Cartesian entries.
 </p>
 
 <p>
