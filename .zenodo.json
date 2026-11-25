@@ -4,6 +4,7 @@
   "description": "Minimum-image convention for a periodic parallelepiped. linkcell walks k-nearest neighbours. vesin builds cutoff pair lists. Both need the same wrap: fold through H, pick one image, never the self image. This crate is that wrap. Cell holds the 3x3 lattice and a dump-cell origin. Constructors accept LAMMPS bounds plus xy, xz, yz tilts, a CON lattice or length-angle box, an ASE-style 3x3 cell, and a vesin box. PartialCell handles slabs, wires, and open systems where only some axes are periodic.",
   "version": "0.3.0",
   "license": "MIT",
+  "access_right": "open",
   "creators": [
     {
       "name": "Goswami, Rohit",
