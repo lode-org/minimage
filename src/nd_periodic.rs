@@ -522,23 +522,30 @@ fn wrap_difference_component(value: f64, period: Option<f64>) -> f64 {
         return f64::NAN;
     }
     let quotient = value / period;
-    let mut wrapped = if quotient.is_finite() && quotient.abs() < INTEGRAL {
-        value - period * floor_fast(quotient + 0.5)
-    } else {
-        value % period
-    };
+    if quotient.is_finite() && quotient.abs() < INTEGRAL {
+        let wrapped = fold_half(value - period * floor_fast(quotient + 0.5), period);
+        // As for points, an overflowed or misrounded shift takes the exact
+        // remainder.
+        let half = 0.5 * period;
+        if wrapped >= -half && wrapped < half {
+            return wrapped;
+        }
+    }
+    fold_half(value % period, period)
+}
+
+/// One correction toward `[-period / 2, period / 2)`. Exact when `value`
+/// is an exact remainder, which is within one period of zero.
+#[inline]
+fn fold_half(mut value: f64, period: f64) -> f64 {
     let half = 0.5 * period;
-    if wrapped < -half {
-        wrapped += period;
+    if value < -half {
+        value += period;
     }
-    if wrapped >= half {
-        wrapped -= period;
+    if value >= half {
+        value -= period;
     }
-    if wrapped < -half || wrapped >= half {
-        -half
-    } else {
-        wrapped
-    }
+    value
 }
 
 #[cfg(test)]
@@ -648,6 +655,24 @@ mod tests {
                 "period {period:e}: {}",
                 point[0]
             );
+        }
+    }
+
+    #[test]
+    fn difference_wrap_survives_an_image_shift_past_f64_max() {
+        for (period, expected) in [
+            (1e307, 2.306_865_137_684_266_7e305),
+            (1e308, 2.023_068_651_376_843_1e307),
+        ] {
+            let metric = PeriodicSpace::new(&[Some(period)]).unwrap();
+            let mut difference = [-f64::MAX, f64::MAX];
+            for value in &mut difference {
+                *value = wrap_difference_component(*value, Some(period));
+            }
+            assert_eq!(difference, [expected, -expected], "period {period:e}");
+            let mut difference = [-f64::MAX];
+            metric.wrap_difference(&mut difference).unwrap();
+            assert_eq!(difference[0], expected, "period {period:e}");
         }
     }
 
