@@ -317,20 +317,27 @@ displacement is the exact minimum image of <code>q - p</code>, rounded once:
 difference is inside the central image and the raw difference is
 already its correctly rounded value.</li>
 <li>Otherwise a two-sum splits <code>q - p</code> into a head, the raw difference,
-and a tail holding its exact rounding error.</li>
-<li>If the head is within one period, the pair goes straight to the fold.</li>
-<li>If the head is within 16 periods, whole periods come off the head in
-four steps. For <code>k</code> = 8, 4, 2, 1 in turn, <code>kL</code> is subtracted toward
-zero whenever the head exceeds it in magnitude. Each step starts with
-the head at most <code>2kL</code> in magnitude, so a subtraction from a head in
-<code>(kL, 2kL]</code> is exact by Sterbenz's lemma, and the head ends within
-one period. A multiple <code>kL</code> that overflows exceeds every finite head,
-so skipping its step is also exact. The tail may now exceed half an
-ulp of the smaller head, so a second two-sum renormalizes the pair.</li>
-<li>If the head is beyond 16 periods, or the first two-sum overflows near
-<code>f64::MAX</code> and leaves a non-finite tail, each coordinate is reduced
-with the exact remainder <code>%</code> and folded into <code>[-L/2, L/2)</code>, and a
-two-sum subtracts the residues.</li>
+and a tail. Near <code>f64::MAX</code> an intermediate of the two-sum can
+overflow even when the head is finite, which leaves a non-finite
+tail. Only a finite tail holds the exact rounding error of the head.</li>
+<li>If the tail is non-finite, or the head is beyond 16 periods, each
+coordinate is reduced with the exact remainder <code>%</code> and folded into
+<code>[-L/2, L/2)</code>, and a two-sum subtracts the residues. This check comes
+first, so it applies even to a head within one period. With
+<code>p = f64::MAX</code>, <code>q = 0x1.7ffffffffffffp+1022</code>, and <code>L = f64::MAX</code>,
+the head is <code>-0x1.4p+1023</code> but the tail is <code>NaN</code>, and this path
+returns the exact image <code>q</code>.</li>
+<li>Otherwise the tail is finite. If the head is within one period, the
+pair goes straight to the fold.</li>
+<li>Otherwise the head is within 16 periods, and whole periods come off
+it in four steps. For <code>k</code> = 8, 4, 2, 1 in turn, <code>kL</code> is subtracted
+toward zero whenever the head exceeds it in magnitude. Each step
+starts with the head at most <code>2kL</code> in magnitude, so a subtraction
+from a head in <code>(kL, 2kL]</code> is exact by Sterbenz's lemma, and the head
+ends within one period. A multiple <code>kL</code> that overflows exceeds every
+finite head, so skipping its step is also exact. The tail may now
+exceed half an ulp of the smaller head, so a second two-sum
+renormalizes the pair.</li>
 </ul>
 
 <p>
