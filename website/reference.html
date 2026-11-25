@@ -266,6 +266,36 @@ process-static string and neither reads nor modifies the error slot.
 </tr>
 
 <tr>
+<td class="org-left"><code>minimage_nd_wrap_point</code></td>
+<td class="org-left">Wrap one N-dimensional point; zero period marks an open axis</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_nd_wrap_difference</code></td>
+<td class="org-left">Wrap one N-dimensional difference into its central image</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_nd_dist2</code>, <code>minimage_nd_distance</code></td>
+<td class="org-left">Scalar N-dimensional product-metric distances</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_nd_dist2_many</code></td>
+<td class="org-left">One point against contiguous row-major points</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_nd_axis_min_dist2</code></td>
+<td class="org-left">Periodic per-axis lower bound to an interval</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_nd_aabb_min_dist2</code></td>
+<td class="org-left">Periodic lower-bound squared distance to an axis-aligned box</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>minimage_last_error</code></td>
 <td class="org-left">Thread-local error string (<code>NULL</code> after success)</td>
 </tr>
@@ -468,6 +498,16 @@ Fallible functions return <code>Result&lt;_, Error&gt;</code> with variants
 </tr>
 
 <tr>
+<td class="org-left"><code>Metric</code>, <code>Euclidean</code></td>
+<td class="org-left">Tree metric contract and its zero-sized ordinary Euclidean implementation</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>PeriodicSpace</code></td>
+<td class="org-left">Optional period per feature axis; scalar wrap, displacement, distance, row-major batches, and per-axis / AABB lower bounds</td>
+</tr>
+
+<tr>
 <td class="org-left"><code>filter_shifted</code>, <code>FilterOut</code>, <code>ring_centroid</code></td>
 <td class="org-left">Verlet-skin candidate filter and ring-polymer bead centroids</td>
 </tr>
@@ -531,7 +571,8 @@ cached. Details are on <a href="simd.html">SIMD paths and dispatch</a>.
 <h2 id="org6e36048">Python</h2>
 <div class="outline-text-2" id="text-org6e36048">
 <p>
-Exported module items: <code>Cell</code>, <code>reduce_image_pairs</code>, and <code>__version__</code>.
+Exported module items: <code>Cell</code>, <code>PeriodicSpace</code>,
+<code>reduce_image_pairs</code>, and <code>__version__</code>.
 Array arguments accept any host CPU DLPack producer, read in place when
 contiguous and aligned; array results return a NumPy array (or a list
 when NumPy is absent). Invalid inputs raise <code>ValueError</code>, <code>TypeError</code>,
@@ -606,6 +647,31 @@ or <code>BufferError</code>.
 <tr>
 <td class="org-left"><code>reduce_image_pairs(pairs)</code></td>
 <td class="org-left">Drop self images, sort and deduplicate <code>(i, j)</code> pairs</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>PeriodicSpace(periods)</code></td>
+<td class="org-left">Positive period or <code>None</code> per feature axis</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>wrap_point</code>, <code>wrap_difference</code>, <code>displacement</code></td>
+<td class="org-left">N-dimensional half-open wraps</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>dist2</code>, <code>distance</code>, <code>dist2_many</code>, <code>dist2_pairs</code></td>
+<td class="org-left">Scalar, one-to-many, and paired-row N-dimensional distances</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>axis_min_dist2</code></td>
+<td class="org-left">Periodic per-axis lower bound to an interval</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>aabb_min_dist2</code></td>
+<td class="org-left">Periodic lower-bound squared distance to an axis-aligned box</td>
 </tr>
 </tbody>
 </table>

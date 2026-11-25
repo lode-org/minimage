@@ -261,6 +261,64 @@ subtract, so the production walk keeps the subtract.
 </div>
 </section>
 
+<section id="outline-container-org6ebf6a6" class="outline-2">
+<h2 id="org6ebf6a6">N-dimensional periodic product metric</h2>
+<div class="outline-text-2" id="text-org6ebf6a6">
+<p>
+<code>PeriodicSpace</code> is for feature vectors whose axes are independent:
+angles, phases, time-of-day coordinates, or any mixture of circular and
+open values. A descriptor contains <code>Some(period)</code> for a circular axis
+and <code>None</code> for an open axis. It is not a replacement for <code>Cell</code>: a
+triclinic lattice couples Cartesian coordinates through <code>H</code>, whereas
+this metric is the Cartesian product of circles and real lines.
+</p>
+
+<p>
+For a periodic axis, the point representative is in <code>[0, L)</code> and a
+difference is in <code>[-L/2, L/2)</code>. Thus an exact <code>+L/2</code> tie maps to
+<code>-L/2</code>. This is the usual shortest circular separation described by
+Mardia and Jupp, <em>Directional Statistics</em>
+(<a href="https://doi.org/10.1002/9780470316979">doi:10.1002/9780470316979</a>). It also matches the toroidal
+<code>boxsize</code> model in SciPy <code>cKDTree</code>, which requires input data wrapped
+into <code>[0, L)</code>
+(<a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.html">SciPy cKDTree</a>).
+Varilly's periodic kd-tree uses the same image-search model and avoids
+physically duplicating all periodic images
+(<a href="https://github.com/patvarilly/periodic_kdtree">periodic_kdtree</a>).
+</p>
+
+<p>
+The implementation wraps each coordinate independently and sums its
+squared separation. This separable form is the best fit for a tree
+inner loop: descriptor validation happens once, scalar queries need no
+allocation, and batches consume contiguous row-major <code>f64</code> slices. For
+the signed wrap it uses the same <code>floor_fast</code> expression as the
+orthorhombic engine path, <code>d - L floor_fast(d/L + 1/2)</code>.
+The <code>Metric&lt;T = f64&gt;</code> trait also exposes a zero-sized <code>Euclidean</code>
+implementation. Only <code>f64</code> implementations exist now; the defaulted
+scalar parameter leaves room for later <code>Metric&lt;f32&gt;</code> implementations
+without renaming methods or breaking existing <code>Metric</code> bounds. For
+an axis-aligned interval, the lower bound is the exact distance to the
+nearest translated interval. The squared box bound is the sum of those
+one-axis minima, so it can prune a kd-tree or ball-tree node without
+false negatives. An interval at least one period wide covers its whole
+circle. Unlike a generic callable metric in a tree, the explicit box
+bound preserves metric-aware pruning; scikit-learn documents that
+callable metrics are not supported by <code>KDTree</code> because function-call
+overhead gives poor performance
+(<a href="https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KDTree.html">scikit-learn KDTree</a>).
+</p>
+
+<p>
+This orthogonal product rule is deliberately simpler than the general
+triclinic nearest-image search above. The latter needs a coupled
+closest-lattice-point algorithm (Conway and Sloane,
+<a href="https://doi.org/10.1098/rspa.1992.0004">doi:10.1098/rspa.1992.0004</a>); applying independent periods
+to a skew cell would be incorrect.
+</p>
+</div>
+</section>
+
 <section id="outline-container-orgedd21d3" class="outline-2">
 <h2 id="orgedd21d3">Partial periodicity</h2>
 <div class="outline-text-2" id="text-orgedd21d3">
@@ -365,10 +423,12 @@ the CPU.
 <code>Result&lt;_, Error&gt;</code>. <code>Error::BadBox</code> covers singular (<code>|det(H)| &lt; 1e-18</code>),
 non-finite, or zero-width cells, non-positive lengths in
 <code>from_con_box</code> or <code>dist2_ortho_diffs</code>, and collinear or non-finite
-periodic basis vectors in <code>PartialCell::from_ase</code>. <code>Error::BufferSize</code>
+periodic basis vectors in <code>PartialCell::from_ase</code>, plus non-positive
+or non-finite <code>PeriodicSpace</code> periods. <code>Error::BufferSize</code>
 covers mismatched slice lengths or out-of-range atom indices in
-<code>filter_shifted</code>. <code>Error::Empty</code> covers zero beads, empty coordinates,
-or misaligned bead lengths in <code>ring_centroid</code>. Once constructed,
+<code>filter_shifted</code>. <code>Error::Empty</code> covers zero dimensions, zero beads,
+empty coordinates, or misaligned bead lengths in <code>ring_centroid</code>.
+Once constructed,
 per-pair methods on <code>Cell</code> and <code>PartialCell</code> are infallible
 (<code>dist2_shifted_indexed</code> panics on an out-of-bounds index).
 <code>wrap_ortho_half_strict</code> returns NaN, without panicking, for a

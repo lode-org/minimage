@@ -193,6 +193,53 @@ those positions into the same kernel. The gather copies every point
 first. On a long index list that copy was slower than the inlined
 subtract, so the production walk keeps the subtract.
 
+* N-dimensional periodic product metric
+
+=PeriodicSpace= is for feature vectors whose axes are independent:
+angles, phases, time-of-day coordinates, or any mixture of circular and
+open values. A descriptor contains =Some(period)= for a circular axis
+and =None= for an open axis. It is not a replacement for =Cell=: a
+triclinic lattice couples Cartesian coordinates through =H=, whereas
+this metric is the Cartesian product of circles and real lines.
+
+For a periodic axis, the point representative is in =[0, L)= and a
+difference is in =[-L/2, L/2)=. Thus an exact =+L/2= tie maps to
+=-L/2=. This is the usual shortest circular separation described by
+Mardia and Jupp, /Directional Statistics/
+([[https://doi.org/10.1002/9780470316979][doi:10.1002/9780470316979]]). It also matches the toroidal
+=boxsize= model in SciPy =cKDTree=, which requires input data wrapped
+into =[0, L)=
+([[https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.html][SciPy cKDTree]]).
+Varilly's periodic kd-tree uses the same image-search model and avoids
+physically duplicating all periodic images
+([[https://github.com/patvarilly/periodic_kdtree][periodic_kdtree]]).
+
+The implementation wraps each coordinate independently and sums its
+squared separation. This separable form is the best fit for a tree
+inner loop: descriptor validation happens once, scalar queries need no
+allocation, and batches consume contiguous row-major =f64= slices. For
+the signed wrap it uses the same =floor_fast= expression as the
+orthorhombic engine path, =d - L floor_fast(d/L + 1/2)=.
+The =Metric<T = f64>= trait also exposes a zero-sized =Euclidean=
+implementation. Only =f64= implementations exist now; the defaulted
+scalar parameter leaves room for later =Metric<f32>= implementations
+without renaming methods or breaking existing =Metric= bounds. For
+an axis-aligned interval, the lower bound is the exact distance to the
+nearest translated interval. The squared box bound is the sum of those
+one-axis minima, so it can prune a kd-tree or ball-tree node without
+false negatives. An interval at least one period wide covers its whole
+circle. Unlike a generic callable metric in a tree, the explicit box
+bound preserves metric-aware pruning; scikit-learn documents that
+callable metrics are not supported by =KDTree= because function-call
+overhead gives poor performance
+([[https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KDTree.html][scikit-learn KDTree]]).
+
+This orthogonal product rule is deliberately simpler than the general
+triclinic nearest-image search above. The latter needs a coupled
+closest-lattice-point algorithm (Conway and Sloane,
+[[https://doi.org/10.1098/rspa.1992.0004][doi:10.1098/rspa.1992.0004]]); applying independent periods
+to a skew cell would be incorrect.
+
 * Partial periodicity
 
 =PartialCell= (=mi_pbc_cell= in C) handles systems periodic along zero,
@@ -276,10 +323,12 @@ the CPU.
   =Result<_, Error>=. =Error::BadBox= covers singular (=|det(H)| < 1e-18=),
   non-finite, or zero-width cells, non-positive lengths in
   =from_con_box= or =dist2_ortho_diffs=, and collinear or non-finite
-  periodic basis vectors in =PartialCell::from_ase=. =Error::BufferSize=
+  periodic basis vectors in =PartialCell::from_ase=, plus non-positive
+  or non-finite =PeriodicSpace= periods. =Error::BufferSize=
   covers mismatched slice lengths or out-of-range atom indices in
-  =filter_shifted=. =Error::Empty= covers zero beads, empty coordinates,
-  or misaligned bead lengths in =ring_centroid=. Once constructed,
+  =filter_shifted=. =Error::Empty= covers zero dimensions, zero beads,
+  empty coordinates, or misaligned bead lengths in =ring_centroid=.
+  Once constructed,
   per-pair methods on =Cell= and =PartialCell= are infallible
   (=dist2_shifted_indexed= panics on an out-of-bounds index).
   =wrap_ortho_half_strict= returns NaN, without panicking, for a

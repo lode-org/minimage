@@ -186,6 +186,11 @@ if (minimage_displacement_euclidean(&cell, p, q, dr) != 0) {
   into that frame, and `displacement_euclidean` (`minimage_displacement_euclidean`)
   checks Smith's half-altitude bound and falls back to the Selling
   superbasis slicer for exact Voronoi nearest images.
+- **N-dimensional features**: `PeriodicSpace` assigns a positive
+  period or `None` to each independent feature axis. It wraps points into
+  `[0, L)`, differences into `[-L/2, L/2)`, handles contiguous row-major
+  batches, and computes periodic point-to-box lower bounds for tree
+  pruning. It is separate from coupled triclinic lattice geometry.
 - **Errors**: Rust returns `Result<_, Error>` (`BadBox`, `BufferSize`,
   `Empty`). C ABI functions return `0` on success and `1` on failure and
   record a thread-local message in `minimage_last_error()` (cleared on
