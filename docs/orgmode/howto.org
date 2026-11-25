@@ -144,7 +144,7 @@ so a wrap consumer can find =-lminimage=.
 The version is written by hand in one place, =[workspace.package].version= in =Cargo.toml=.
 Meson and CMake read it through =scripts/crate_version.py=, and maturin reads it from the crate.
 =scripts/sync-version.py= rewrites the other copies.
-Those are =CITATION.cff=, =burn/Cargo.toml=, =Cargo.lock=, the four Meson wrap snippets and the =find_package(minimage X.Y)= lines in =README.md=, =docs/orgmode/getting-started.org=, =website/getting-started.html= and =tests/cmake-consumer/CMakeLists.txt=.
+Those are the citation metadata in =CITATION.cff=, =codemeta.json= and =.zenodo.json=, then =burn/Cargo.toml=, =Cargo.lock=, the four Meson wrap snippets and the =find_package(minimage X.Y)= lines in =README.md=, =docs/orgmode/getting-started.org=, =website/getting-started.html= and =tests/cmake-consumer/CMakeLists.txt=.
 The wrap snippets and the documentation =find_package= lines name the last release tag.
 The CMake consumer test builds against this tree, so its =find_package= line takes the major.minor of the version instead.
 
@@ -168,7 +168,7 @@ git push origin main v0.3.0
 The =pre_bump_hooks= in =cog.toml= run in this order:
 
 1. =scripts/crate_version.py --set 0.3.0= writes the version into =[workspace.package]=.
-2. =scripts/sync-version.py --release= sets =[workspace.metadata.release].tag= to =v0.3.0= and the =CITATION.cff= =date-released= to today (UTC), then rewrites every copy.
+2. =scripts/sync-version.py --release= sets =[workspace.metadata.release].tag= to =v0.3.0=, and the =CITATION.cff= =date-released= and the =codemeta.json= =datePublished= to today (UTC), then rewrites every copy.
 3. =towncrier build= moves the newsfragments into =CHANGELOG.md=.
 4. =scripts/check_version_lockstep.py --tag v0.3.0= reads every copy back and checks the tag.
 

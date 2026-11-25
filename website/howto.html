@@ -194,7 +194,7 @@ so a wrap consumer can find <code>-lminimage</code>.
 The version is written by hand in one place, <code>[workspace.package].version</code> in <code>Cargo.toml</code>.
 Meson and CMake read it through <code>scripts/crate_version.py</code>, and maturin reads it from the crate.
 <code>scripts/sync-version.py</code> rewrites the other copies.
-Those are <code>CITATION.cff</code>, <code>burn/Cargo.toml</code>, <code>Cargo.lock</code>, the four Meson wrap snippets and the <code>find_package(minimage X.Y)</code> lines in <code>README.md</code>, <code>docs/orgmode/getting-started.org</code>, <code>website/getting-started.html</code> and <code>tests/cmake-consumer/CMakeLists.txt</code>.
+Those are the citation metadata in <code>CITATION.cff</code>, <code>codemeta.json</code> and <code>.zenodo.json</code>, then <code>burn/Cargo.toml</code>, <code>Cargo.lock</code>, the four Meson wrap snippets and the <code>find_package(minimage X.Y)</code> lines in <code>README.md</code>, <code>docs/orgmode/getting-started.org</code>, <code>website/getting-started.html</code> and <code>tests/cmake-consumer/CMakeLists.txt</code>.
 The wrap snippets and the documentation <code>find_package</code> lines name the last release tag.
 The CMake consumer test builds against this tree, so its <code>find_package</code> line takes the major.minor of the version instead.
 </p>
@@ -230,7 +230,7 @@ The <code>pre_bump_hooks</code> in <code>cog.toml</code> run in this order:
 
 <ol class="org-ol">
 <li><code>scripts/crate_version.py --set 0.3.0</code> writes the version into <code>[workspace.package]</code>.</li>
-<li><code>scripts/sync-version.py --release</code> sets <code>[workspace.metadata.release].tag</code> to <code>v0.3.0</code> and the <code>CITATION.cff</code> <code>date-released</code> to today (UTC), then rewrites every copy.</li>
+<li><code>scripts/sync-version.py --release</code> sets <code>[workspace.metadata.release].tag</code> to <code>v0.3.0</code>, and the <code>CITATION.cff</code> <code>date-released</code> and the <code>codemeta.json</code> <code>datePublished</code> to today (UTC), then rewrites every copy.</li>
 <li><code>towncrier build</code> moves the newsfragments into <code>CHANGELOG.md</code>.</li>
 <li><code>scripts/check_version_lockstep.py --tag v0.3.0</code> reads every copy back and checks the tag.</li>
 </ol>
