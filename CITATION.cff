@@ -5,6 +5,8 @@ type: software
 authors:
   - family-names: Goswami
     given-names: Rohit
+    email: rgoswami@ieee.org
+    affiliation: TurtleTech ehf
     orcid: https://orcid.org/0000-0002-2393-8056
 license: MIT
 # [[[cog cog.outl(f'version: {VERSION}') ]]]
@@ -14,6 +16,17 @@ date-released: "2026-11-19"
 repository-code: "https://github.com/lode-org/minimage"
 url: "https://lode-org.github.io/minimage/"
 abstract: >-
-  Minimum-image convention for periodic parallelepiped
-  cells. Rust implementation, C ABI, C++ typed header,
-  Python module.
+  Minimum-image convention for a periodic parallelepiped.
+  linkcell walks k-nearest neighbours. vesin builds cutoff
+  pair lists. Both need the same wrap: fold through H, pick
+  one image, never the self image. This crate is that wrap.
+  Cell holds the 3x3 lattice and a dump-cell origin.
+  Constructors accept LAMMPS bounds plus xy, xz, yz tilts, a
+  CON lattice or length-angle box, an ASE-style 3x3 cell, and
+  a vesin box. PartialCell handles slabs, wires, and open
+  systems where only some axes are periodic.
+keywords:
+  - molecular-dynamics
+  - periodic
+  - minimum-image
+  - pbc

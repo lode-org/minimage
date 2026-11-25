@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Fail when a copy of the version or of the wrap tag disagrees with Cargo.toml.
 
-Each copy is read with a parser for its format: tomllib for TOML,
-configparser for the Meson wrap and Meson's own parser for meson.build. A
+Each copy is read with a parser for its format: tomllib for TOML, json for
+codemeta.json and .zenodo.json, configparser for the Meson wrap and Meson's
+own parser for meson.build. The codemeta.json datePublished must equal the
+CITATION.cff date-released. A
 reformatted line, a second version key or a pre-release tag outside the sync
 patterns therefore fails here even when scripts/sync-version.py leaves the
 file alone. The wrap snippets in the docs sit inside code blocks, so every
@@ -20,6 +22,7 @@ mesonbuild package is importable, and the CI version job installs it.
 
 import argparse
 import configparser
+import json
 import re
 import subprocess
 import sys
@@ -51,6 +54,19 @@ def read(root, rel):
 
 def load_toml(root, rel):
     return tomllib.loads(read(root, rel))
+
+
+def load_json(root, rel):
+    """A JSON object, with a repeated key rejected at any depth."""
+
+    def unique(pairs):
+        keys = [key for key, _ in pairs]
+        for key in keys:
+            if keys.count(key) > 1:
+                raise ValueError(f"repeats the {key!r} key")
+        return dict(pairs)
+
+    return json.loads(read(root, rel), object_pairs_hook=unique)
 
 
 def load_cff(root, rel):
@@ -122,6 +138,17 @@ def cff(root, rel, version, tag):
     yield "version", load_cff(root, rel)["version"], version
 
 
+def codemeta(root, rel, version, tag):
+    data = load_json(root, rel)
+    yield "version", data["version"], version
+    released = load_cff(root, "CITATION.cff")["date-released"]
+    yield "datePublished", data["datePublished"], released
+
+
+def zenodo(root, rel, version, tag):
+    yield "version", load_json(root, rel)["version"], version
+
+
 def wrap(root, rel, version, tag):
     parser = configparser.ConfigParser(interpolation=None)
     parser.read_string(read(root, rel), source=rel)
@@ -187,6 +214,8 @@ def sources(root):
         ("Cargo.lock", cargo_lock),
         ("pyproject.toml", pyproject),
         ("CITATION.cff", cff),
+        ("codemeta.json", codemeta),
+        (".zenodo.json", zenodo),
         (WRAP, wrap),
         *((rel, snippet) for rel in SNIPPETS),
         (CONSUMER, cmake_consumer),

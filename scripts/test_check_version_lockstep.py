@@ -106,6 +106,21 @@ class Drift(unittest.TestCase):
         self.edit("CITATION.cff", "license: MIT\n", "license: MIT\nversion: 8.8.8\n")
         self.assertFails("CITATION.cff")
 
+    def test_second_version_key_in_codemeta(self):
+        old = '  "name": "minimage",\n'
+        self.edit("codemeta.json", old, '  "name": "minimage", "version": "8.8.8",\n')
+        self.assertFails("codemeta.json")
+
+    def test_reformatted_zenodo_version(self):
+        self.edit(".zenodo.json", f'  "version": "{self.v}",', '  "version" : "9.9.9",')
+        self.assertFails(".zenodo.json")
+
+    def test_codemeta_date_follows_citation(self):
+        released = lockstep.load_cff(self.root, "CITATION.cff")["date-released"]
+        old = f'"datePublished": "{released}"'
+        self.edit("codemeta.json", old, '"datePublished": "2000-01-01"')
+        self.assertFails("codemeta.json")
+
     def test_off_allowlist_tag_in_wrap(self):
         line = f"revision = {self.tag}\n"
         self.edit(lockstep.WRAP, line, f"revision = {self.tag}-vendor\n")
@@ -133,6 +148,7 @@ class Drift(unittest.TestCase):
             self.assertIn(f"find_package(minimage {minor} REQUIRED", self.text(rel))
         today = sync.datetime.datetime.now(sync.datetime.timezone.utc).date()
         self.assertIn(f'date-released: "{today.isoformat()}"\n', self.text("CITATION.cff"))
+        self.assertIn(f'"datePublished": "{today.isoformat()}",\n', self.text("codemeta.json"))
         self.assertEqual(lockstep.check(self.root, pushed_tag=f"v{self.v}"), [])
 
     @unittest.skipIf(sync is None, "needs cogapp")
