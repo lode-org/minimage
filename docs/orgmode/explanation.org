@@ -236,10 +236,21 @@ displacement is the exact minimum image of =q - p=, rounded once:
 - If the raw difference is under =L/2= in magnitude, the exact
   difference is inside the central image and the raw difference is
   already its correctly rounded value.
-- If the raw difference is within one period, a two-sum keeps its
-  exact rounding error.
-- Otherwise each coordinate is reduced with the exact remainder =%= and
-  folded into =[-L/2, L/2)=, and a two-sum subtracts the residues.
+- Otherwise a two-sum splits =q - p= into a head, the raw difference,
+  and a tail holding its exact rounding error.
+- If the head is within one period, the pair goes straight to the fold.
+- If the head is within 16 periods, whole periods come off the head in
+  four steps. For =k= = 8, 4, 2, 1 in turn, =kL= is subtracted toward
+  zero whenever the head exceeds it in magnitude. Each step starts with
+  the head at most =2kL= in magnitude, so a subtraction from a head in
+  =(kL, 2kL]= is exact by Sterbenz's lemma, and the head ends within
+  one period. A multiple =kL= that overflows exceeds every finite head,
+  so skipping its step is also exact. The tail may now exceed half an
+  ulp of the smaller head, so a second two-sum renormalizes the pair.
+- If the head is beyond 16 periods, or the first two-sum overflows near
+  =f64::MAX= and leaves a non-finite tail, each coordinate is reduced
+  with the exact remainder =%= and folded into =[-L/2, L/2)=, and a
+  two-sum subtracts the residues.
 
 The remaining fold by one period is exact by Sterbenz's lemma, and the
 half-period comparisons are exact on the unevaluated sum. Only the final

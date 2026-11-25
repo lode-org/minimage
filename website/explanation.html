@@ -316,10 +316,21 @@ displacement is the exact minimum image of <code>q - p</code>, rounded once:
 <li>If the raw difference is under <code>L/2</code> in magnitude, the exact
 difference is inside the central image and the raw difference is
 already its correctly rounded value.</li>
-<li>If the raw difference is within one period, a two-sum keeps its
-exact rounding error.</li>
-<li>Otherwise each coordinate is reduced with the exact remainder <code>%</code> and
-folded into <code>[-L/2, L/2)</code>, and a two-sum subtracts the residues.</li>
+<li>Otherwise a two-sum splits <code>q - p</code> into a head, the raw difference,
+and a tail holding its exact rounding error.</li>
+<li>If the head is within one period, the pair goes straight to the fold.</li>
+<li>If the head is within 16 periods, whole periods come off the head in
+four steps. For <code>k</code> = 8, 4, 2, 1 in turn, <code>kL</code> is subtracted toward
+zero whenever the head exceeds it in magnitude. Each step starts with
+the head at most <code>2kL</code> in magnitude, so a subtraction from a head in
+<code>(kL, 2kL]</code> is exact by Sterbenz's lemma, and the head ends within
+one period. A multiple <code>kL</code> that overflows exceeds every finite head,
+so skipping its step is also exact. The tail may now exceed half an
+ulp of the smaller head, so a second two-sum renormalizes the pair.</li>
+<li>If the head is beyond 16 periods, or the first two-sum overflows near
+<code>f64::MAX</code> and leaves a non-finite tail, each coordinate is reduced
+with the exact remainder <code>%</code> and folded into <code>[-L/2, L/2)</code>, and a
+two-sum subtracts the residues.</li>
 </ul>
 
 <p>
