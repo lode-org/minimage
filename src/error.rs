@@ -2,17 +2,18 @@
 
 use std::fmt;
 
-/// Why a cell construction, reduction, or batch call could not run.
+/// Why a cell, metric, reduction, or batch call could not run.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Error {
-    /// Singular or degenerate cell (`|det| < 1e-18`, non-finite entry,
-    /// non-positive perpendicular face width, collinear periodic basis
-    /// vectors, or non-positive box lengths where required).
+    /// Singular or degenerate cell/metric (`|det| < 1e-18`, non-finite
+    /// entry, non-positive perpendicular face width, collinear periodic
+    /// basis vectors, or non-positive periods/box lengths where required).
     BadBox,
     /// Caller buffer lengths do not match, or an atom index exceeds the
     /// coordinate slice length.
     BufferSize,
-    /// A bead count or coordinate list is empty or not evenly divisible.
+    /// A dimension descriptor, bead count, or coordinate list is empty or
+    /// not evenly divisible.
     Empty,
     /// Cutoff is negative or not finite.
     BadCutoff,
@@ -54,7 +55,7 @@ impl fmt::Display for Error {
                 f,
                 "out buffer length must match the pair count, or atom index >= n_atoms"
             ),
-            Error::Empty => write!(f, "no pairs"),
+            Error::Empty => write!(f, "empty input"),
             Error::BadCutoff => write!(f, "cutoff must be finite and non-negative"),
             Error::NonFinite => write!(f, "non-finite fractional separation"),
             Error::ImageShiftOverflow => {

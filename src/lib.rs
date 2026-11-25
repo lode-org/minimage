@@ -52,6 +52,10 @@
 //! pair list into one minimum-image pair and drops the self image.
 //! [`PartialCell`] is periodic along some axes only: a slab, a wire, or
 //! an open system, with no image along an open axis.
+//! [`PeriodicSpace`] is the independent-axis N-dimensional metric
+//! for feature vectors: each axis has a positive period or is open. It
+//! provides scalar and contiguous row-major batch distances plus the
+//! periodic point-to-box lower bound needed by spatial trees.
 //!
 //! # Error behaviour
 //!
@@ -94,6 +98,7 @@ mod fused;
 mod images;
 mod kernel;
 mod minkowski;
+mod nd_periodic;
 mod ortho;
 mod pairs;
 mod partial;
@@ -116,6 +121,7 @@ pub use images::{
     ImagePair, MAX_IMAGE_COUNT, MAX_IMAGE_EXTENT,
 };
 pub use minkowski::{is_minkowski_reduced, minkowski_reduce};
+pub use nd_periodic::{Euclidean, Metric, PeriodicSpace};
 pub use ortho::wrap_ortho_half_strict;
 pub use pairs::{reduce_pairs, reduce_pairs_packed};
 pub use partial::PartialCell;
