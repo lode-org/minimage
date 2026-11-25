@@ -1,0 +1,20 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "minimage",
+  "description": "Minimum-image convention for periodic parallelepipeds.",
+  "excludeFolders": [
+    "docs/orgmode",
+    "newsfragments",
+    "tests",
+    "scripts",
+    ".github",
+    "packaging"
+  ],
+  "excludeFiles": [
+    "CHANGELOG.md",
+    "LICENSE",
+    "CMakeLists.txt",
+    "meson_options.txt"
+  ],
+  "rules": []
+}
