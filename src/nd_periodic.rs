@@ -711,6 +711,140 @@ mod tests {
         }
     }
 
+    /// Remainder of `value` by `period` with the sign of `value`, by binary
+    /// long division over `period * 2^k`. Each step subtracts `s` from a
+    /// remainder in `[s, 2s)`, which is exact, so no `%` is involved.
+    fn exact_rem(value: f64, period: f64) -> f64 {
+        let mut rem = value.abs();
+        let mut scales = vec![period];
+        while let Some(&top) = scales.last() {
+            if top > f64::MAX / 2.0 || top + top > rem {
+                break;
+            }
+            scales.push(top + top);
+        }
+        for &scale in scales.iter().rev() {
+            if rem >= scale {
+                rem -= scale;
+            }
+        }
+        rem.copysign(value)
+    }
+
+    fn exact_point(value: f64, period: f64) -> f64 {
+        let rem = exact_rem(value, period);
+        if rem == 0.0 {
+            return 0.0;
+        }
+        if rem > 0.0 {
+            return rem;
+        }
+        let shifted = rem + period;
+        if shifted >= period {
+            0.0
+        } else {
+            shifted
+        }
+    }
+
+    fn exact_difference(value: f64, period: f64) -> f64 {
+        let rem = exact_rem(value, period);
+        if 2.0 * rem >= period {
+            rem - period
+        } else if 2.0 * rem < -period {
+            rem + period
+        } else {
+            rem
+        }
+    }
+
+    fn ulp(value: f64) -> f64 {
+        let magnitude = value.abs();
+        if magnitude == 0.0 {
+            return f64::from_bits(1);
+        }
+        magnitude - f64::from_bits(magnitude.to_bits() - 1)
+    }
+
+    fn circular_gap(a: f64, b: f64, period: f64) -> f64 {
+        let gap = (a - b).abs();
+        gap.min(period - gap)
+    }
+
+    /// A finite double with a uniformly drawn exponent field.
+    fn any_magnitude(rng: &mut Lcg) -> f64 {
+        let exponent = (rng.next() * 2047.0) as u64;
+        let mantissa = rng.0 >> 12;
+        let sign = if rng.next() < 0.5 { 1 << 63 } else { 0 };
+        f64::from_bits(sign | (exponent << 52) | mantissa)
+    }
+
+    #[test]
+    fn wraps_match_an_exact_reference_over_extreme_magnitudes() {
+        let mut rng = Lcg(0x4558_5452_454d_4553);
+        for case in 0..20_000 {
+            let period = match case % 4 {
+                0 => any_magnitude(&mut rng).abs(),
+                1 => f64::from_bits(1 + (rng.0 >> 12) % 16),
+                2 => f64::from_bits(1 + (rng.0 >> 12)),
+                _ => f64::MAX * rng.range(0.5, 1.0),
+            };
+            if period == 0.0 {
+                continue;
+            }
+            let near = (rng.range(-8.0, 8.0).trunc() * period).clamp(-f64::MAX, f64::MAX);
+            for value in [
+                any_magnitude(&mut rng),
+                any_magnitude(&mut rng),
+                near,
+                f64::from_bits(near.to_bits().wrapping_add(1)),
+                f64::from_bits(near.to_bits().wrapping_sub(1)),
+                f64::MAX,
+                -f64::MAX,
+                0.0,
+                -0.0,
+                f64::from_bits(1),
+                -f64::from_bits(1),
+                period * rng.range(-1.0, 1.0),
+            ] {
+                if !value.is_finite() {
+                    continue;
+                }
+                let point = wrap_point_component(value, period);
+                let difference = wrap_difference_component(value, Some(period));
+                assert!(
+                    (0.0..period).contains(&point),
+                    "{value:e} mod {period:e}: point {point:e}"
+                );
+                assert!(
+                    2.0 * difference >= -period && 2.0 * difference < period,
+                    "{value:e} mod {period:e}: difference {difference:e}"
+                );
+
+                let want_point = exact_point(value, period);
+                let want_difference = exact_difference(value, period);
+                // The fast path rounds one image shift, which is bounded by
+                // the input's own ulp. Every other path is exact.
+                let quotient = value / period;
+                let fast = quotient.is_finite() && quotient.abs() < INTEGRAL;
+                if !fast || value.abs() < period {
+                    assert_eq!(point, want_point, "{value:e} mod {period:e}");
+                    assert_eq!(difference, want_difference, "{value:e} mod {period:e}");
+                } else {
+                    let tolerance = 4.0 * (ulp(value) + ulp(period));
+                    assert!(
+                        circular_gap(point, want_point, period) <= tolerance,
+                        "{value:e} mod {period:e}: point {point:e}, exact {want_point:e}"
+                    );
+                    assert!(
+                        circular_gap(difference, want_difference, period) <= tolerance,
+                        "{value:e} mod {period:e}: difference {difference:e}, exact {want_difference:e}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn difference_wrap_enforces_half_open_range_near_ties_and_far_away() {
         let period = 3.0;
