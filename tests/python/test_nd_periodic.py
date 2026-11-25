@@ -95,9 +95,9 @@ def test_extreme_magnitudes_negatives_and_mixed_axes():
 
     disp = metric.displacement(p, q)
     assert all(math.isfinite(x) for x in disp)
-    assert -5.0 <= disp[0] < 5.0
+    assert -5.0 <= disp[0] <= 5.0
     assert disp[1] == 3.0
-    assert -1.5 <= disp[2] < 1.5
+    assert -1.5 <= disp[2] <= 1.5
 
     d2 = metric.dist2(p, q)
     dist = metric.distance(p, q)
@@ -149,6 +149,32 @@ def test_distances_use_the_exact_minimum_image():
     assert ten.axis_min_dist2(0, two_54, two_54 + 4.0, two_54 + 4.0) == 16.0
 
 
+def test_sub_ulp_negative_offsets_stay_in_the_documented_interval():
+    metric = PeriodicSpace([2.0])
+    tiny = 2.0**-54 + 2.0**-60
+
+    # Python's own -tiny % 2.0 rounds onto the excluded upper bound 2.0.
+    point = metric.wrap_point([-tiny])
+    assert point == [0.0]
+    assert 0.0 <= point[0] < 2.0
+
+    assert metric.wrap_difference([-tiny]) == [-tiny]
+    assert metric.displacement([0.0], [-tiny]) == [-tiny]
+
+    # The exact images are 1 - tiny and tiny - 1. Subtracting first would
+    # round both differences to -1 or 1 before wrapping.
+    below_half = 1.0 - 2.0**-53
+    assert metric.displacement([1.0], [-tiny]) == [below_half]
+    assert metric.displacement([-tiny], [1.0]) == [-below_half]
+    assert metric.dist2([1.0], [-tiny]) == below_half * below_half
+
+    # An exact image less than half an ulp below +period / 2 rounds onto it.
+    assert metric.displacement([1.0], [-(2.0**-55)]) == [1.0]
+    for p, q in (([1.0], [-tiny]), ([-tiny], [1.0]), ([1.0], [-(2.0**-55)])):
+        disp = metric.displacement(p, q)[0]
+        assert -1.0 <= disp <= 1.0
+
+
 def test_property_extreme_and_negative_coordinates():
     rng = np.random.default_rng(0x50524F50)
     big = sys.float_info.max
@@ -176,5 +202,5 @@ def test_property_extreme_and_negative_coordinates():
                 if period is None:
                     assert disp[axis] == q[axis] - p[axis]
                 else:
-                    assert -0.5 * period <= disp[axis] < 0.5 * period
+                    assert -0.5 * period <= disp[axis] <= 0.5 * period
             assert math.isclose(d2, sum(x * x for x in disp), rel_tol=1e-12, abs_tol=1e-12)
