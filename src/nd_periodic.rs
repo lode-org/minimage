@@ -10,7 +10,7 @@
 //! `[-period / 2, period / 2)`, so an exact `+period / 2` tie maps to
 //! `-period / 2`, while `-period / 2` stays unchanged.
 
-use crate::kernel::{floor_fast, wrap_one, INTEGRAL};
+use crate::kernel::{floor_fast, INTEGRAL};
 use crate::Error;
 
 /// Squared-distance metric used by N-dimensional spatial trees.
@@ -516,7 +516,7 @@ fn wrap_difference_component(value: f64, period: Option<f64>) -> f64 {
         return value;
     };
     if value.abs() < period {
-        return wrap_one(value, period);
+        return wrap_near(value, period);
     }
     if !value.is_finite() {
         return f64::NAN;
@@ -526,23 +526,33 @@ fn wrap_difference_component(value: f64, period: Option<f64>) -> f64 {
         let wrapped = fold_half(value - period * floor_fast(quotient + 0.5), period);
         // As for points, an overflowed or misrounded shift takes the exact
         // remainder.
-        let half = 0.5 * period;
-        if wrapped >= -half && wrapped < half {
+        if 2.0 * wrapped >= -period && 2.0 * wrapped < period {
             return wrapped;
         }
     }
     fold_half(value % period, period)
 }
 
+// The half-period tests compare 2 * value with the period. Doubling is exact
+// and an overflow to infinity keeps the order, while 0.5 * period rounds to
+// zero for the smallest subnormal periods. For a normal period both forms
+// decide alike, so this matches `wrap_one`, which `Cell` keeps, bit for bit.
+
+/// `wrap_one` for `|value| < period`.
+#[inline]
+fn wrap_near(value: f64, period: f64) -> f64 {
+    let wrapped = value + if 2.0 * value < -period { period } else { 0.0 };
+    wrapped - if 2.0 * wrapped >= period { period } else { 0.0 }
+}
+
 /// One correction toward `[-period / 2, period / 2)`. Exact when `value`
 /// is an exact remainder, which is within one period of zero.
 #[inline]
 fn fold_half(mut value: f64, period: f64) -> f64 {
-    let half = 0.5 * period;
-    if value < -half {
+    if 2.0 * value < -period {
         value += period;
     }
-    if value >= half {
+    if 2.0 * value >= period {
         value -= period;
     }
     value
@@ -673,6 +683,31 @@ mod tests {
             let mut difference = [-f64::MAX];
             metric.wrap_difference(&mut difference).unwrap();
             assert_eq!(difference[0], expected, "period {period:e}");
+        }
+    }
+
+    #[test]
+    fn subnormal_period_keeps_the_half_open_difference_interval() {
+        let unit = f64::from_bits(1);
+        let metric = PeriodicSpace::new(&[Some(unit)]).unwrap();
+        let mut difference = [0.0];
+        metric.wrap_difference(&mut difference).unwrap();
+        assert_eq!(difference[0].to_bits(), 0.0_f64.to_bits());
+
+        // Multiples of the smallest subnormal and their minimum images.
+        for (period, cases) in [
+            (1, &[(0, 0), (1, 0), (-1, 0), (7, 0)][..]),
+            (2, &[(0, 0), (1, -1), (-1, -1), (2, 0), (3, -1)][..]),
+            (3, &[(0, 0), (1, 1), (-1, -1), (2, -1), (-2, 1), (4, 1)][..]),
+        ] {
+            let period = f64::from(period) * unit;
+            for &(value, expected) in cases {
+                let value = f64::from(value) * unit;
+                let expected = f64::from(expected) * unit;
+                let got = wrap_difference_component(value, Some(period));
+                assert_eq!(got, expected, "{value:e} mod {period:e}");
+                assert!(2.0 * got >= -period && 2.0 * got < period);
+            }
         }
     }
 
