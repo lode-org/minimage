@@ -3,7 +3,7 @@
   "projectTitle": "minimage",
   "description": "Minimum-image convention for periodic parallelepipeds.",
   "folders": [
-    "docs/orgmode",
+    "docs",
     "examples",
     "include",
     "python"
