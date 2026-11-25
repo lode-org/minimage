@@ -8,7 +8,7 @@ authors:
     orcid: https://orcid.org/0000-0002-2393-8056
 license: MIT
 # [[[cog cog.outl(f'version: {VERSION}') ]]]
-version: 0.2.3
+version: 0.3.0
 # [[[end]]]
 date-released: "2026-11-19"
 repository-code: "https://github.com/lode-org/minimage"

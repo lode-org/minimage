@@ -195,6 +195,8 @@ The version is written by hand in one place, <code>[workspace.package].version</
 Meson and CMake read it through <code>scripts/crate_version.py</code>, and maturin reads it from the crate.
 <code>scripts/sync-version.py</code> rewrites the other copies.
 Those are <code>CITATION.cff</code>, <code>burn/Cargo.toml</code>, <code>Cargo.lock</code>, the four Meson wrap snippets and the <code>find_package(minimage X.Y)</code> lines in <code>README.md</code>, <code>docs/orgmode/getting-started.org</code>, <code>website/getting-started.html</code> and <code>tests/cmake-consumer/CMakeLists.txt</code>.
+The wrap snippets and the documentation <code>find_package</code> lines name the last release tag.
+The CMake consumer test builds against this tree, so its <code>find_package</code> line takes the major.minor of the version instead.
 </p>
 
 <p>

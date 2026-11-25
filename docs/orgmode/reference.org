@@ -73,6 +73,12 @@ process-static string and neither reads nor modifies the error slot.
 | =minimage_pairs_within_images= | Enumerate all periodic images within =cutoff= (half or full list) |
 | =minimage_visit_pairs_within_images= | Single-pass callback visitor over periodic images within =cutoff=; a nonzero callback return stops the walk |
 | =minimage_reduce_pairs= | Drop self images, sort and deduplicate =(i, j)= pairs |
+| =minimage_nd_wrap_point= | Wrap one N-dimensional point; zero period marks an open axis |
+| =minimage_nd_wrap_difference= | Wrap one N-dimensional difference into its central image |
+| =minimage_nd_dist2=, =minimage_nd_distance= | Scalar N-dimensional product-metric distances |
+| =minimage_nd_dist2_many= | One point against contiguous row-major points |
+| =minimage_nd_axis_min_dist2= | Periodic per-axis lower bound to an interval |
+| =minimage_nd_aabb_min_dist2= | Periodic lower-bound squared distance to an axis-aligned box |
 | =minimage_last_error= | Thread-local error string (=NULL= after success) |
 | =minimage_version= | Process-static version string |
 
@@ -123,6 +129,8 @@ Fallible functions return =Result<_, Error>= with variants
 | =dist2_euclidean_many=, =dist2_euclidean_pairs=, =dist2_euclidean_pairs_warm= | Batched and warm-started Euclidean nearest-image distances |
 | =fixed_many=, =dist2_many_fixed=, =dist2_pairs_fixed=, =fixed32_many=, =dist2_many_fixed32=, =dist2_pairs_fixed32= | Batched fixed-point conversions and distances |
 | =PartialCell::from_ase=, =periodic_count=, =full=, =displacement_euclidean=, =dist2_euclidean= | Slabs (2D), wires (1D), open (0D), and full (3D) cells |
+| =Metric=, =Euclidean= | Tree metric contract and its zero-sized ordinary Euclidean implementation |
+| =PeriodicSpace= | Optional period per feature axis; scalar wrap, displacement, distance, row-major batches, and per-axis / AABB lower bounds |
 | =filter_shifted=, =FilterOut=, =ring_centroid= | Verlet-skin candidate filter and ring-polymer bead centroids |
 | =pairs_within_images=, =visit_pairs_within_images=, =cutoff_exceeds_half_width=, =image_extents=, =ImagePair= | Multi-image cutoff enumeration for small or skewed cells |
 | =reduce_pairs=, =reduce_pairs_packed=, =dump_bounds_to_h= | vesin pair deduplication and LAMMPS dump bound conversion |
@@ -156,7 +164,8 @@ cached. Details are on [[file:simd.org][SIMD paths and dispatch]].
 
 * Python
 
-Exported module items: =Cell=, =reduce_image_pairs=, and =__version__=.
+Exported module items: =Cell=, =PeriodicSpace=,
+=reduce_image_pairs=, and =__version__=.
 Array arguments accept any host CPU DLPack producer, read in place when
 contiguous and aligned; array results return a NumPy array (or a list
 when NumPy is absent). Invalid inputs raise =ValueError=, =TypeError=,
@@ -175,6 +184,16 @@ or =BufferError=.
 | =fixed(r)=, =fixed_many(rs)=, =dist2_fixed(a, b)=, =dist2_many_fixed(p, qs)=, =dist2_pairs_fixed(ps, qs)= | 64-bit fixed-point (=uint64=) |
 | =fixed32(r)=, =fixed32_many(rs)=, =dist2_fixed32(a, b)=, =dist2_many_fixed32(p, qs)=, =dist2_pairs_fixed32(ps, qs)= | 32-bit fixed-point (=uint32=) |
 | =reduce_image_pairs(pairs)= | Drop self images, sort and deduplicate =(i, j)= pairs |
+| =PeriodicSpace(periods)= | Positive period or =None= per feature axis |
+| =wrap_point=, =wrap_difference=, =displacement= | N-dimensional half-open wraps |
+| =dist2=, =distance=, =dist2_many=, =dist2_pairs= | Scalar, one-to-many, and paired-row N-dimensional distances |
+| =axis_min_dist2= | Periodic per-axis lower bound to an interval |
+| =aabb_min_dist2= | Periodic lower-bound squared distance to an axis-aligned box |
+
+=PeriodicSpace.dist2_pairs= accepts row-major sequences or CPU DLPack
+=float32= and =float64= arrays. It validates the second dimension even
+for empty =(0, d)= arrays and returns a =float64= NumPy array when NumPy
+is available.
 
 * Burn (=minimage-burn=)
 

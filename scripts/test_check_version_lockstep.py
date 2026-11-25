@@ -78,11 +78,19 @@ class Drift(unittest.TestCase):
         self.assertFails("README.md")
 
     def test_reformatted_cmake_consumer_find_package(self):
-        minor = ".".join(self.tag.removeprefix("v").split(".")[:2])
-        rel = "tests/cmake-consumer/CMakeLists.txt"
+        minor = ".".join(self.v.split(".")[:2])
         old = f"find_package(minimage {minor} REQUIRED CONFIG)"
-        self.edit(rel, old, "find_package( minimage 0.1 REQUIRED CONFIG)")
-        self.assertFails(rel)
+        self.edit(lockstep.CONSUMER, old, "find_package( minimage 0.1 REQUIRED CONFIG)")
+        self.assertFails(lockstep.CONSUMER)
+
+    @unittest.skipIf(sync is None, "needs cogapp")
+    def test_development_bump_moves_the_cmake_consumer(self):
+        crate_version.set_crate_version("10.20.30", self.root / "Cargo.toml")
+        errors = lockstep.check(self.root)
+        self.assertTrue(any(e.startswith(f"{lockstep.CONSUMER}: ") for e in errors), errors)
+        self.run_sync()
+        self.assertIn("find_package(minimage 10.20 REQUIRED CONFIG)", self.text(lockstep.CONSUMER))
+        self.assertEqual(lockstep.check(self.root), [])
 
     def test_reformatted_cargo_lock(self):
         entry = f'name = "minimage"\nversion = "{self.v}"'
@@ -121,7 +129,7 @@ class Drift(unittest.TestCase):
         for rel in sync.WRAPS:
             self.assertIn(f"revision = v{self.v}\n", self.text(rel))
         minor = ".".join(self.v.split(".")[:2])
-        for rel in lockstep.SNIPPETS:
+        for rel in [*lockstep.SNIPPETS, lockstep.CONSUMER]:
             self.assertIn(f"find_package(minimage {minor} REQUIRED", self.text(rel))
         today = sync.datetime.datetime.now(sync.datetime.timezone.utc).date()
         self.assertIn(f'date-released: "{today.isoformat()}"\n', self.text("CITATION.cff"))
@@ -138,6 +146,7 @@ class Drift(unittest.TestCase):
     @unittest.skipIf(sync is None, "needs cogapp")
     def test_every_checked_file_is_synced(self):
         self.assertIs(sync.SNIPPETS, lockstep.SNIPPETS)
+        self.assertEqual(sync.CONSUMER, lockstep.CONSUMER)
         static = {
             lockstep.helper,
             lockstep.python_crate,
