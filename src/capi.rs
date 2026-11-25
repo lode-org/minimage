@@ -9,6 +9,7 @@ use std::ptr;
 use std::slice;
 
 use crate::fused;
+use crate::nd_periodic::PeriodicSlice;
 use crate::{dist2_ortho_diffs, reduce_pairs_packed, Cell, Error, PartialCell};
 
 /// Periodic parallelepiped.
@@ -201,6 +202,294 @@ pub extern "C" fn minimage_last_error() -> *const c_char {
 #[no_mangle]
 pub extern "C" fn minimage_version() -> *const c_char {
     concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
+}
+
+fn nd_metric<'a>(periods: *const f64, dimensions: usize) -> Result<PeriodicSlice<'a>, c_int> {
+    if dimensions == 0 {
+        return Err(fail(Error::Empty));
+    }
+    if periods.is_null() {
+        return Err(fail_msg("null periods"));
+    }
+    // SAFETY: the caller supplies `dimensions` readable doubles.
+    let periods = unsafe { slice::from_raw_parts(periods, dimensions) };
+    PeriodicSlice::new(periods).map_err(fail)
+}
+
+fn nd_read<'a>(ptr: *const f64, len: usize, what: &str) -> Result<&'a [f64], c_int> {
+    if ptr.is_null() {
+        return Err(fail_msg(what));
+    }
+    // SAFETY: the caller supplies `len` readable doubles.
+    Ok(unsafe { slice::from_raw_parts(ptr, len) })
+}
+
+fn nd_write<'a>(ptr: *mut f64, len: usize, what: &str) -> Result<&'a mut [f64], c_int> {
+    if ptr.is_null() {
+        return Err(fail_msg(what));
+    }
+    // SAFETY: the caller supplies `len` writable doubles.
+    Ok(unsafe { slice::from_raw_parts_mut(ptr, len) })
+}
+
+/// Wrap one N-dimensional point into the half-open primary domain.
+///
+/// The period descriptor follows the header-wide N-dimensional convention.
+/// Periodic output lies in `[0, period)`.
+///
+/// # Safety
+///
+/// `periods` and `point` are `dimensions` doubles. `out` is
+/// `dimensions` writable doubles. Input and output may not overlap.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_nd_wrap_point(
+    periods: *const f64,
+    dimensions: usize,
+    point: *const f64,
+    out: *mut f64,
+) -> c_int {
+    let metric = match nd_metric(periods, dimensions) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let point = match nd_read(point, dimensions, "null point") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let out = match nd_write(out, dimensions, "null out") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    out.copy_from_slice(point);
+    metric.wrap_point(out);
+    clear_error();
+    0
+}
+
+/// Wrap one N-dimensional difference into the central half-open image.
+///
+/// Periodic output lies in `[-period / 2, period / 2)`.
+///
+/// # Safety
+///
+/// `periods` and `difference` are `dimensions` doubles. `out` is
+/// `dimensions` writable doubles. Input and output may not overlap.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_nd_wrap_difference(
+    periods: *const f64,
+    dimensions: usize,
+    difference: *const f64,
+    out: *mut f64,
+) -> c_int {
+    let metric = match nd_metric(periods, dimensions) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let difference = match nd_read(difference, dimensions, "null difference") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let out = match nd_write(out, dimensions, "null out") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    out.copy_from_slice(difference);
+    metric.wrap_difference(out);
+    clear_error();
+    0
+}
+
+/// Squared N-dimensional product-metric distance between two points.
+///
+/// # Safety
+///
+/// `periods`, `p`, and `q` are `dimensions` doubles. `out` is one
+/// writable double.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_nd_dist2(
+    periods: *const f64,
+    dimensions: usize,
+    p: *const f64,
+    q: *const f64,
+    out: *mut f64,
+) -> c_int {
+    let metric = match nd_metric(periods, dimensions) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let p = match nd_read(p, dimensions, "null p") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let q = match nd_read(q, dimensions, "null q") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let out = match nd_write(out, 1, "null out") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    out[0] = metric.dist2(p, q);
+    clear_error();
+    0
+}
+
+/// N-dimensional product-metric distance between two points.
+///
+/// # Safety
+///
+/// Pointer requirements are the same as [`minimage_nd_dist2`].
+#[no_mangle]
+pub unsafe extern "C" fn minimage_nd_distance(
+    periods: *const f64,
+    dimensions: usize,
+    p: *const f64,
+    q: *const f64,
+    out: *mut f64,
+) -> c_int {
+    let status = unsafe { minimage_nd_dist2(periods, dimensions, p, q, out) };
+    if status == 0 {
+        // SAFETY: a successful `minimage_nd_dist2` wrote one double.
+        unsafe {
+            *out = (*out).sqrt();
+        }
+    }
+    status
+}
+
+/// Squared distances from one point to `n` contiguous row-major points.
+///
+/// # Safety
+///
+/// `periods` and `point` are `dimensions` doubles, `points` is
+/// `n * dimensions` doubles, and `out` is `n` writable doubles.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_nd_dist2_many(
+    periods: *const f64,
+    dimensions: usize,
+    point: *const f64,
+    points: *const f64,
+    n: usize,
+    out: *mut f64,
+) -> c_int {
+    let metric = match nd_metric(periods, dimensions) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let len = match n.checked_mul(dimensions) {
+        Some(value) => value,
+        None => return fail(Error::BufferSize),
+    };
+    let point = match nd_read(point, dimensions, "null point") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let points = if n == 0 {
+        &[]
+    } else {
+        match nd_read(points, len, "null points") {
+            Ok(value) => value,
+            Err(status) => return status,
+        }
+    };
+    let out = if n == 0 {
+        &mut []
+    } else {
+        match nd_write(out, n, "null out") {
+            Ok(value) => value,
+            Err(status) => return status,
+        }
+    };
+    metric.dist2_many(point, points, out);
+    clear_error();
+    0
+}
+
+/// Squared lower-bound distance from `x` to `[lo, hi]` on one axis.
+///
+/// The interval may be unwrapped. A width at least equal to the period
+/// covers that periodic axis.
+///
+/// # Safety
+///
+/// `periods` is `dimensions` doubles and `out` is one writable double.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_nd_axis_min_dist2(
+    periods: *const f64,
+    dimensions: usize,
+    axis: usize,
+    x: f64,
+    lo: f64,
+    hi: f64,
+    out: *mut f64,
+) -> c_int {
+    let metric = match nd_metric(periods, dimensions) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    if axis >= dimensions {
+        return fail(Error::BufferSize);
+    }
+    let out = match nd_write(out, 1, "null out") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let value = metric.axis_min_dist2(axis, x, lo, hi);
+    if value.is_nan() {
+        fail(Error::BadBox)
+    } else {
+        out[0] = value;
+        clear_error();
+        0
+    }
+}
+
+/// Squared lower-bound distance from a point to an axis-aligned box.
+///
+/// Box intervals are ordinary non-crossing `[lower, upper]` intervals.
+/// Periodic translated images are considered.
+///
+/// # Safety
+///
+/// `periods`, `point`, `lower`, and `upper` are `dimensions` doubles.
+/// `out` is one writable double.
+#[no_mangle]
+pub unsafe extern "C" fn minimage_nd_aabb_min_dist2(
+    periods: *const f64,
+    dimensions: usize,
+    point: *const f64,
+    lower: *const f64,
+    upper: *const f64,
+    out: *mut f64,
+) -> c_int {
+    let metric = match nd_metric(periods, dimensions) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let point = match nd_read(point, dimensions, "null point") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let lower = match nd_read(lower, dimensions, "null lower") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let upper = match nd_read(upper, dimensions, "null upper") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let out = match nd_write(out, 1, "null out") {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let value = metric.aabb_min_dist2(point, lower, upper);
+    if value.is_nan() {
+        fail(Error::BadBox)
+    } else {
+        out[0] = value;
+        clear_error();
+        0
+    }
 }
 
 fn write_cell(cell: Result<Cell, Error>, out: *mut mi_cell) -> c_int {

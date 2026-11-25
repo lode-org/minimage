@@ -127,6 +127,23 @@ impl<T> std::ops::Deref for Rows<'_, T> {
     }
 }
 
+/// Flat row-major values with a caller-selected row width.
+pub enum FlatRows<'a> {
+    View(&'a [f64]),
+    Owned(Vec<f64>),
+}
+
+impl std::ops::Deref for FlatRows<'_> {
+    type Target = [f64];
+
+    fn deref(&self) -> &[f64] {
+        match self {
+            FlatRows::View(values) => values,
+            FlatRows::Owned(values) => values,
+        }
+    }
+}
+
 /// Borrow `obj` through DLPack, or `None` when it is not a DLPack producer.
 pub fn borrow(obj: &Bound<'_, PyAny>) -> PyResult<Option<Borrowed>> {
     if !obj.hasattr("__dlpack__")? {
@@ -231,6 +248,82 @@ impl Borrowed {
         unsafe { t.data.cast::<u8>().add(t.byte_offset as usize) }
     }
 
+    /// Row-major `float64` values of shape `(n, width)`, read in place
+    /// when contiguous and aligned. `float32` or strided input is copied
+    /// once into doubles.
+    pub fn flat_rows_f64(&self, width: usize, what: &str) -> PyResult<(FlatRows<'_>, usize)> {
+        let t = self.tensor();
+        let shape = |axis: usize| -> i64 {
+            // SAFETY: `axis < ndim`, and `shape` holds `ndim` entries.
+            unsafe { *t.shape.add(axis) }
+        };
+        if t.dtype.lanes != 1 {
+            return Err(PyValueError::new_err(format!(
+                "{what} must not be vector typed"
+            )));
+        }
+        let expected_width = i64::try_from(width)
+            .map_err(|_| PyValueError::new_err(format!("{what} dimension is too large")))?;
+        if t.ndim != 2 || shape(1) != expected_width {
+            return Err(PyValueError::new_err(format!(
+                "{what} must be (N, {width})"
+            )));
+        }
+        let n = usize::try_from(shape(0))
+            .map_err(|_| PyValueError::new_err(format!("{what} has a negative length")))?;
+        let len = n
+            .checked_mul(width)
+            .ok_or_else(|| PyValueError::new_err(format!("{what} is too large")))?;
+        if len == 0 {
+            return Ok((FlatRows::Owned(Vec::new()), n));
+        }
+        let stride = |axis: usize, default: i64| -> isize {
+            if t.strides.is_null() {
+                default as isize
+            } else {
+                // SAFETY: `strides`, when present, holds `ndim` entries.
+                unsafe { *t.strides.add(axis) as isize }
+            }
+        };
+        let s0 = stride(0, expected_width);
+        let s1 = stride(1, 1);
+        let dt = t.dtype;
+        let base = self.base();
+        match (dt.code, dt.bits) {
+            (KDL_FLOAT, 64) => {
+                if s0 == width as isize
+                    && s1 == 1
+                    && (base as usize) % std::mem::align_of::<f64>() == 0
+                {
+                    // SAFETY: `len` contiguous, aligned doubles.
+                    let values = unsafe { std::slice::from_raw_parts(base.cast::<f64>(), len) };
+                    return Ok((FlatRows::View(values), n));
+                }
+                let p = base.cast::<f64>();
+                Ok((
+                    FlatRows::Owned(gather_flat(n, width, s0, s1, |off| {
+                        // SAFETY: each offset is inside the strided array.
+                        unsafe { p.offset(off).read_unaligned() }
+                    })),
+                    n,
+                ))
+            }
+            (KDL_FLOAT, 32) => {
+                let p = base.cast::<f32>();
+                Ok((
+                    FlatRows::Owned(gather_flat(n, width, s0, s1, |off| {
+                        // SAFETY: each offset is inside the strided array.
+                        f64::from(unsafe { p.offset(off).read_unaligned() })
+                    })),
+                    n,
+                ))
+            }
+            _ => Err(PyTypeError::new_err(format!(
+                "{what} must be float64 or float32"
+            ))),
+        }
+    }
+
     /// `float64` rows read in place when contiguous and aligned; `float32`
     /// or strided rows copied once into doubles.
     pub fn rows_f64(&self, what: &str) -> PyResult<Rows<'_, f64>> {
@@ -315,6 +408,22 @@ fn gather<T: Copy + Default>(
     (0..n as isize)
         .map(|i| [read(i * s0), read(i * s0 + s1), read(i * s0 + 2 * s1)])
         .collect()
+}
+
+fn gather_flat<T>(
+    n: usize,
+    width: usize,
+    s0: isize,
+    s1: isize,
+    read: impl Fn(isize) -> T,
+) -> Vec<T> {
+    let mut values = Vec::with_capacity(n * width);
+    for row in 0..n as isize {
+        for axis in 0..width as isize {
+            values.push(read(row * s0 + axis * s1));
+        }
+    }
+    values
 }
 
 enum Data {

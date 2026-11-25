@@ -9,6 +9,9 @@
  *     cutoffs use that unit squared. minimage_cell_from_con_box takes
  *     angles in degrees.
  *   - Displacement is the wrapped vector from p to q: wrap(q - p).
+ *   - N-dimensional period arrays use zero for an open axis and a positive
+ *     finite value for a periodic axis. Rust and Python use None for an
+ *     open axis and reject a zero period.
  *
  * Memory ownership
  *   - Constructor calls write one mi_cell or mi_pbc_cell into a
@@ -684,6 +687,115 @@ int minimage_fixed_many(const struct mi_cell *simbox,
  * call on this thread. Do not free it.
  */
 const char *minimage_last_error(void);
+
+/**
+ * Squared lower-bound distance from a point to an axis-aligned box.
+ *
+ * Box intervals are ordinary non-crossing `[lower, upper]` intervals.
+ * Periodic translated images are considered.
+ *
+ * # Safety
+ *
+ * `periods`, `point`, `lower`, and `upper` are `dimensions` doubles.
+ * `out` is one writable double.
+ */
+int minimage_nd_aabb_min_dist2(const double *periods,
+                               size_t dimensions,
+                               const double *point,
+                               const double *lower,
+                               const double *upper,
+                               double *out);
+
+/**
+ * Squared lower-bound distance from `x` to `[lo, hi]` on one axis.
+ *
+ * The interval may be unwrapped. A width at least equal to the period
+ * covers that periodic axis.
+ *
+ * # Safety
+ *
+ * `periods` is `dimensions` doubles and `out` is one writable double.
+ */
+int minimage_nd_axis_min_dist2(const double *periods,
+                               size_t dimensions,
+                               size_t axis,
+                               double x,
+                               double lo,
+                               double hi,
+                               double *out);
+
+/**
+ * Squared N-dimensional product-metric distance between two points.
+ *
+ * # Safety
+ *
+ * `periods`, `p`, and `q` are `dimensions` doubles. `out` is one
+ * writable double.
+ */
+int minimage_nd_dist2(const double *periods,
+                      size_t dimensions,
+                      const double *p,
+                      const double *q,
+                      double *out);
+
+/**
+ * Squared distances from one point to `n` contiguous row-major points.
+ *
+ * # Safety
+ *
+ * `periods` and `point` are `dimensions` doubles, `points` is
+ * `n * dimensions` doubles, and `out` is `n` writable doubles.
+ */
+int minimage_nd_dist2_many(const double *periods,
+                           size_t dimensions,
+                           const double *point,
+                           const double *points,
+                           size_t n,
+                           double *out);
+
+/**
+ * N-dimensional product-metric distance between two points.
+ *
+ * # Safety
+ *
+ * Pointer requirements are the same as [`minimage_nd_dist2`].
+ */
+int minimage_nd_distance(const double *periods,
+                         size_t dimensions,
+                         const double *p,
+                         const double *q,
+                         double *out);
+
+/**
+ * Wrap one N-dimensional difference into the central half-open image.
+ *
+ * Periodic output lies in `[-period / 2, period / 2)`.
+ *
+ * # Safety
+ *
+ * `periods` and `difference` are `dimensions` doubles. `out` is
+ * `dimensions` writable doubles. Input and output may not overlap.
+ */
+int minimage_nd_wrap_difference(const double *periods,
+                                size_t dimensions,
+                                const double *difference,
+                                double *out);
+
+/**
+ * Wrap one N-dimensional point into the half-open primary domain.
+ *
+ * The period descriptor follows the header-wide N-dimensional convention.
+ * Periodic output lies in `[0, period)`.
+ *
+ * # Safety
+ *
+ * `periods` and `point` are `dimensions` doubles. `out` is
+ * `dimensions` writable doubles. Input and output may not overlap.
+ */
+int minimage_nd_wrap_point(const double *periods,
+                           size_t dimensions,
+                           const double *point,
+                           double *out);
 
 /**
  * Enumerate every periodic image of `n` points strictly inside `cutoff`.

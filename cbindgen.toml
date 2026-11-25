@@ -23,6 +23,9 @@ header = """
  *     cutoffs use that unit squared. minimage_cell_from_con_box takes
  *     angles in degrees.
  *   - Displacement is the wrapped vector from p to q: wrap(q - p).
+ *   - N-dimensional period arrays use zero for an open axis and a positive
+ *     finite value for a periodic axis. Rust and Python use None for an
+ *     open axis and reject a zero period.
  *
  * Memory ownership
  *   - Constructor calls write one mi_cell or mi_pbc_cell into a
