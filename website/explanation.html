@@ -291,22 +291,54 @@ physically duplicating all periodic images
 The implementation wraps each coordinate independently and sums its
 squared separation. This separable form is the best fit for a tree
 inner loop: descriptor validation happens once, scalar queries need no
-allocation, and batches consume contiguous row-major <code>f64</code> slices. For
-nearby signed differences it uses the same select path as the
-orthorhombic engine. More distant finite values use
+allocation, and batches consume contiguous row-major <code>f64</code> slices.
+</p>
+
+<p>
+Wrapping one given point or difference uses the same select path as the
+orthorhombic engine for nearby values. More distant finite values use
 <code>d - L floor_fast(d/L + 1/2)</code> while the quotient is representable with
 fractional bits, and an exact remainder beyond that range. Corrective
 selects enforce <code>[-L/2, L/2)</code> after either path. Point wrapping applies
 the analogous correction to guarantee <code>[0, L)</code> even when division
 rounds a tiny negative value onto the upper boundary.
+</p>
+
+<p>
+A displacement between two coordinates never subtracts first and wraps
+the rounded difference afterwards, because that rounding can exceed the
+whole period. With <code>L = 1e-6</code>, <code>0 - (-10)</code> rounds to <code>10</code> and wraps to
+zero, but the exact image is about <code>4.5e-16</code>. Instead the
+displacement is the exact minimum image of <code>q - p</code>, rounded once:
+</p>
+
+<ul class="org-ul">
+<li>If the raw difference is under <code>L/2</code> in magnitude, the exact
+difference is inside the central image and the raw difference is
+already its correctly rounded value.</li>
+<li>If the raw difference is within one period, a two-sum keeps its
+exact rounding error.</li>
+<li>Otherwise each coordinate is reduced with the exact remainder <code>%</code> and
+folded into <code>[-L/2, L/2)</code>, and a two-sum subtracts the residues.</li>
+</ul>
+
+<p>
+The remaining fold by one period is exact by Sterbenz's lemma, and the
+half-period comparisons are exact on the unevaluated sum. Only the final
+addition rounds, so each displacement component is the correctly rounded
+exact image. That rounding can produce <code>+L/2</code> when the exact image is
+less than half an ulp below it. <code>dist2</code> sums the squared components.
 The <code>Metric&lt;T = f64&gt;</code> trait also exposes a zero-sized <code>Euclidean</code>
 implementation. Only <code>f64</code> implementations exist now; the defaulted
 scalar parameter leaves room for later <code>Metric&lt;f32&gt;</code> implementations
 without renaming methods or breaking existing <code>Metric</code> bounds. For
 an axis-aligned interval, the lower bound is the exact distance to the
-nearest translated interval. The squared box bound is the sum of those
-one-axis minima, so it can prune a kd-tree or ball-tree node without
-false negatives. An interval at least one period wide covers its whole
+nearest translated interval, decided with the same exact pairs and
+rounded toward zero before squaring. The squared box bound is the sum of
+those one-axis minima, with each square and partial sum rounded down
+when more than one axis contributes. It never exceeds the correctly
+rounded exact distance, nor <code>dist2</code> to any point in the box, so it can
+prune a kd-tree or ball-tree node without false negatives. An interval at least one period wide covers its whole
 circle. Unlike a generic callable metric in a tree, the explicit box
 bound preserves metric-aware pruning; scikit-learn documents that
 callable metrics are not supported by <code>KDTree</code> because function-call
