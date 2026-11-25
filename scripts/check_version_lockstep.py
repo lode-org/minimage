@@ -8,6 +8,8 @@ patterns therefore fails here even when scripts/sync-version.py leaves the
 file alone. The wrap snippets in the docs sit inside code blocks, so every
 `revision` key there is read with a free-form value, and so is the version
 of every `find_package(minimage`, which must be the wrap tag's major.minor.
+The CMake consumer test finds the package built from this tree instead, so
+its `find_package(minimage` takes the major.minor of the version.
 
 `--tag NAME` also requires NAME to be v<version> and the wrap tag, so a
 release tag pushed before the release commit moved the snippets fails.
@@ -37,8 +39,9 @@ SNIPPETS = [
     "README.md",
     "docs/orgmode/getting-started.org",
     "website/getting-started.html",
-    "tests/cmake-consumer/CMakeLists.txt",
 ]
+CONSUMER = "tests/cmake-consumer/CMakeLists.txt"
+FIND_PACKAGE = r"find_package\(\s*minimage\s+([^\s)]+)"
 INHERIT = {"workspace": True}
 
 
@@ -128,12 +131,21 @@ def wrap(root, rel, version, tag):
 def snippet(root, rel, version, tag):
     text = read(root, rel)
     revisions = re.findall(r"^\s*revision\s*[=:]\s*(.*?)\s*$", text, re.MULTILINE)
-    packages = re.findall(r"find_package\(\s*minimage\s+([^\s)]+)", text)
+    packages = re.findall(FIND_PACKAGE, text)
     if not revisions and not packages:
         raise ValueError("no revision or find_package(minimage) line")
     for value in revisions:
         yield "revision", value, tag
     minor = ".".join(tag.removeprefix("v").split(".")[:2])
+    for value in packages:
+        yield "find_package(minimage) version", value, minor
+
+
+def cmake_consumer(root, rel, version, tag):
+    packages = re.findall(FIND_PACKAGE, read(root, rel))
+    if not packages:
+        raise ValueError("no find_package(minimage) line")
+    minor = ".".join(version.split(".")[:2])
     for value in packages:
         yield "find_package(minimage) version", value, minor
 
@@ -177,6 +189,7 @@ def sources(root):
         ("CITATION.cff", cff),
         (WRAP, wrap),
         *((rel, snippet) for rel in SNIPPETS),
+        (CONSUMER, cmake_consumer),
     ]
     if mparser is not None:
         found.append(("meson.build", meson_build))
