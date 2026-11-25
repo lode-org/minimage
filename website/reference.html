@@ -589,7 +589,7 @@ or <code>BufferError</code>.
 </colgroup>
 <thead>
 <tr>
-<th scope="col" class="org-left">Method / function</th>
+<th scope="col" class="org-left"><code>Cell</code> method</th>
 <th scope="col" class="org-left">Role</th>
 </tr>
 </thead>
@@ -643,12 +643,24 @@ or <code>BufferError</code>.
 <td class="org-left"><code>fixed32(r)</code>, <code>fixed32_many(rs)</code>, <code>dist2_fixed32(a, b)</code>, <code>dist2_many_fixed32(p, qs)</code>, <code>dist2_pairs_fixed32(ps, qs)</code></td>
 <td class="org-left">32-bit fixed-point (<code>uint32</code>)</td>
 </tr>
+</tbody>
+</table>
 
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
 <tr>
-<td class="org-left"><code>reduce_image_pairs(pairs)</code></td>
-<td class="org-left">Drop self images, sort and deduplicate <code>(i, j)</code> pairs</td>
+<th scope="col" class="org-left"><code>PeriodicSpace</code> method</th>
+<th scope="col" class="org-left">Role</th>
 </tr>
-
+</thead>
+<tbody>
 <tr>
 <td class="org-left"><code>PeriodicSpace(periods)</code></td>
 <td class="org-left">Positive period or <code>None</code> per feature axis</td>
@@ -682,6 +694,28 @@ or <code>BufferError</code>.
 for empty <code>(0, d)</code> arrays and returns a <code>float64</code> NumPy array when NumPy
 is available.
 </p>
+
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Module function</th>
+<th scope="col" class="org-left">Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>reduce_image_pairs(pairs)</code></td>
+<td class="org-left">Drop self images, sort and deduplicate <code>(i, j)</code> pairs</td>
+</tr>
+</tbody>
+</table>
 </div>
 </section>
 
