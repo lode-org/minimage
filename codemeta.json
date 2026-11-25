@@ -1,0 +1,26 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "type": "SoftwareSourceCode",
+  "name": "minimage",
+  "description": "Minimum-image convention for a periodic parallelepiped. linkcell walks k-nearest neighbours. vesin builds cutoff pair lists. Both need the same wrap: fold through H, pick one image, never the self image. This crate is that wrap. Cell holds the 3x3 lattice and a dump-cell origin. Constructors accept LAMMPS bounds plus xy, xz, yz tilts, a CON lattice or length-angle box, an ASE-style 3x3 cell, and a vesin box. PartialCell handles slabs, wires, and open systems where only some axes are periodic.",
+  "version": "0.3.0",
+  "datePublished": "2026-11-19",
+  "license": "https://spdx.org/licenses/MIT",
+  "codeRepository": "https://github.com/lode-org/minimage",
+  "url": "https://lode-org.github.io/minimage/",
+  "programmingLanguage": ["Rust", "C", "C++", "Python"],
+  "keywords": ["molecular-dynamics", "periodic", "minimum-image", "pbc"],
+  "author": [
+    {
+      "type": "Person",
+      "id": "https://orcid.org/0000-0002-2393-8056",
+      "givenName": "Rohit",
+      "familyName": "Goswami",
+      "email": "rgoswami@ieee.org",
+      "affiliation": {
+        "type": "Organization",
+        "name": "TurtleTech ehf"
+      }
+    }
+  ]
+}
