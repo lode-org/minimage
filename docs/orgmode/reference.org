@@ -187,7 +187,9 @@ or =BufferError=.
 | =PeriodicSpace= method | Role |
 |------------------------+------|
 | =PeriodicSpace(periods)= | Positive period or =None= per feature axis |
-| =wrap_point=, =wrap_difference=, =displacement= | N-dimensional half-open wraps |
+| =wrap_point(point)=, =wrap_points(points)= | Point wrap; for finite input each periodic component is in the half-open interval =[0, period)=; a periodic =NaN=, =inf=, or =-inf= gives =NaN=, and an open axis is unchanged |
+| =wrap_difference(difference)=, =wrap_differences(differences)= | Difference wrap; for finite input each periodic component is in the half-open interval =[-period/2, period/2)=; a periodic =NaN=, =inf=, or =-inf= gives =NaN=, and an open axis is unchanged |
+| =displacement(p, q)= | Exact minimum image of =q - p=, rounded once; for finite input each periodic component is in the closed interval =[-period/2, period/2]=; a periodic =NaN=, =inf=, or =-inf= in =p= or =q= gives =NaN=, and an open axis is =q - p= |
 | =dist2=, =distance=, =dist2_many=, =dist2_pairs= | Scalar, one-to-many, and paired-row N-dimensional distances |
 | =axis_min_dist2= | Periodic per-axis lower bound to an interval |
 | =aabb_min_dist2= | Periodic lower-bound squared distance to an axis-aligned box |
