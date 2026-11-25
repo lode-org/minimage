@@ -49,19 +49,20 @@ impl Metric for Euclidean {
 
     #[inline]
     fn axis_min_dist2(&self, _axis: usize, x: f64, lo: f64, hi: f64) -> f64 {
-        axis_interval_delta(x, lo, hi).map_or(f64::NAN, |delta| delta * delta)
+        open_interval_gap(x, lo, hi).map_or(f64::NAN, |gap| gap * gap)
     }
 
     #[inline]
     fn aabb_min_dist2(&self, point: &[f64], lower: &[f64], upper: &[f64]) -> f64 {
         assert_eq!(point.len(), lower.len(), "point and AABB dimensions differ");
         assert_eq!(point.len(), upper.len(), "point and AABB dimensions differ");
-        point
-            .iter()
-            .zip(lower)
-            .zip(upper)
-            .map(|((&x, &lo), &hi)| self.axis_min_dist2(0, x, lo, hi))
-            .sum()
+        sum_squared_gaps(
+            point
+                .iter()
+                .zip(lower)
+                .zip(upper)
+                .map(|((&x, &lo), &hi)| open_interval_gap(x, lo, hi).unwrap_or(f64::NAN)),
+        )
     }
 }
 
@@ -220,6 +221,11 @@ impl PeriodicSpace {
 
     /// Write the wrapped displacement `q - p` to `out`.
     ///
+    /// Each periodic component is the exact minimum image of `q - p` in
+    /// `[-period / 2, period / 2)`, rounded to nearest. That rounding can
+    /// reach `period / 2` itself when the exact image is within half an ulp
+    /// below it. Open components are `q - p` rounded to nearest.
+    ///
     /// # Errors
     ///
     /// Returns [`Error::BufferSize`] unless all slices have
@@ -236,8 +242,9 @@ impl PeriodicSpace {
 
     /// Squared minimum-image distance between two points.
     ///
-    /// This is the allocation-free hot path. It panics if either point
-    /// does not have [`dimensions()`](Self::dimensions) entries.
+    /// This is the sum of the squared [`displacement`](Self::displacement)
+    /// components and the allocation-free hot path. It panics if either
+    /// point does not have [`dimensions()`](Self::dimensions) entries.
     #[inline]
     pub fn dist2(&self, p: &[f64], q: &[f64]) -> f64 {
         <Self as Metric>::dist2(self, p, q)
@@ -327,6 +334,8 @@ impl PeriodicSpace {
     /// covers the circle. Shorter intervals may lie outside the primary
     /// domain; translated images are considered. Intervals wider than half
     /// a period are handled directly, without complement approximations.
+    /// The exact distance is rounded toward zero before squaring, so the
+    /// result never exceeds the correctly rounded exact squared distance.
     ///
     /// Returns `NaN` for non-finite bounds or `lo > hi`. Panics if `axis`
     /// is outside this space.
@@ -341,8 +350,10 @@ impl PeriodicSpace {
     /// `[lower[i], upper[i]]` on each axis. On a periodic axis an interval
     /// at least one period wide covers the circle. Shorter intervals may
     /// lie outside the primary domain; translated images are considered.
-    /// Summing the exact one-axis minima gives the exact product-metric
-    /// distance to the box and therefore a sound tree-pruning bound.
+    /// The exact one-axis minima sum to the exact product-metric distance
+    /// to the box. The result never exceeds that distance correctly
+    /// rounded, nor [`dist2`](Self::dist2) to any point of the box, so it
+    /// is a sound tree-pruning bound.
     ///
     /// Panics unless all slices have [`dimensions()`](Self::dimensions)
     /// entries. Invalid bounds produce `NaN`.
@@ -437,98 +448,264 @@ fn dist2_rows(periods: &impl PeriodSource, p: &[f64], q: &[f64]) -> f64 {
 
 #[inline]
 fn axis_min_dist2(periods: &impl PeriodSource, axis: usize, x: f64, lo: f64, hi: f64) -> f64 {
-    let Some(open_delta) = axis_interval_delta(x, lo, hi) else {
-        return f64::NAN;
-    };
-    if open_delta == 0.0 {
-        return 0.0;
-    }
-    let Some(period) = periods.period(axis) else {
-        return open_delta * open_delta;
-    };
-    let width = hi - lo;
-    if width >= period {
-        return 0.0;
-    }
-    let d_lo = near_difference(lo, x, period);
-    let d_hi = near_difference(hi, x, period);
-    let from_lo = if d_lo >= 0.0 { d_lo } else { d_lo + period };
-    if from_lo <= width {
-        return 0.0;
-    }
-    let to_lo = wrap_near(d_lo, period);
-    let to_hi = wrap_near(d_hi, period);
-    (to_lo * to_lo).min(to_hi * to_hi)
+    let gap = axis_gap(periods, axis, x, lo, hi);
+    gap * gap
 }
 
+/// Sound box bound: never above the correctly rounded exact squared
+/// distance, nor above `dist2` to any point of the box.
 #[inline]
 fn aabb_min_dist2(periods: &impl PeriodSource, point: &[f64], lower: &[f64], upper: &[f64]) -> f64 {
-    (0..periods.dimensions())
-        .map(|axis| axis_min_dist2(periods, axis, point[axis], lower[axis], upper[axis]))
-        .sum()
+    sum_squared_gaps(
+        (0..periods.dimensions())
+            .map(|axis| axis_gap(periods, axis, point[axis], lower[axis], upper[axis])),
+    )
 }
 
+/// Distance from `x` to `[lo, hi]` on one axis, rounded toward zero.
+///
+/// `NaN` for invalid bounds. Rounding toward zero keeps the square, and
+/// sums of squares built with [`sum_squared_gaps`], at or below their exact
+/// values.
 #[inline]
-fn axis_interval_delta(x: f64, lo: f64, hi: f64) -> Option<f64> {
+fn axis_gap(periods: &impl PeriodSource, axis: usize, x: f64, lo: f64, hi: f64) -> f64 {
+    match periods.period(axis) {
+        None => open_interval_gap(x, lo, hi).unwrap_or(f64::NAN),
+        Some(_) if !x.is_finite() || !lo.is_finite() || !hi.is_finite() || lo > hi => f64::NAN,
+        Some(_) if lo <= x && x <= hi => 0.0,
+        Some(period) => periodic_interval_gap(x, lo, hi, period),
+    }
+}
+
+/// Ordinary distance from `x` to `[lo, hi]` rounded toward zero, or `None`
+/// for non-finite bounds or `lo > hi`.
+#[inline]
+fn open_interval_gap(x: f64, lo: f64, hi: f64) -> Option<f64> {
     if !x.is_finite() || !lo.is_finite() || !hi.is_finite() || lo > hi {
         None
     } else if x < lo {
-        Some(lo - x)
+        Some(toward_zero(ordered_two_sum(lo, -x)))
     } else if x > hi {
-        Some(x - hi)
+        Some(toward_zero(ordered_two_sum(x, -hi)))
     } else {
         Some(0.0)
     }
 }
 
-/// Image count below which [`reduce_coordinate`] uses the fast reduction.
+/// Circular distance from `x` to the arc `[lo, hi]`, rounded toward zero.
 ///
-/// The fast reduction errs by about one ulp of the coordinate, so this
-/// keeps its error under `2^-26` of the period.
-const FAST_REDUCTION_IMAGES: f64 = 67_108_864.0;
+/// Every comparison is on exact unevaluated sums, so the inside test and
+/// the nearest endpoint are decided exactly.
+#[inline]
+fn periodic_interval_gap(x: f64, lo: f64, hi: f64, period: f64) -> f64 {
+    let width = ordered_two_sum(hi, -lo);
+    if width.0 > period || (width.0 == period && width.1 >= 0.0) {
+        return 0.0;
+    }
+    let to_lo = normalize(image_pair(lo, x, period));
+    // `x` is inside when its forward offset from `lo`, in `[0, period)`, is
+    // at most the width. A negative image offsets by `image + period`.
+    let inside = if to_lo.0 >= 0.0 {
+        pair_le(to_lo, width)
+    } else {
+        // Below half a period the shifted width is under every image. At or
+        // above it, `width - period` is exact by Sterbenz.
+        2.0 * width.0 >= period && pair_le(to_lo, two_sum(width.0 - period, width.1))
+    };
+    if inside {
+        return 0.0;
+    }
+    let to_hi = normalize(image_pair(hi, x, period));
+    toward_zero(to_lo).abs().min(toward_zero(to_hi).abs())
+}
 
-/// Wrapped component difference `to - from` in `[-period / 2, period / 2)`.
+/// Sum of squared gaps that is never above the correctly rounded exact
+/// sum.
+///
+/// A single nonzero gap squares with one rounding, which is monotone. Two
+/// or more round each square and partial sum down, so the result is also
+/// at or below the rounded-to-nearest `dist2` of any point at least that
+/// far away on every axis.
+#[inline]
+fn sum_squared_gaps(gaps: impl Iterator<Item = f64>) -> f64 {
+    let mut nonzero = 0_usize;
+    let mut single = 0.0;
+    let mut sum = 0.0;
+    for gap in gaps {
+        if gap != 0.0 {
+            nonzero += 1;
+            single = gap;
+            sum = add_down(sum, square_down(gap));
+        }
+    }
+    if nonzero == 1 {
+        single * single
+    } else {
+        sum
+    }
+}
+
+/// `(fl(a + b), a + b - fl(a + b))` by Knuth's branch-free two-sum.
+///
+/// Exact unless an intermediate overflows, which can happen for operands
+/// near `f64::MAX` even when the sum is finite. Any overflow leaves the
+/// error term infinite or `NaN`.
+#[inline]
+fn two_sum(a: f64, b: f64) -> (f64, f64) {
+    let sum = a + b;
+    let b_part = sum - a;
+    let a_part = sum - b_part;
+    (sum, (a - a_part) + (b - b_part))
+}
+
+/// [`two_sum`] by Fast2Sum on operands ordered by magnitude, where no
+/// intermediate can overflow before the sum does.
+#[inline]
+fn ordered_two_sum(a: f64, b: f64) -> (f64, f64) {
+    let (large, small) = if a.abs() < b.abs() { (b, a) } else { (a, b) };
+    let sum = large + small;
+    (sum, small - (sum - large))
+}
+
+/// The same exact sum with its leading term rounded to nearest.
+#[inline]
+fn normalize((head, tail): (f64, f64)) -> (f64, f64) {
+    two_sum(head, tail)
+}
+
+/// Exact `a <= b` for normalized pairs.
+///
+/// The head of a normalized pair is its sum rounded to nearest, which is
+/// monotone and unique, so heads order the sums unless they tie.
+#[inline]
+fn pair_le(a: (f64, f64), b: (f64, f64)) -> bool {
+    a.0 < b.0 || (a.0 == b.0 && a.1 <= b.1)
+}
+
+/// A normalized pair's sum rounded toward zero.
+#[inline]
+fn toward_zero((head, tail): (f64, f64)) -> f64 {
+    step_down(head, tail != 0.0 && (tail < 0.0) != (head < 0.0))
+}
+
+/// The next double toward zero from a nonzero `value` when `step` holds.
+///
+/// Selected arithmetically: these steps follow rounding errors, whose
+/// signs a branch predictor cannot learn.
+#[inline]
+fn step_down(value: f64, step: bool) -> f64 {
+    f64::from_bits(value.to_bits() - u64::from(step))
+}
+
+/// Dekker's split product is exact for a square between these limits: the
+/// error term stays normal and no partial product overflows.
+const EXACT_SQUARE_MIN: f64 = 3.203_332_952_292_961_5e-145; // 2^-480
+const EXACT_SQUARE_MAX: f64 = 3.273_390_607_896_142e150; // 2^500
+
+/// `value * value` rounded down for `value >= 0`, or an infinity whose
+/// exact square also rounds to infinity.
+#[inline]
+fn square_down(value: f64) -> f64 {
+    let square = value * value;
+    if !(EXACT_SQUARE_MIN..EXACT_SQUARE_MAX).contains(&value) {
+        return step_down(square, square != 0.0 && square.is_finite());
+    }
+    let split = 134_217_729.0 * value;
+    let high = split - (split - value);
+    let low = value - high;
+    let error = ((high * high - square) + 2.0 * high * low) + low * low;
+    step_down(square, error < 0.0)
+}
+
+/// `a + b` rounded down for non-negative terms. An infinite term stays
+/// infinite.
+#[inline]
+fn add_down(a: f64, b: f64) -> f64 {
+    let (sum, error) = two_sum(a, b);
+    step_down(sum, error < 0.0)
+}
+
+/// Minimum image of `to - from`, correctly rounded.
+///
+/// The exact image lies in `[-period / 2, period / 2)`; rounding it to
+/// nearest can give `period / 2` itself.
 #[inline]
 fn difference_component(from: f64, to: f64, period: Option<f64>) -> f64 {
-    let Some(period) = period else {
-        return to - from;
-    };
-    wrap_near(near_difference(from, to, period), period)
-}
-
-/// `to - from` shifted by whole periods into `(-period, period)`.
-///
-/// A raw difference shorter than the period rounds by at most half an ulp
-/// of the period, and is exact for nearby coordinates, so it is kept.
-/// Otherwise each coordinate is reduced before subtracting, so extreme
-/// finite inputs never overflow `to - from` or swallow small coordinates.
-#[inline]
-fn near_difference(from: f64, to: f64, period: f64) -> f64 {
     let raw = to - from;
-    if raw.abs() < period {
+    let Some(period) = period else {
+        return raw;
+    };
+    // `|raw| < period / 2` puts the exact difference strictly inside the
+    // central image, so `raw` is already its correctly rounded value.
+    if 2.0 * raw.abs() < period {
         return raw;
     }
-    reduce_coordinate(to, period) - reduce_coordinate(from, period)
+    let (head, tail) = image_pair(from, to, period);
+    head + tail
 }
 
-/// `value` reduced into `[-period / 2, period / 2)` for subtraction.
+/// Exact minimum image of `to - from` as an unevaluated sum in
+/// `[-period / 2, period / 2)`, or `NaN` for a non-finite input.
+///
+/// A difference within a few periods keeps its two-sum error term while
+/// whole periods come off its head: subtracting `2^j period` from a head in
+/// `(2^j period, 2^(j + 1) period]` is exact by Sterbenz. A longer
+/// difference reduces each coordinate with `%`, which is exact, so the pair
+/// always sums to the exact image.
 #[inline]
-fn reduce_coordinate(value: f64, period: f64) -> f64 {
-    if value.abs() < FAST_REDUCTION_IMAGES * period {
-        wrap_difference_component(value, Some(period))
-    } else {
-        reduce_coordinate_exact(value, period)
+fn image_pair(from: f64, to: f64, period: f64) -> (f64, f64) {
+    let (mut head, tail) = two_sum(to, -from);
+    if !tail.is_finite() || head.abs() > 16.0 * period {
+        return far_image_pair(from, to, period);
     }
+    if head.abs() <= period {
+        return fold_pair(head, tail, period);
+    }
+    for scale in [8.0, 4.0, 2.0, 1.0] {
+        let step = scale * period;
+        if head.abs() > step {
+            head -= step.copysign(head);
+        }
+    }
+    // The tail may now exceed half an ulp of the smaller head.
+    let (head, tail) = two_sum(head, tail);
+    fold_pair(head, tail, period)
 }
 
 #[cold]
 #[inline(never)]
-fn reduce_coordinate_exact(value: f64, period: f64) -> f64 {
-    if value.is_finite() {
-        fold_half(value % period, period)
-    } else {
-        f64::NAN
+fn far_image_pair(from: f64, to: f64, period: f64) -> (f64, f64) {
+    if !from.is_finite() || !to.is_finite() {
+        return (f64::NAN, 0.0);
     }
+    let (sum, error) = ordered_two_sum(
+        fold_half(to % period, period),
+        -fold_half(from % period, period),
+    );
+    fold_pair(sum, error, period)
+}
+
+/// Shift the exact sum `head + tail`, within one period of zero, into
+/// `[-period / 2, period / 2)`.
+///
+/// `head` is the sum rounded to nearest and `period / 2` is a double, so
+/// by monotonicity `head` is on the same side of `+-period / 2` as the
+/// exact sum unless it equals it, when the tail's sign decides. A nonzero
+/// tail needs a sum of at least `2^-1021`, so `period / 2` is exact
+/// whenever the tail matters. The shift by `period` is exact by Sterbenz.
+#[inline]
+fn fold_pair(head: f64, tail: f64, period: f64) -> (f64, f64) {
+    let twice = 2.0 * head;
+    let up = twice > period || (twice == period && tail >= 0.0);
+    let down = twice < -period || (twice == -period && tail < 0.0);
+    let shift = if up {
+        period
+    } else if down {
+        -period
+    } else {
+        0.0
+    };
+    (head - shift, tail)
 }
 
 #[inline]
@@ -1156,7 +1333,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_inputs_match_raw_subtraction_to_spectroscopic_accuracy() {
+    fn ordinary_inputs_match_the_exact_image() {
         let mut rng = Lcg(0x4f52_4449_4e41_5259);
         for dimensions in 1..=6 {
             for case in 0..120 {
@@ -1181,19 +1358,17 @@ mod tests {
                 metric.displacement(&p, &q, &mut disp).unwrap();
                 let mut expected_d2 = 0.0;
                 for axis in 0..dimensions {
-                    let expected = wrap_difference_component(q[axis] - p[axis], periods[axis]);
-                    assert!(
-                        (disp[axis] - expected).abs()
-                            <= 1e-11 * (1.0 + periods[axis].unwrap_or(1.0)),
-                        "d={dimensions} case={case} axis={axis}: got {}, want {expected}",
-                        disp[axis]
+                    let expected = exact::displacement(p[axis], q[axis], periods[axis]);
+                    assert_eq!(
+                        disp[axis], expected,
+                        "d={dimensions} case={case} axis={axis}"
                     );
                     expected_d2 += expected * expected;
                 }
-                let got_d2 = metric.dist2(&p, &q);
-                assert!(
-                    (got_d2 - expected_d2).abs() <= 1e-11 * (1.0 + expected_d2),
-                    "d={dimensions} case={case}: d2 got {got_d2}, want {expected_d2}"
+                assert_eq!(
+                    metric.dist2(&p, &q),
+                    expected_d2,
+                    "d={dimensions} case={case}"
                 );
             }
         }
@@ -1250,61 +1425,34 @@ mod tests {
                 let d2_rev = metric.dist2(&q, &p);
                 assert!(disp.iter().all(|x| x.is_finite()), "disp={disp:?}");
                 assert!(d2.is_finite() && d2 >= 0.0, "d2={d2}");
-                assert!(
-                    (d2 - d2_rev).abs() <= 1e-12 * (1.0 + d2),
-                    "symmetry: {d2} vs {d2_rev}"
-                );
+                assert_eq!(d2, d2_rev, "symmetry");
 
                 let mut wp = p.clone();
                 let mut wq = q.clone();
                 metric.wrap_point(&mut wp).unwrap();
                 metric.wrap_point(&mut wq).unwrap();
 
-                for axis in 0..dimensions {
-                    match periods[axis] {
-                        None => assert_eq!(disp[axis], q[axis] - p[axis]),
-                        Some(period) => {
-                            assert!(
-                                2.0 * disp[axis] >= -period && 2.0 * disp[axis] < period,
-                                "axis={axis}: disp={} period={period:e}",
-                                disp[axis]
-                            );
-                            let want_p = exact_difference(p[axis], period);
-                            let want_q = exact_difference(q[axis], period);
-                            let want = exact_difference(want_q - want_p, period);
-                            // Fast-path wrapping can shift by a few ulps of large inputs.
-                            let fast_p =
-                                (p[axis] / period).abs() < INTEGRAL && p[axis].abs() >= period;
-                            let fast_q =
-                                (q[axis] / period).abs() < INTEGRAL && q[axis].abs() >= period;
-                            let tol = if fast_p || fast_q {
-                                8.0 * (ulp(p[axis]) + ulp(q[axis]) + ulp(period))
-                            } else {
-                                4.0 * ulp(period)
-                            };
-                            assert!(
-                                circular_gap(disp[axis], want, period) <= tol,
-                                "p={} q={} period={period:e}: got={}, want={want}, tol={tol:e}",
-                                p[axis],
-                                q[axis],
-                                disp[axis]
-                            );
-                        }
-                    }
-                }
-
-                // Wrapped points must match raw extreme points when exact remainder runs.
                 let mut wdisp = vec![0.0; dimensions];
                 metric.displacement(&wp, &wq, &mut wdisp).unwrap();
                 for axis in 0..dimensions {
-                    if let Some(period) = periods[axis] {
-                        let tol = 8.0 * (ulp(p[axis]) + ulp(q[axis]) + ulp(period));
-                        assert!(
-                            circular_gap(disp[axis], wdisp[axis], period) <= tol,
-                            "wrap consistency axis={axis}"
-                        );
-                    }
+                    let period = periods[axis];
+                    assert_eq!(
+                        disp[axis],
+                        exact::displacement(p[axis], q[axis], period),
+                        "p={:e} q={:e} period={period:?}",
+                        p[axis],
+                        q[axis]
+                    );
+                    assert_eq!(
+                        wdisp[axis],
+                        exact::displacement(wp[axis], wq[axis], period),
+                        "wrapped p={:e} q={:e} period={period:?}",
+                        wp[axis],
+                        wq[axis]
+                    );
                 }
+                let squares: f64 = disp.iter().map(|x| x * x).sum();
+                assert_eq!(d2, squares);
             }
         }
     }
@@ -1356,7 +1504,7 @@ mod tests {
                 ];
                 let actual = metric.dist2(&point, &sample);
                 assert!(
-                    bound <= actual + 1e-12 * (1.0 + actual),
+                    bound <= actual,
                     "case={case}: bound={bound}, actual={actual}"
                 );
             }
@@ -1417,5 +1565,588 @@ mod tests {
             assert_eq!(metric.dist2(&[a], &[b]), expected * expected);
             assert_eq!(metric.axis_min_dist2(0, b, a, a), expected * expected);
         }
+    }
+
+    #[test]
+    fn exact_images_at_large_magnitudes_and_tiny_periods() {
+        let ten = PeriodicSpace::new(&[Some(10.0)]).unwrap();
+        let two_54 = 18_014_398_509_481_984.0;
+        let mut disp = [0.0];
+        ten.displacement(&[two_54], &[two_54 - 4.0], &mut disp)
+            .unwrap();
+        assert_eq!(disp, [-4.0]);
+        assert_eq!(ten.dist2(&[two_54], &[two_54 - 4.0]), 16.0);
+        let edge = two_54 + 4.0;
+        assert_eq!(ten.axis_min_dist2(0, two_54, edge, edge), 16.0);
+        assert_eq!(ten.axis_min_dist2(0, edge, two_54, two_54), 16.0);
+        assert_eq!(ten.aabb_min_dist2(&[two_54], &[edge], &[edge]), 16.0);
+
+        let micro = PeriodicSpace::new(&[Some(1e-6)]).unwrap();
+        let two_30 = 1_073_741_824.0;
+        let near = 4.768_371_582_031_25e-7;
+        micro
+            .displacement(&[two_30], &[two_30 + 4e-7], &mut disp)
+            .unwrap();
+        assert_eq!(disp, [near]);
+        assert_eq!(micro.dist2(&[two_30], &[two_30 + 4e-7]), near * near);
+
+        // The exact image of 10 by 1e-6 is far below one ulp of 10.
+        let far = 4.525_188_817_411_374e-16;
+        micro.displacement(&[-10.0], &[0.0], &mut disp).unwrap();
+        assert_eq!(disp, [far]);
+        assert_eq!(micro.dist2(&[-10.0], &[0.0]), 2.047_733_383_322_495e-31);
+        assert_eq!(micro.axis_min_dist2(0, 0.0, -10.0, -10.0), far * far);
+        let periods = [1e-6];
+        let slice = PeriodicSlice::new(&periods).unwrap();
+        assert_eq!(slice.dist2(&[-10.0], &[0.0]), far * far);
+        assert_eq!(slice.aabb_min_dist2(&[0.0], &[-10.0], &[-10.0]), far * far);
+        assert_eq!(exact::displacement(-10.0, 0.0, Some(1e-6)), far);
+    }
+
+    #[test]
+    fn rounding_the_exact_image_can_reach_half_a_period() {
+        let metric = PeriodicSpace::new(&[Some(2.0)]).unwrap();
+        let from = -(2f64.powi(-54) + 2f64.powi(-60));
+        let to = 1.0 - f64::EPSILON / 2.0;
+        assert!(exact::image(from, to, Some(2.0)).lt(exact::Big::from_f64(1.0)));
+        let mut disp = [0.0];
+        metric.displacement(&[from], &[to], &mut disp).unwrap();
+        assert_eq!(disp, [1.0]);
+        assert_eq!(exact::displacement(from, to, Some(2.0)), 1.0);
+        metric.displacement(&[to], &[from], &mut disp).unwrap();
+        assert_eq!(disp, [-1.0]);
+    }
+
+    /// Exact rational reference built on integers only.
+    ///
+    /// Every finite double is an integer multiple of `2^-1074`, so values
+    /// are fixed-width two's-complement integers at that scale and squares
+    /// are at scale `2^-2148`. Reduction by a period uses modular
+    /// arithmetic on the integer significands, never floating point.
+    mod exact {
+        const LIMBS: usize = 72;
+        /// Binary scale of a coordinate: one unit is `2^-1074`.
+        pub const SCALE: i32 = 1074;
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        pub struct Big([u64; LIMBS]);
+
+        #[derive(Clone, Copy)]
+        pub enum Round {
+            Nearest,
+            TowardZero,
+        }
+
+        impl Big {
+            pub const ZERO: Self = Self([0; LIMBS]);
+
+            fn from_u128(value: u128) -> Self {
+                let mut limbs = [0; LIMBS];
+                limbs[0] = value as u64;
+                limbs[1] = (value >> 64) as u64;
+                Self(limbs)
+            }
+
+            pub fn from_f64(value: f64) -> Self {
+                let (negative, significand, exponent) = decompose(value);
+                let magnitude = Self::from_u128(u128::from(significand)).shl(exponent + SCALE);
+                if negative {
+                    magnitude.neg()
+                } else {
+                    magnitude
+                }
+            }
+
+            fn shl(self, shift: i32) -> Self {
+                let shift = u32::try_from(shift).unwrap();
+                let words = (shift / 64) as usize;
+                let bits = shift % 64;
+                let mut out = [0; LIMBS];
+                for (source, word) in out[words..].iter_mut().enumerate() {
+                    *word = self.0[source] << bits;
+                    if bits > 0 && source > 0 {
+                        *word |= self.0[source - 1] >> (64 - bits);
+                    }
+                }
+                Self(out)
+            }
+
+            pub fn is_negative(self) -> bool {
+                self.0[LIMBS - 1] >> 63 == 1
+            }
+
+            pub fn neg(self) -> Self {
+                let mut out = [0; LIMBS];
+                let mut carry = 1;
+                for (word, &limb) in out.iter_mut().zip(&self.0) {
+                    let (value, overflow) = (!limb).overflowing_add(carry);
+                    *word = value;
+                    carry = u64::from(overflow);
+                }
+                Self(out)
+            }
+
+            pub fn add(self, other: Self) -> Self {
+                let mut out = [0; LIMBS];
+                let mut carry = false;
+                for (word, (&a, &b)) in out.iter_mut().zip(self.0.iter().zip(&other.0)) {
+                    let (value, first) = a.overflowing_add(b);
+                    let (value, second) = value.overflowing_add(u64::from(carry));
+                    *word = value;
+                    carry = first || second;
+                }
+                Self(out)
+            }
+
+            pub fn sub(self, other: Self) -> Self {
+                self.add(other.neg())
+            }
+
+            pub fn lt(self, other: Self) -> bool {
+                self.sub(other).is_negative()
+            }
+
+            pub fn abs(self) -> Self {
+                if self.is_negative() {
+                    self.neg()
+                } else {
+                    self
+                }
+            }
+
+            pub fn min(self, other: Self) -> Self {
+                if other.lt(self) {
+                    other
+                } else {
+                    self
+                }
+            }
+
+            pub fn mul(self, other: Self) -> Self {
+                let negative = self.is_negative() != other.is_negative();
+                let (a, b) = (self.abs(), other.abs());
+                let (len_a, len_b) = (a.words(), b.words());
+                let mut out = [0_u64; LIMBS];
+                for (i, &left) in a.0[..len_a].iter().enumerate() {
+                    let mut carry = 0_u128;
+                    for (slot, &right) in out[i..i + len_b].iter_mut().zip(&b.0[..len_b]) {
+                        let value =
+                            u128::from(left) * u128::from(right) + u128::from(*slot) + carry;
+                        *slot = value as u64;
+                        carry = value >> 64;
+                    }
+                    out[i + len_b] = carry as u64;
+                }
+                let product = Self(out);
+                if negative {
+                    product.neg()
+                } else {
+                    product
+                }
+            }
+
+            fn words(self) -> usize {
+                self.0
+                    .iter()
+                    .rposition(|&word| word != 0)
+                    .map_or(0, |i| i + 1)
+            }
+
+            fn bit_len(self) -> i32 {
+                let words = self.words();
+                if words == 0 {
+                    return 0;
+                }
+                (64 * words) as i32 - self.0[words - 1].leading_zeros() as i32
+            }
+
+            fn bit(self, index: i32) -> bool {
+                index >= 0 && (self.0[(index / 64) as usize] >> (index % 64)) & 1 == 1
+            }
+
+            fn any_below(self, index: i32) -> bool {
+                (0..index).any(|i| self.bit(i))
+            }
+
+            /// Value times `2^-scale`, rounded to a double.
+            pub fn to_f64(self, scale: i32, round: Round) -> f64 {
+                let magnitude = self.abs();
+                let len = magnitude.bit_len();
+                if len == 0 {
+                    return 0.0;
+                }
+                // The lowest kept bit: 53 significant bits, but none below
+                // the subnormal unit 2^-1074.
+                let low = (len - 53).max(scale - SCALE).max(0);
+                let mut significand = (low..len)
+                    .rev()
+                    .fold(0_u64, |acc, i| (acc << 1) | u64::from(magnitude.bit(i)));
+                if let Round::Nearest = round {
+                    let half = magnitude.bit(low - 1);
+                    let sticky = magnitude.any_below(low - 1);
+                    if half && (sticky || significand & 1 == 1) {
+                        significand += 1;
+                    }
+                }
+                let mut value = significand as f64;
+                let mut exponent = low - scale;
+                while exponent != 0 {
+                    let step = exponent.clamp(-1000, 1000);
+                    value *= f64::from_bits(((1023 + step) as u64) << 52);
+                    exponent -= step;
+                }
+                if value.is_infinite() {
+                    if let Round::TowardZero = round {
+                        value = f64::MAX;
+                    }
+                }
+                if self.is_negative() {
+                    -value
+                } else {
+                    value
+                }
+            }
+        }
+
+        fn decompose(value: f64) -> (bool, u64, i32) {
+            assert!(value.is_finite());
+            let bits = value.to_bits();
+            let biased = ((bits >> 52) & 0x7ff) as i32;
+            let fraction = bits & ((1 << 52) - 1);
+            if biased == 0 {
+                (bits >> 63 == 1, fraction, -SCALE)
+            } else {
+                (bits >> 63 == 1, fraction | (1 << 52), biased - 1075)
+            }
+        }
+
+        fn pow2_mod(mut exponent: i32, modulus: u128) -> u128 {
+            let mut result = 1 % modulus;
+            let mut base = 2 % modulus;
+            while exponent > 0 {
+                if exponent & 1 == 1 {
+                    result = result * base % modulus;
+                }
+                base = base * base % modulus;
+                exponent >>= 1;
+            }
+            result
+        }
+
+        /// `value mod period` in `[0, period)`.
+        pub fn rem_euclid(value: f64, period: f64) -> Big {
+            let (negative, significand, exponent) = decompose(value);
+            let (_, period_significand, period_exponent) = decompose(period);
+            let modulus = u128::from(period_significand);
+            let (remainder, unit) = if exponent >= period_exponent {
+                let scaled = pow2_mod(exponent - period_exponent, modulus);
+                (
+                    u128::from(significand) % modulus * scaled % modulus,
+                    period_exponent,
+                )
+            } else {
+                let shift = period_exponent - exponent;
+                if shift >= 64 {
+                    (u128::from(significand), exponent)
+                } else {
+                    (u128::from(significand) % (modulus << shift), exponent)
+                }
+            };
+            let remainder = Big::from_u128(remainder).shl(unit + SCALE);
+            if negative && remainder != Big::ZERO {
+                Big::from_f64(period).sub(remainder)
+            } else {
+                remainder
+            }
+        }
+
+        /// Exact minimum image of `to - from` in `[-period / 2, period / 2)`.
+        pub fn image(from: f64, to: f64, period: Option<f64>) -> Big {
+            let Some(period) = period else {
+                return Big::from_f64(to).sub(Big::from_f64(from));
+            };
+            let length = Big::from_f64(period);
+            let difference = rem_euclid(to, period).sub(rem_euclid(from, period));
+            let twice = difference.add(difference);
+            if !twice.lt(length) {
+                difference.sub(length)
+            } else if twice.lt(length.neg()) {
+                difference.add(length)
+            } else {
+                difference
+            }
+        }
+
+        pub fn displacement(from: f64, to: f64, period: Option<f64>) -> f64 {
+            image(from, to, period).to_f64(SCALE, Round::Nearest)
+        }
+
+        /// Exact distance from `x` to `[lo, hi]` on one axis.
+        pub fn gap(x: f64, lo: f64, hi: f64, period: Option<f64>) -> Big {
+            assert!(lo <= hi);
+            if lo <= x && x <= hi {
+                return Big::ZERO;
+            }
+            let (x_big, lo_big, hi_big) = (Big::from_f64(x), Big::from_f64(lo), Big::from_f64(hi));
+            let Some(period) = period else {
+                return if x < lo {
+                    lo_big.sub(x_big)
+                } else {
+                    x_big.sub(hi_big)
+                };
+            };
+            let length = Big::from_f64(period);
+            let width = hi_big.sub(lo_big);
+            if !width.lt(length) {
+                return Big::ZERO;
+            }
+            let mut forward = rem_euclid(x, period).sub(rem_euclid(lo, period));
+            if forward.is_negative() {
+                forward = forward.add(length);
+            }
+            if !width.lt(forward) {
+                return Big::ZERO;
+            }
+            forward.sub(width).min(length.sub(forward))
+        }
+
+        pub fn square(value: Big) -> Big {
+            value.mul(value)
+        }
+    }
+
+    fn period_sample(rng: &mut Lcg, case: usize) -> f64 {
+        let period = match case % 8 {
+            0 => rng.range(0.05, 50.0),
+            1 => 1e-6 * rng.range(0.5, 2.0),
+            2 => 1e-6,
+            3 => 10f64.powf(rng.range(-300.0, 300.0)),
+            4 => any_magnitude(rng).abs(),
+            5 => f64::from_bits(1 + (rng.0 >> 12) % 64),
+            6 => f64::MAX * rng.range(0.25, 1.0),
+            _ => 10.0,
+        };
+        if period == 0.0 || !period.is_finite() {
+            1.0
+        } else {
+            period
+        }
+    }
+
+    fn coordinate_sample(rng: &mut Lcg, period: f64, kind: usize) -> f64 {
+        let value = match kind % 9 {
+            0 => rng.range(-3.0, 3.0) * period,
+            1 => any_magnitude(rng),
+            2 => {
+                let magnitude = 2f64.powi((rng.next() * 1023.0) as i32);
+                if rng.next() < 0.5 {
+                    -magnitude
+                } else {
+                    magnitude
+                }
+            }
+            3 => rng.range(-1e6, 1e6).trunc() * period,
+            4 => rng.range(-100.0, 100.0),
+            5 => f64::MAX,
+            6 => -f64::MAX,
+            7 => {
+                if rng.next() < 0.5 {
+                    -0.0
+                } else {
+                    0.0
+                }
+            }
+            _ => rng.range(-1.0, 1.0) * 2f64.powf(rng.range(0.0, 80.0)),
+        };
+        if value.is_finite() {
+            value
+        } else {
+            0.0
+        }
+    }
+
+    /// A second coordinate near `from`: a few ulps, a multiple of half the
+    /// period, or unrelated.
+    fn partner_sample(rng: &mut Lcg, from: f64, period: f64, kind: usize) -> f64 {
+        let to = match kind % 9 {
+            0 => f64::from_bits(from.to_bits().wrapping_add((rng.0 >> 60) + 1)),
+            1 => f64::from_bits(from.to_bits().wrapping_sub((rng.0 >> 60) + 1)),
+            2 => from + rng.range(-4.0, 4.0).round() * 0.5 * period,
+            3 => from + rng.range(-1.0, 1.0) * period,
+            4 => -from,
+            5 => rng.range(-1.0, 1.0) * f64::MAX,
+            6 => from + rng.range(-20.0, 20.0) * period,
+            7 => from + rng.range(-18.0, 18.0).round() * period,
+            _ => coordinate_sample(rng, period, kind / 9),
+        };
+        if to.is_finite() {
+            to
+        } else {
+            from
+        }
+    }
+
+    #[test]
+    fn displacement_matches_an_exact_rational_oracle() {
+        let mut rng = Lcg(0x4f52_4143_4c45_4449);
+        let mut checked = 0_usize;
+        let mut mismatches = Vec::new();
+        for case in 0..60_000 {
+            let period = period_sample(&mut rng, case);
+            let from = coordinate_sample(&mut rng, period, case / 8);
+            let to = partner_sample(&mut rng, from, period, case / 72);
+            let metric = PeriodicSpace::new(&[Some(period)]).unwrap();
+            for (p, q) in [(from, to), (to, from)] {
+                let want = exact::displacement(p, q, Some(period));
+                let mut disp = [0.0];
+                metric.displacement(&[p], &[q], &mut disp).unwrap();
+                let dist2 = metric.dist2(&[p], &[q]);
+                checked += 1;
+                if disp[0] != want || dist2 != want * want {
+                    mismatches.push((p, q, period, disp[0], want));
+                }
+            }
+        }
+        assert!(checked >= 120_000);
+        assert!(
+            mismatches.is_empty(),
+            "{} of {checked} mismatches, first {:?}",
+            mismatches.len(),
+            &mismatches[..mismatches.len().min(5)]
+        );
+    }
+
+    /// A random interval for one axis: degenerate, short, near half or one
+    /// period, or wider than the period.
+    fn interval_sample(rng: &mut Lcg, period: f64, x: f64, kind: usize) -> (f64, f64) {
+        let lo = match kind % 4 {
+            0 => coordinate_sample(rng, period, kind / 4),
+            1 => partner_sample(rng, x, period, kind / 4),
+            2 => rng.range(-4.0, 4.0) * period,
+            _ => x + rng.range(-2.0, 2.0) * period,
+        };
+        let width = match (kind / 4) % 7 {
+            0 => 0.0,
+            1 => rng.range(0.0, 0.5) * period,
+            2 => 0.5 * period,
+            3 => f64::from_bits(period.to_bits().saturating_sub(1 + (rng.0 >> 62))),
+            4 => period,
+            5 => rng.range(0.0, 1.5) * period,
+            _ => any_magnitude(rng).abs(),
+        };
+        let lo = if lo.is_finite() { lo } else { 0.0 };
+        let hi = lo + width;
+        if hi.is_finite() {
+            (lo, hi)
+        } else {
+            (lo, lo)
+        }
+    }
+
+    #[test]
+    fn interval_bounds_never_exceed_an_exact_rational_oracle() {
+        let mut rng = Lcg(0x424f_554e_4445_5841);
+        let mut axis_checked = 0_usize;
+        let mut box_checked = 0_usize;
+        let mut failures = Vec::new();
+        for case in 0..60_000 {
+            let open = case % 5 == 4;
+            let period = period_sample(&mut rng, case);
+            let x = coordinate_sample(&mut rng, period, case / 8);
+            let (lo, hi) = interval_sample(&mut rng, period, x, case / 40);
+            let periods = if open { [None] } else { [Some(period)] };
+            let metric = PeriodicSpace::new(&periods).unwrap();
+            let gap = exact::gap(x, lo, hi, periods[0]);
+            let tight = gap.to_f64(exact::SCALE, exact::Round::TowardZero);
+            let rounded = exact::square(gap).to_f64(2 * exact::SCALE, exact::Round::Nearest);
+            let bound = metric.axis_min_dist2(0, x, lo, hi);
+            axis_checked += 1;
+            if bound != tight * tight || bound > rounded {
+                failures.push((x, lo, hi, periods[0], bound, rounded));
+            }
+            if open {
+                assert_eq!(Euclidean.axis_min_dist2(0, x, lo, hi), bound);
+            } else {
+                let slice_periods = [period];
+                let slice = PeriodicSlice::new(&slice_periods).unwrap();
+                assert_eq!(slice.axis_min_dist2(0, x, lo, hi), bound);
+            }
+        }
+
+        for case in 0..10_000 {
+            let dimensions = 2 + case % 5;
+            let mut periods = Vec::with_capacity(dimensions);
+            let mut point = Vec::with_capacity(dimensions);
+            let mut lower = Vec::with_capacity(dimensions);
+            let mut upper = Vec::with_capacity(dimensions);
+            let mut exact_sum = exact::Big::ZERO;
+            for axis in 0..dimensions {
+                let period = period_sample(&mut rng, case + axis);
+                let period = ((case + axis) % 4 != 3).then_some(period);
+                let scale = period.unwrap_or(1.0);
+                // Small coordinates keep several axes nonzero at comparable
+                // scales, which is where a rounded sum can overshoot.
+                let x = if case % 3 == 0 {
+                    coordinate_sample(&mut rng, scale, case / 3 + axis)
+                } else {
+                    (rng.range(-2.0, 2.0) * scale).clamp(-f64::MAX, f64::MAX)
+                };
+                let (lo, hi) = interval_sample(&mut rng, scale, x, case + 7 * axis);
+                exact_sum = exact_sum.add(exact::square(exact::gap(x, lo, hi, period)));
+                periods.push(period);
+                point.push(x);
+                lower.push(lo);
+                upper.push(hi);
+            }
+            let metric = PeriodicSpace::new(&periods).unwrap();
+            let bound = metric.aabb_min_dist2(&point, &lower, &upper);
+            let rounded = exact_sum.to_f64(2 * exact::SCALE, exact::Round::Nearest);
+            box_checked += 1;
+            if bound.is_nan() || bound > rounded {
+                failures.push((point[0], lower[0], upper[0], periods[0], bound, rounded));
+            }
+            // A sound bound may lose a few ulps to the downward rounding.
+            if rounded > 1e-280 && rounded.is_finite() {
+                assert!(
+                    bound >= rounded * (1.0 - 16.0 * f64::EPSILON),
+                    "case={case}: bound {bound:e} far below {rounded:e}"
+                );
+            }
+            for corner in 0..4_u32 {
+                let sample: Vec<f64> = (0..dimensions)
+                    .map(|axis| match (corner >> (axis % 2)) & 1 {
+                        0 => lower[axis],
+                        _ => upper[axis],
+                    })
+                    .collect();
+                assert!(
+                    bound <= metric.dist2(&point, &sample),
+                    "case={case}: {bound:e} vs {:e} p={point:?} lo={lower:?} hi={upper:?} periods={periods:?}",
+                    metric.dist2(&point, &sample)
+                );
+            }
+            let open_sum = (0..dimensions).fold(exact::Big::ZERO, |sum, axis| {
+                sum.add(exact::square(exact::gap(
+                    point[axis],
+                    lower[axis],
+                    upper[axis],
+                    None,
+                )))
+            });
+            let euclidean = Euclidean.aabb_min_dist2(&point, &lower, &upper);
+            box_checked += 1;
+            if euclidean.is_nan()
+                || euclidean > open_sum.to_f64(2 * exact::SCALE, exact::Round::Nearest)
+            {
+                failures.push((point[0], lower[0], upper[0], None, euclidean, f64::NAN));
+            }
+        }
+        assert_eq!((axis_checked, box_checked), (60_000, 20_000));
+        assert!(
+            failures.is_empty(),
+            "{} bounds above the exact minimum, first {:?}",
+            failures.len(),
+            &failures[..failures.len().min(5)]
+        );
     }
 }
