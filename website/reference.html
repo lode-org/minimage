@@ -667,8 +667,18 @@ or <code>BufferError</code>.
 </tr>
 
 <tr>
-<td class="org-left"><code>wrap_point</code>, <code>wrap_difference</code>, <code>displacement</code></td>
-<td class="org-left">N-dimensional half-open wraps</td>
+<td class="org-left"><code>wrap_point(point)</code>, <code>wrap_points(points)</code></td>
+<td class="org-left">Point wrap; each periodic component is in the half-open interval <code>[0, period)</code> and an open axis is unchanged</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>wrap_difference(difference)</code>, <code>wrap_differences(differences)</code></td>
+<td class="org-left">Difference wrap; each periodic component is in the half-open interval <code>[-period/2, period/2)</code> and an open axis is unchanged</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>displacement(p, q)</code></td>
+<td class="org-left">Exact minimum image of <code>q - p</code>, rounded once; each periodic component is in the closed interval <code>[-period/2, period/2]</code> and an open axis is <code>q - p</code></td>
 </tr>
 
 <tr>
