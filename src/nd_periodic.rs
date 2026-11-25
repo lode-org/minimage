@@ -229,7 +229,7 @@ impl PeriodicSpace {
         self.check_row(q)?;
         self.check_row(out)?;
         for axis in 0..self.dimensions() {
-            out[axis] = wrap_difference_component(q[axis] - p[axis], self.periods[axis]);
+            out[axis] = difference_component(p[axis], q[axis], self.periods[axis]);
         }
         Ok(())
     }
@@ -429,7 +429,7 @@ fn dist2_rows(periods: &impl PeriodSource, p: &[f64], q: &[f64]) -> f64 {
         .zip(q)
         .enumerate()
         .map(|(axis, (&a, &b))| {
-            let delta = wrap_difference_component(b - a, periods.period(axis));
+            let delta = difference_component(a, b, periods.period(axis));
             delta * delta
         })
         .sum()
@@ -450,12 +450,27 @@ fn axis_min_dist2(periods: &impl PeriodSource, axis: usize, x: f64, lo: f64, hi:
     if width >= period {
         return 0.0;
     }
-    let from_lo = wrap_point_component(x - lo, period);
+    let (d_lo, d_hi) = if ((0.0..period).contains(&x)
+        && (0.0..period).contains(&lo)
+        && (0.0..period).contains(&hi))
+        || (in_half_period(x, period) && in_half_period(lo, period) && in_half_period(hi, period))
+    {
+        (x - lo, x - hi)
+    } else {
+        // Reduce each coordinate into [-period / 2, period / 2) before
+        // subtraction so huge values cannot overflow the raw difference or
+        // swallow small bounds.
+        let wx = wrap_difference_component(x, Some(period));
+        let wlo = wrap_difference_component(lo, Some(period));
+        let whi = wrap_difference_component(hi, Some(period));
+        (wx - wlo, wx - whi)
+    };
+    let from_lo = if d_lo >= 0.0 { d_lo } else { d_lo + period };
     if from_lo <= width {
         return 0.0;
     }
-    let to_lo = wrap_difference_component(x - lo, Some(period));
-    let to_hi = wrap_difference_component(x - hi, Some(period));
+    let to_lo = wrap_near(d_lo, period);
+    let to_hi = wrap_near(d_hi, period);
     (to_lo * to_lo).min(to_hi * to_hi)
 }
 
@@ -480,7 +495,37 @@ fn axis_interval_delta(x: f64, lo: f64, hi: f64) -> Option<f64> {
 }
 
 #[inline]
+fn in_half_period(value: f64, period: f64) -> bool {
+    2.0 * value >= -period && 2.0 * value < period
+}
+
+/// Wrapped component difference `to - from` in `[-period / 2, period / 2)`.
+///
+/// Coordinates already inside `[0, period)` or `[-period / 2, period / 2)`
+/// subtract directly and fold with one branchless check. Everything else
+/// reduces each coordinate into `[-period / 2, period / 2)` first so
+/// extreme finite inputs never overflow `to - from` or swallow small
+/// coordinates.
+#[inline]
+fn difference_component(from: f64, to: f64, period: Option<f64>) -> f64 {
+    let Some(period) = period else {
+        return to - from;
+    };
+    if ((0.0..period).contains(&from) && (0.0..period).contains(&to))
+        || (in_half_period(from, period) && in_half_period(to, period))
+    {
+        return wrap_near(to - from, period);
+    }
+    let wrapped_from = wrap_difference_component(from, Some(period));
+    let wrapped_to = wrap_difference_component(to, Some(period));
+    wrap_near(wrapped_to - wrapped_from, period)
+}
+
+#[inline]
 fn wrap_point_component(value: f64, period: f64) -> f64 {
+    if (0.0..period).contains(&value) {
+        return if value <= 0.0 { 0.0 } else { value };
+    }
     let quotient = value / period;
     if quotient.is_finite() && quotient.abs() < INTEGRAL {
         let mut wrapped = value - period * floor_fast(quotient);
@@ -1030,5 +1075,273 @@ mod tests {
         assert_eq!(metric.axis_min_dist2(0, 9.5, 0.0, 1.0), 0.25);
         assert_eq!(metric.axis_min_dist2(0, 8.0, 2.0, 12.0), 0.0);
         assert!(metric.aabb_min_dist2(&[0.0], &[f64::NAN], &[1.0]).is_nan());
+    }
+
+    #[test]
+    fn extreme_coordinates_stay_finite_and_match_wrapped_points() {
+        let metric = PeriodicSpace::new(&[Some(10.0), None, Some(3.0)]).unwrap();
+        let p = [-f64::MAX, -2.5, f64::MAX];
+        let q = [f64::MAX, 1.5, -f64::MAX];
+
+        let mut disp = [0.0; 3];
+        metric.displacement(&p, &q, &mut disp).unwrap();
+        let d2 = metric.dist2(&p, &q);
+        let dist = metric.distance(&p, &q);
+        assert!(disp.iter().all(|x| x.is_finite()), "disp={disp:?}");
+        assert!(d2.is_finite(), "d2={d2}");
+        assert!(dist.is_finite(), "dist={dist}");
+
+        let mut wp = p;
+        let mut wq = q;
+        metric.wrap_point(&mut wp).unwrap();
+        metric.wrap_point(&mut wq).unwrap();
+        let mut wdisp = [0.0; 3];
+        metric.displacement(&wp, &wq, &mut wdisp).unwrap();
+        assert_eq!(disp, wdisp);
+        assert_eq!(d2, metric.dist2(&wp, &wq));
+        assert_eq!(dist, d2.sqrt());
+
+        let mut out_many = [0.0; 2];
+        metric
+            .dist2_many(&p, &[q[0], q[1], q[2], p[0], p[1], p[2]], &mut out_many)
+            .unwrap();
+        assert_eq!(out_many, [d2, 0.0]);
+
+        let mut out_pairs = [0.0; 2];
+        metric
+            .dist2_pairs(
+                &[p[0], p[1], p[2], q[0], q[1], q[2]],
+                &[q[0], q[1], q[2], p[0], p[1], p[2]],
+                &mut out_pairs,
+            )
+            .unwrap();
+        assert_eq!(out_pairs, [d2, d2]);
+
+        // Tiny bounds near zero against a huge coordinate must not be
+        // swallowed by raw subtraction.
+        let one_d = PeriodicSpace::new(&[Some(10.0)]).unwrap();
+        assert_eq!(one_d.axis_min_dist2(0, 1e20 + 16384.0, 2.5, 4.5), 0.0);
+        assert_eq!(one_d.axis_min_dist2(0, f64::MAX, -1.0, 1.0), 1.0);
+        let huge_period = PeriodicSpace::new(&[Some(1e300)]).unwrap();
+        assert!(huge_period
+            .axis_min_dist2(0, 1e308, -1e308, -1e308 + 1e295)
+            .is_finite());
+
+        // Negative coordinates much smaller than the period keep precision.
+        let large = PeriodicSpace::new(&[Some(1e10)]).unwrap();
+        let mut small_disp = [0.0];
+        large
+            .displacement(&[-1e-7], &[-2e-7], &mut small_disp)
+            .unwrap();
+        assert!((small_disp[0] + 1e-7).abs() <= 1e-20);
+        assert!((large.axis_min_dist2(0, -2e-7, -1e-7, -0.5e-7) - 1e-14).abs() <= 1e-28);
+    }
+
+    #[test]
+    fn ordinary_inputs_match_raw_subtraction_to_spectroscopic_accuracy() {
+        let mut rng = Lcg(0x4f52_4449_4e41_5259);
+        for dimensions in 1..=6 {
+            for case in 0..120 {
+                let periods: Vec<Option<f64>> = (0..dimensions)
+                    .map(|axis| {
+                        if (axis + case) % 3 == 0 {
+                            None
+                        } else {
+                            Some(rng.range(0.05, 50.0))
+                        }
+                    })
+                    .collect();
+                let metric = PeriodicSpace::new(&periods).unwrap();
+                let mut p = Vec::with_capacity(dimensions);
+                let mut q = Vec::with_capacity(dimensions);
+                for &period in &periods {
+                    let scale = period.unwrap_or(10.0);
+                    p.push(rng.range(-25.0 * scale, 25.0 * scale));
+                    q.push(rng.range(-25.0 * scale, 25.0 * scale));
+                }
+                let mut disp = vec![0.0; dimensions];
+                metric.displacement(&p, &q, &mut disp).unwrap();
+                let mut expected_d2 = 0.0;
+                for axis in 0..dimensions {
+                    let expected = wrap_difference_component(q[axis] - p[axis], periods[axis]);
+                    assert!(
+                        (disp[axis] - expected).abs()
+                            <= 1e-11 * (1.0 + periods[axis].unwrap_or(1.0)),
+                        "d={dimensions} case={case} axis={axis}: got {}, want {expected}",
+                        disp[axis]
+                    );
+                    expected_d2 += expected * expected;
+                }
+                let got_d2 = metric.dist2(&p, &q);
+                assert!(
+                    (got_d2 - expected_d2).abs() <= 1e-11 * (1.0 + expected_d2),
+                    "d={dimensions} case={case}: d2 got {got_d2}, want {expected_d2}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn properties_over_extreme_magnitudes_negatives_and_mixed_axes() {
+        let mut rng = Lcg(0x5052_4f50_4552_5459);
+        for dimensions in 1..=8 {
+            for case in 0..400 {
+                let periods: Vec<Option<f64>> = (0..dimensions)
+                    .map(|axis| match (axis + case) % 4 {
+                        0 => None,
+                        1 => Some(rng.range(0.1, 25.0)),
+                        2 => Some(f64::from_bits(1 + (rng.0 >> 12) % 32)),
+                        _ => Some(any_magnitude(&mut rng).abs().clamp(1e-12, 1e150)),
+                    })
+                    .collect();
+                let metric = PeriodicSpace::new(&periods).unwrap();
+                let mut p = Vec::with_capacity(dimensions);
+                let mut q = Vec::with_capacity(dimensions);
+                for (axis, &period) in periods.iter().enumerate() {
+                    let val_p = match (case + axis) % 5 {
+                        0 => f64::MAX,
+                        1 => -f64::MAX,
+                        2 => -rng.range(0.0, period.unwrap_or(10.0) * 1e6),
+                        3 => any_magnitude(&mut rng),
+                        _ => rng.range(-100.0, 100.0),
+                    };
+                    let val_q = match (case + axis) % 6 {
+                        0 => -f64::MAX,
+                        1 => f64::MAX,
+                        2 => -rng.range(0.0, period.unwrap_or(10.0) * 1e6),
+                        3 => any_magnitude(&mut rng),
+                        4 => rng.range(-10.0, 10.0),
+                        _ => -0.0,
+                    };
+                    // Keep non-periodic axes within finite difference square range.
+                    if period.is_none() {
+                        p.push(val_p.clamp(-1e100, 1e100));
+                        q.push(val_q.clamp(-1e100, 1e100));
+                    } else {
+                        p.push(val_p);
+                        q.push(val_q);
+                    }
+                }
+                if p.iter().chain(&q).any(|x| !x.is_finite()) {
+                    continue;
+                }
+
+                let mut disp = vec![0.0; dimensions];
+                metric.displacement(&p, &q, &mut disp).unwrap();
+                let d2 = metric.dist2(&p, &q);
+                let d2_rev = metric.dist2(&q, &p);
+                assert!(disp.iter().all(|x| x.is_finite()), "disp={disp:?}");
+                assert!(d2.is_finite() && d2 >= 0.0, "d2={d2}");
+                assert!(
+                    (d2 - d2_rev).abs() <= 1e-12 * (1.0 + d2),
+                    "symmetry: {d2} vs {d2_rev}"
+                );
+
+                let mut wp = p.clone();
+                let mut wq = q.clone();
+                metric.wrap_point(&mut wp).unwrap();
+                metric.wrap_point(&mut wq).unwrap();
+
+                for axis in 0..dimensions {
+                    match periods[axis] {
+                        None => assert_eq!(disp[axis], q[axis] - p[axis]),
+                        Some(period) => {
+                            assert!(
+                                2.0 * disp[axis] >= -period && 2.0 * disp[axis] < period,
+                                "axis={axis}: disp={} period={period:e}",
+                                disp[axis]
+                            );
+                            let want_p = exact_difference(p[axis], period);
+                            let want_q = exact_difference(q[axis], period);
+                            let want = exact_difference(want_q - want_p, period);
+                            // Fast-path wrapping can shift by a few ulps of large inputs.
+                            let fast_p =
+                                (p[axis] / period).abs() < INTEGRAL && p[axis].abs() >= period;
+                            let fast_q =
+                                (q[axis] / period).abs() < INTEGRAL && q[axis].abs() >= period;
+                            let tol = if fast_p || fast_q {
+                                8.0 * (ulp(p[axis]) + ulp(q[axis]) + ulp(period))
+                            } else {
+                                4.0 * ulp(period)
+                            };
+                            assert!(
+                                circular_gap(disp[axis], want, period) <= tol,
+                                "p={} q={} period={period:e}: got={}, want={want}, tol={tol:e}",
+                                p[axis],
+                                q[axis],
+                                disp[axis]
+                            );
+                        }
+                    }
+                }
+
+                // Wrapped points must match raw extreme points when exact remainder runs.
+                let mut wdisp = vec![0.0; dimensions];
+                metric.displacement(&wp, &wq, &mut wdisp).unwrap();
+                for axis in 0..dimensions {
+                    if let Some(period) = periods[axis] {
+                        let tol = 8.0 * (ulp(p[axis]) + ulp(q[axis]) + ulp(period));
+                        assert!(
+                            circular_gap(disp[axis], wdisp[axis], period) <= tol,
+                            "wrap consistency axis={axis}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn box_bound_stays_finite_and_sound_for_extreme_coordinates() {
+        let mut rng = Lcg(0x4558_5452_4141_4242);
+        for case in 0..300 {
+            let periods = [
+                Some(rng.range(0.5, 20.0)),
+                None,
+                Some(rng.range(1e-6, 10.0)),
+            ];
+            let metric = PeriodicSpace::new(&periods).unwrap();
+            let mut point = [0.0; 3];
+            let mut lower = [0.0; 3];
+            let mut upper = [0.0; 3];
+            for axis in 0..3 {
+                match periods[axis] {
+                    None => {
+                        let lo = rng.range(-100.0, 100.0);
+                        lower[axis] = lo;
+                        upper[axis] = lo + rng.range(0.0, 20.0);
+                        point[axis] = rng.range(-200.0, 200.0);
+                    }
+                    Some(period) => {
+                        let lo = rng.range(-4.0 * period, 4.0 * period);
+                        lower[axis] = lo;
+                        upper[axis] = lo + rng.range(0.0, 1.3 * period);
+                        point[axis] = match (case + axis) % 4 {
+                            0 => f64::MAX,
+                            1 => -f64::MAX,
+                            2 => -rng.range(0.0, 1e12 * period),
+                            _ => any_magnitude(&mut rng),
+                        };
+                        if !point[axis].is_finite() {
+                            point[axis] = -f64::MAX;
+                        }
+                    }
+                }
+            }
+            let bound = metric.aabb_min_dist2(&point, &lower, &upper);
+            assert!(bound.is_finite() && bound >= 0.0, "bound={bound}");
+            for _ in 0..16 {
+                let sample = [
+                    rng.range(lower[0], upper[0]),
+                    rng.range(lower[1], upper[1]),
+                    rng.range(lower[2], upper[2]),
+                ];
+                let actual = metric.dist2(&point, &sample);
+                assert!(
+                    bound <= actual + 1e-12 * (1.0 + actual),
+                    "case={case}: bound={bound}, actual={actual}"
+                );
+            }
+        }
     }
 }
