@@ -120,6 +120,17 @@ def test_extreme_magnitudes_negatives_and_mixed_axes():
     assert math.isfinite(box) and box >= 4.0
 
 
+def test_huge_image_counts_keep_a_representable_separation():
+    metric = PeriodicSpace([9.664251935223536e-9, None])
+    a, b = 35602323.55526906, 35602323.55526907
+    expected = -2.2136713382997084e-9
+
+    assert metric.displacement([a, 1.0], [b, 3.0]) == [expected, 2.0]
+    assert metric.dist2([a, 0.0], [b, 0.0]) == expected * expected
+    assert metric.axis_min_dist2(0, b, a, a) == expected * expected
+    assert metric.aabb_min_dist2([b, 0.0], [a, -1.0], [a, 1.0]) == expected * expected
+
+
 def test_property_extreme_and_negative_coordinates():
     rng = np.random.default_rng(0x50524F50)
     big = sys.float_info.max

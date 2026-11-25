@@ -192,3 +192,26 @@ fn nd_capi_extreme_and_negative_coordinates_stay_finite() {
     );
     assert!(box_bound.is_finite() && box_bound >= 4.0);
 }
+
+#[test]
+fn nd_capi_huge_image_counts_keep_a_representable_separation() {
+    let periods = [9.664_251_935_223_536e-9];
+    let (a, b) = (35_602_323.555_269_06, 35_602_323.555_269_07);
+    let expected = -2.213_671_338_299_708_4e-9_f64;
+    let mut out = 0.0;
+    assert_eq!(
+        unsafe { minimage_nd_dist2(periods.as_ptr(), 1, &a, &b, &mut out) },
+        0
+    );
+    assert_eq!(out, expected * expected);
+    assert_eq!(
+        unsafe { minimage_nd_axis_min_dist2(periods.as_ptr(), 1, 0, b, a, a, &mut out) },
+        0
+    );
+    assert_eq!(out, expected * expected);
+    assert_eq!(
+        unsafe { minimage_nd_aabb_min_dist2(periods.as_ptr(), 1, &b, &a, &a, &mut out) },
+        0
+    );
+    assert_eq!(out, expected * expected);
+}

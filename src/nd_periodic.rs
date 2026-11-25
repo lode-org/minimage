@@ -450,21 +450,8 @@ fn axis_min_dist2(periods: &impl PeriodSource, axis: usize, x: f64, lo: f64, hi:
     if width >= period {
         return 0.0;
     }
-    let (d_lo, d_hi) = if ((0.0..period).contains(&x)
-        && (0.0..period).contains(&lo)
-        && (0.0..period).contains(&hi))
-        || (in_half_period(x, period) && in_half_period(lo, period) && in_half_period(hi, period))
-    {
-        (x - lo, x - hi)
-    } else {
-        // Reduce each coordinate into [-period / 2, period / 2) before
-        // subtraction so huge values cannot overflow the raw difference or
-        // swallow small bounds.
-        let wx = wrap_difference_component(x, Some(period));
-        let wlo = wrap_difference_component(lo, Some(period));
-        let whi = wrap_difference_component(hi, Some(period));
-        (wx - wlo, wx - whi)
-    };
+    let d_lo = near_difference(lo, x, period);
+    let d_hi = near_difference(hi, x, period);
     let from_lo = if d_lo >= 0.0 { d_lo } else { d_lo + period };
     if from_lo <= width {
         return 0.0;
@@ -494,31 +481,54 @@ fn axis_interval_delta(x: f64, lo: f64, hi: f64) -> Option<f64> {
     }
 }
 
-#[inline]
-fn in_half_period(value: f64, period: f64) -> bool {
-    2.0 * value >= -period && 2.0 * value < period
-}
+/// Image count below which [`reduce_coordinate`] uses the fast reduction.
+///
+/// The fast reduction errs by about one ulp of the coordinate, so this
+/// keeps its error under `2^-26` of the period.
+const FAST_REDUCTION_IMAGES: f64 = 67_108_864.0;
 
 /// Wrapped component difference `to - from` in `[-period / 2, period / 2)`.
-///
-/// Coordinates already inside `[0, period)` or `[-period / 2, period / 2)`
-/// subtract directly and fold with one branchless check. Everything else
-/// reduces each coordinate into `[-period / 2, period / 2)` first so
-/// extreme finite inputs never overflow `to - from` or swallow small
-/// coordinates.
 #[inline]
 fn difference_component(from: f64, to: f64, period: Option<f64>) -> f64 {
     let Some(period) = period else {
         return to - from;
     };
-    if ((0.0..period).contains(&from) && (0.0..period).contains(&to))
-        || (in_half_period(from, period) && in_half_period(to, period))
-    {
-        return wrap_near(to - from, period);
+    wrap_near(near_difference(from, to, period), period)
+}
+
+/// `to - from` shifted by whole periods into `(-period, period)`.
+///
+/// A raw difference shorter than the period rounds by at most half an ulp
+/// of the period, and is exact for nearby coordinates, so it is kept.
+/// Otherwise each coordinate is reduced before subtracting, so extreme
+/// finite inputs never overflow `to - from` or swallow small coordinates.
+#[inline]
+fn near_difference(from: f64, to: f64, period: f64) -> f64 {
+    let raw = to - from;
+    if raw.abs() < period {
+        return raw;
     }
-    let wrapped_from = wrap_difference_component(from, Some(period));
-    let wrapped_to = wrap_difference_component(to, Some(period));
-    wrap_near(wrapped_to - wrapped_from, period)
+    reduce_coordinate(to, period) - reduce_coordinate(from, period)
+}
+
+/// `value` reduced into `[-period / 2, period / 2)` for subtraction.
+#[inline]
+fn reduce_coordinate(value: f64, period: f64) -> f64 {
+    if value.abs() < FAST_REDUCTION_IMAGES * period {
+        wrap_difference_component(value, Some(period))
+    } else {
+        reduce_coordinate_exact(value, period)
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn reduce_coordinate_exact(value: f64, period: f64) -> f64 {
+    if value.is_finite() {
+        fold_half(value % period, period)
+    } else {
+        f64::NAN
+    }
 }
 
 #[inline]
@@ -1122,10 +1132,18 @@ mod tests {
         let one_d = PeriodicSpace::new(&[Some(10.0)]).unwrap();
         assert_eq!(one_d.axis_min_dist2(0, 1e20 + 16384.0, 2.5, 4.5), 0.0);
         assert_eq!(one_d.axis_min_dist2(0, f64::MAX, -1.0, 1.0), 1.0);
+        // The exact image gap here is about 8.3e291, whose square rounds to
+        // infinity rather than to the zero a rounded image shift would give.
         let huge_period = PeriodicSpace::new(&[Some(1e300)]).unwrap();
-        assert!(huge_period
-            .axis_min_dist2(0, 1e308, -1e308, -1e308 + 1e295)
-            .is_finite());
+        assert_eq!(
+            huge_period.axis_min_dist2(0, 1e308, -1e308, -1e308 + 1e295),
+            f64::INFINITY
+        );
+        let mut huge_disp = [0.0];
+        huge_period
+            .displacement(&[-1e308], &[1e308], &mut huge_disp)
+            .unwrap();
+        assert_eq!(huge_disp[0], -8.305_139_325_152_793e291);
 
         // Negative coordinates much smaller than the period keep precision.
         let large = PeriodicSpace::new(&[Some(1e10)]).unwrap();
@@ -1342,6 +1360,62 @@ mod tests {
                     "case={case}: bound={bound}, actual={actual}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn huge_image_counts_keep_a_representable_separation() {
+        let period = 9.664_251_935_223_536e-9;
+        let (a, b) = (35_602_323.555_269_06, 35_602_323.555_269_07);
+        let expected = -2.213_671_338_299_708_4e-9;
+        assert_eq!(wrap_difference_component(b - a, Some(period)), expected);
+
+        let metric = PeriodicSpace::new(&[Some(period), None]).unwrap();
+        let mut disp = [0.0; 2];
+        metric
+            .displacement(&[a, 1.0], &[b, 3.0], &mut disp)
+            .unwrap();
+        assert_eq!(disp, [expected, 2.0]);
+        assert_eq!(
+            metric.dist2(&[a, 1.0], &[b, 3.0]),
+            expected * expected + 4.0
+        );
+        assert_eq!(metric.dist2(&[b, 0.0], &[a, 0.0]), expected * expected);
+        assert_eq!(metric.axis_min_dist2(0, b, a, a), expected * expected);
+        assert_eq!(metric.axis_min_dist2(0, a, b, b), expected * expected);
+        assert_eq!(
+            metric.aabb_min_dist2(&[b, 0.0], &[a, -1.0], &[a, 1.0]),
+            expected * expected
+        );
+
+        let periods = [period];
+        let slice = PeriodicSlice::new(&periods).unwrap();
+        assert_eq!(slice.dist2(&[a], &[b]), expected * expected);
+        assert_eq!(slice.axis_min_dist2(0, b, a, a), expected * expected);
+        assert_eq!(slice.aabb_min_dist2(&[b], &[a], &[a]), expected * expected);
+    }
+
+    #[test]
+    fn adjacent_coordinates_keep_their_separation_at_any_image_count() {
+        let mut rng = Lcg(0x4144_4a41_4345_4e54);
+        for _ in 0..20_000 {
+            let period = rng.range(1e-9, 10.0);
+            let images = 2f64.powf(rng.range(1.0, 60.0));
+            let side = if rng.next() < 0.5 { -1.0 } else { 1.0 };
+            let a = side * images * period * rng.range(1.0, 2.0);
+            let b = f64::from_bits(a.to_bits() + 1);
+            let raw = b - a;
+            if raw.abs() >= period {
+                continue;
+            }
+            let expected = wrap_near(raw, period);
+            assert_ne!(expected, 0.0);
+            let metric = PeriodicSpace::new(&[Some(period)]).unwrap();
+            let mut disp = [0.0];
+            metric.displacement(&[a], &[b], &mut disp).unwrap();
+            assert_eq!(disp[0], expected, "{a:e} -> {b:e} mod {period:e}");
+            assert_eq!(metric.dist2(&[a], &[b]), expected * expected);
+            assert_eq!(metric.axis_min_dist2(0, b, a, a), expected * expected);
         }
     }
 }
