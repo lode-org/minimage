@@ -236,10 +236,28 @@ displacement is the exact minimum image of =q - p=, rounded once:
 - If the raw difference is under =L/2= in magnitude, the exact
   difference is inside the central image and the raw difference is
   already its correctly rounded value.
-- If the raw difference is within one period, a two-sum keeps its
-  exact rounding error.
-- Otherwise each coordinate is reduced with the exact remainder =%= and
-  folded into =[-L/2, L/2)=, and a two-sum subtracts the residues.
+- Otherwise a two-sum splits =q - p= into a head, the raw difference,
+  and a tail. Near =f64::MAX= an intermediate of the two-sum can
+  overflow even when the head is finite, which leaves a non-finite
+  tail. Only a finite tail holds the exact rounding error of the head.
+- If the tail is non-finite, or the head is beyond 16 periods, each
+  coordinate is reduced with the exact remainder =%= and folded into
+  =[-L/2, L/2)=, and a two-sum subtracts the residues. This check comes
+  first, so it applies even to a head within one period. With
+  =p = f64::MAX=, =q = 0x1.7ffffffffffffp+1022=, and =L = f64::MAX=,
+  the head is =-0x1.4p+1023= but the tail is =NaN=, and this path
+  returns the exact image =q=.
+- Otherwise the tail is finite. If the head is within one period, the
+  pair goes straight to the fold.
+- Otherwise the head is within 16 periods, and whole periods come off
+  it in four steps. For =k= = 8, 4, 2, 1 in turn, =kL= is subtracted
+  toward zero whenever the head exceeds it in magnitude. Each step
+  starts with the head at most =2kL= in magnitude, so a subtraction
+  from a head in =(kL, 2kL]= is exact by Sterbenz's lemma, and the head
+  ends within one period. A multiple =kL= that overflows exceeds every
+  finite head, so skipping its step is also exact. The tail may now
+  exceed half an ulp of the smaller head, so a second two-sum
+  renormalizes the pair.
 
 The remaining fold by one period is exact by Sterbenz's lemma, and the
 half-period comparisons are exact on the unevaluated sum. Only the final

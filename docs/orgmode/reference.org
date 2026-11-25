@@ -171,8 +171,8 @@ contiguous and aligned; array results return a NumPy array (or a list
 when NumPy is absent). Invalid inputs raise =ValueError=, =TypeError=,
 or =BufferError=.
 
-| Method / function | Role |
-|-------------------+------|
+| =Cell= method | Role |
+|---------------+------|
 | =Cell.ortho=, =from_vectors=, =from_lammps_bounds=, =from_ase=, =from_con=, =from_vesin= | Construct a periodic cell |
 | =is_ortho=, =is_restricted=, =tilts_reduced=, =is_minkowski_reduced=, =fractional_matches_cartesian= | Basis predicates |
 | =reduce_tilts()=, =to_restricted()= | Return a tilt-reduced or restricted-frame =Cell= |
@@ -183,7 +183,9 @@ or =BufferError=.
 | =dist2_euclidean_pairs_warm(ps, qs, images=None)= | Distances and updated =int32= shifts across frames |
 | =fixed(r)=, =fixed_many(rs)=, =dist2_fixed(a, b)=, =dist2_many_fixed(p, qs)=, =dist2_pairs_fixed(ps, qs)= | 64-bit fixed-point (=uint64=) |
 | =fixed32(r)=, =fixed32_many(rs)=, =dist2_fixed32(a, b)=, =dist2_many_fixed32(p, qs)=, =dist2_pairs_fixed32(ps, qs)= | 32-bit fixed-point (=uint32=) |
-| =reduce_image_pairs(pairs)= | Drop self images, sort and deduplicate =(i, j)= pairs |
+
+| =PeriodicSpace= method | Role |
+|------------------------+------|
 | =PeriodicSpace(periods)= | Positive period or =None= per feature axis |
 | =wrap_point=, =wrap_difference=, =displacement= | N-dimensional half-open wraps |
 | =dist2=, =distance=, =dist2_many=, =dist2_pairs= | Scalar, one-to-many, and paired-row N-dimensional distances |
@@ -194,6 +196,10 @@ or =BufferError=.
 =float32= and =float64= arrays. It validates the second dimension even
 for empty =(0, d)= arrays and returns a =float64= NumPy array when NumPy
 is available.
+
+| Module function | Role |
+|-----------------+------|
+| =reduce_image_pairs(pairs)= | Drop self images, sort and deduplicate =(i, j)= pairs |
 
 * Burn (=minimage-burn=)
 

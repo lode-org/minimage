@@ -212,8 +212,12 @@ struct PyCell {
 /// N-dimensional Euclidean product metric with optional per-axis periods.
 ///
 /// Each period is a positive finite float for a periodic axis or `None` for
-/// an open axis. Points use `[0, period)` and differences use
-/// `[-period / 2, period / 2)`.
+/// an open axis. Wrapped points are in `[0, period)` and wrapped
+/// differences in `[-period / 2, period / 2)`. A displacement is the exact
+/// minimum image of `q - p`, which lies in `[-period / 2, period / 2)`,
+/// rounded once to nearest, so it is in `[-period / 2, period / 2]`: an
+/// exact image less than half an ulp below `period / 2` rounds onto it.
+/// Distances square these displacements.
 #[pyclass(name = "PeriodicSpace", module = "minimage")]
 struct PyPeriodicSpace {
     inner: RustPeriodicSpace,
@@ -264,7 +268,10 @@ impl PyPeriodicSpace {
         Ok(out)
     }
 
-    /// Wrapped displacement from `p` to `q`.
+    /// Exact minimum-image displacement from `p` to `q`, rounded once.
+    ///
+    /// Periodic components are in `[-period / 2, period / 2]`; open
+    /// components are `q - p`.
     fn displacement(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
         let p = vector(p, self.inner.dimensions(), "p")?;
         let q = vector(q, self.inner.dimensions(), "q")?;
