@@ -175,6 +175,21 @@ def test_sub_ulp_negative_offsets_stay_in_the_documented_interval():
         assert -1.0 <= disp <= 1.0
 
 
+def test_non_finite_two_sum_tail_takes_the_remainder_path():
+    big = sys.float_info.max
+    q = float.fromhex("0x1.7ffffffffffffp+1022")
+    metric = PeriodicSpace([big])
+
+    # The head q - big is within one period, but the two-sum tail is NaN.
+    head = q - big
+    assert abs(head) <= big
+    b_part = head - q
+    assert math.isnan((q - (head - b_part)) + (-big - b_part))
+
+    assert metric.displacement([big], [q]) == [q]
+    assert metric.displacement([q], [big]) == [-q]
+
+
 def test_property_extreme_and_negative_coordinates():
     rng = np.random.default_rng(0x50524F50)
     big = sys.float_info.max
