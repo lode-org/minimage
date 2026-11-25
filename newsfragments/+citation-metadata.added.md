@@ -1,0 +1,1 @@
+`codemeta.json` and `.zenodo.json` describe minimage next to `CITATION.cff`, which now gives the author's email, affiliation and keywords, and `scripts/sync-version.py` and `scripts/check_version_lockstep.py` keep the version and release date of all three in step with `Cargo.toml`.
