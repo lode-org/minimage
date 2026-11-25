@@ -6,6 +6,7 @@ use minimage::{
     dist2_euclidean_many, dist2_euclidean_pairs, dist2_euclidean_pairs_warm, dist2_many,
     dist2_many_fixed, dist2_many_fixed32, dist2_pairs, dist2_pairs_fixed, dist2_pairs_fixed32,
     fixed32_many, fixed_many, reduce_pairs, wrap_many, Cell as RustCell,
+    PeriodicSpace as RustPeriodicSpace,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -59,6 +60,35 @@ fn triples(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<Vec<[f64; 3]>> {
         out.push([row[0], row[1], row[2]]);
     }
     Ok(out)
+}
+
+fn vector(obj: &Bound<'_, PyAny>, dimensions: usize, what: &str) -> PyResult<Vec<f64>> {
+    let values: Vec<f64> = as_nested(obj)?
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must have length {dimensions}")))?;
+    if values.len() != dimensions {
+        return Err(PyValueError::new_err(format!(
+            "{what} must have length {dimensions}"
+        )));
+    }
+    Ok(values)
+}
+
+fn rows(obj: &Bound<'_, PyAny>, dimensions: usize, what: &str) -> PyResult<(Vec<f64>, usize)> {
+    let values: Vec<Vec<f64>> = as_nested(obj)?
+        .extract()
+        .map_err(|_| PyValueError::new_err(format!("{what} must be (N, {dimensions})")))?;
+    if let Some((row, _)) = values
+        .iter()
+        .enumerate()
+        .find(|(_, row)| row.len() != dimensions)
+    {
+        return Err(PyValueError::new_err(format!(
+            "{what}[{row}] must have length {dimensions}"
+        )));
+    }
+    let count = values.len();
+    Ok((values.into_iter().flatten().collect(), count))
 }
 
 fn map_err(err: minimage::Error) -> PyErr {
@@ -177,6 +207,161 @@ fn out_rows_u64(py: Python<'_>, rows: Vec<[u64; 3]>) -> PyResult<PyObject> {
 #[pyclass(name = "Cell", module = "minimage")]
 struct PyCell {
     inner: RustCell,
+}
+
+/// N-dimensional Euclidean product metric with optional per-axis periods.
+///
+/// Each period is a positive finite float for a periodic axis or `None` for
+/// an open axis. Points use `[0, period)` and differences use
+/// `[-period / 2, period / 2)`.
+#[pyclass(name = "PeriodicSpace", module = "minimage")]
+struct PyPeriodicSpace {
+    inner: RustPeriodicSpace,
+}
+
+#[pymethods]
+impl PyPeriodicSpace {
+    /// Construct from one positive period or `None` per dimension.
+    #[new]
+    fn new(periods: Vec<Option<f64>>) -> PyResult<Self> {
+        Ok(Self {
+            inner: RustPeriodicSpace::new(&periods).map_err(map_err)?,
+        })
+    }
+
+    /// Number of dimensions.
+    #[getter]
+    fn dimensions(&self) -> usize {
+        self.inner.dimensions()
+    }
+
+    /// Validated periods (`None` marks an open axis).
+    #[getter]
+    fn periods(&self) -> Vec<Option<f64>> {
+        self.inner.periods().to_vec()
+    }
+
+    /// Wrap one point into `[0, period)` on periodic axes.
+    fn wrap_point(&self, point: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        let mut out = vector(point, self.inner.dimensions(), "point")?;
+        self.inner.wrap_point(&mut out).map_err(map_err)?;
+        Ok(out)
+    }
+
+    /// Wrap one difference into `[-period / 2, period / 2)`.
+    fn wrap_difference(&self, difference: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        let mut out = vector(difference, self.inner.dimensions(), "difference")?;
+        self.inner.wrap_difference(&mut out).map_err(map_err)?;
+        Ok(out)
+    }
+
+    /// Wrapped displacement from `p` to `q`.
+    fn displacement(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        let p = vector(p, self.inner.dimensions(), "p")?;
+        let q = vector(q, self.inner.dimensions(), "q")?;
+        let mut out = vec![0.0; self.inner.dimensions()];
+        self.inner.displacement(&p, &q, &mut out).map_err(map_err)?;
+        Ok(out)
+    }
+
+    /// Squared minimum-image distance between `p` and `q`.
+    fn dist2(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<f64> {
+        Ok(self.inner.dist2(
+            &vector(p, self.inner.dimensions(), "p")?,
+            &vector(q, self.inner.dimensions(), "q")?,
+        ))
+    }
+
+    /// Minimum-image distance between `p` and `q`.
+    fn distance(&self, p: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>) -> PyResult<f64> {
+        Ok(self.inner.distance(
+            &vector(p, self.inner.dimensions(), "p")?,
+            &vector(q, self.inner.dimensions(), "q")?,
+        ))
+    }
+
+    /// Wrap contiguous logical rows of points.
+    fn wrap_points(&self, points: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<f64>>> {
+        let (mut flat, count) = rows(points, self.inner.dimensions(), "points")?;
+        self.inner.wrap_points(&mut flat).map_err(map_err)?;
+        Ok(flat
+            .chunks_exact(self.inner.dimensions())
+            .take(count)
+            .map(<[f64]>::to_vec)
+            .collect())
+    }
+
+    /// Wrap contiguous logical rows of difference vectors.
+    fn wrap_differences(&self, differences: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<f64>>> {
+        let (mut flat, count) = rows(differences, self.inner.dimensions(), "differences")?;
+        self.inner.wrap_differences(&mut flat).map_err(map_err)?;
+        Ok(flat
+            .chunks_exact(self.inner.dimensions())
+            .take(count)
+            .map(<[f64]>::to_vec)
+            .collect())
+    }
+
+    /// Squared distances from `point` to each row of `points`.
+    fn dist2_many(
+        &self,
+        point: &Bound<'_, PyAny>,
+        points: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<f64>> {
+        let point = vector(point, self.inner.dimensions(), "point")?;
+        let (points, count) = rows(points, self.inner.dimensions(), "points")?;
+        let mut out = vec![0.0; count];
+        self.inner
+            .dist2_many(&point, &points, &mut out)
+            .map_err(map_err)?;
+        Ok(out)
+    }
+
+    /// Squared distances between corresponding rows of `left` and `right`.
+    fn dist2_pairs(&self, left: &Bound<'_, PyAny>, right: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+        let (left, count) = rows(left, self.inner.dimensions(), "left")?;
+        let (right, right_count) = rows(right, self.inner.dimensions(), "right")?;
+        if count != right_count {
+            return Err(map_err(minimage::Error::BufferSize));
+        }
+        let mut out = vec![0.0; count];
+        self.inner
+            .dist2_pairs(&left, &right, &mut out)
+            .map_err(map_err)?;
+        Ok(out)
+    }
+
+    /// Squared lower-bound distance from `x` to `[lo, hi]` on one axis.
+    fn axis_min_dist2(&self, axis: usize, x: f64, lo: f64, hi: f64) -> PyResult<f64> {
+        if axis >= self.inner.dimensions() {
+            return Err(PyValueError::new_err("axis is outside the space"));
+        }
+        let value = self.inner.axis_min_dist2(axis, x, lo, hi);
+        if value.is_nan() {
+            Err(PyValueError::new_err("invalid interval bounds"))
+        } else {
+            Ok(value)
+        }
+    }
+
+    /// Squared lower-bound distance from `point` to `[lower, upper]`.
+    fn aabb_min_dist2(
+        &self,
+        point: &Bound<'_, PyAny>,
+        lower: &Bound<'_, PyAny>,
+        upper: &Bound<'_, PyAny>,
+    ) -> PyResult<f64> {
+        let value = self.inner.aabb_min_dist2(
+            &vector(point, self.inner.dimensions(), "point")?,
+            &vector(lower, self.inner.dimensions(), "lower")?,
+            &vector(upper, self.inner.dimensions(), "upper")?,
+        );
+        if value.is_nan() {
+            Err(PyValueError::new_err("invalid AABB bounds"))
+        } else {
+            Ok(value)
+        }
+    }
 }
 
 #[pymethods]
@@ -724,6 +909,7 @@ fn reduce_image_pairs(pairs: Vec<(i32, i32)>) -> PyResult<Vec<(i32, i32)>> {
 fn _lib(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<PyCell>()?;
+    m.add_class::<PyPeriodicSpace>()?;
     m.add_function(wrap_pyfunction!(reduce_image_pairs, m)?)?;
     Ok(())
 }
