@@ -482,11 +482,24 @@ fn axis_interval_delta(x: f64, lo: f64, hi: f64) -> Option<f64> {
 #[inline]
 fn wrap_point_component(value: f64, period: f64) -> f64 {
     let quotient = value / period;
-    let mut wrapped = if quotient.is_finite() && quotient.abs() < INTEGRAL {
-        value - period * floor_fast(quotient)
-    } else {
-        value.rem_euclid(period)
-    };
+    if quotient.is_finite() && quotient.abs() < INTEGRAL {
+        let mut wrapped = value - period * floor_fast(quotient);
+        if wrapped >= period {
+            wrapped -= period;
+        }
+        // The image shift can overflow near f64::MAX, and its rounding can
+        // land outside the period; both take the exact remainder instead.
+        if (0.0..period).contains(&wrapped) {
+            return if wrapped <= 0.0 { 0.0 } else { wrapped };
+        }
+    }
+    wrap_point_exact(value, period)
+}
+
+#[cold]
+#[inline(never)]
+fn wrap_point_exact(value: f64, period: f64) -> f64 {
+    let mut wrapped = value.rem_euclid(period);
     if wrapped >= period {
         wrapped -= period;
     }
@@ -611,6 +624,30 @@ mod tests {
             let mut point = [image * period + jitter];
             metric.wrap_point(&mut point).unwrap();
             assert!(point[0] >= 0.0 && point[0] < period);
+        }
+    }
+
+    #[test]
+    fn point_wrap_survives_an_image_shift_past_f64_max() {
+        for (period, expected) in [
+            (1e307, 2.306_865_137_684_266_7e305),
+            (1e308, 2.023_068_651_376_843_1e307),
+        ] {
+            let metric = PeriodicSpace::new(&[Some(period)]).unwrap();
+            let mut point = [-f64::MAX];
+            metric.wrap_point(&mut point).unwrap();
+            assert_eq!(point[0], expected, "period {period:e}");
+            // The shift for +f64::MAX does not overflow, so the fast path
+            // keeps its product rounding of about one ulp of the input.
+            let mut point = [f64::MAX];
+            metric.wrap_point(&mut point).unwrap();
+            let ulp_max = f64::MAX - f64::from_bits(f64::MAX.to_bits() - 1);
+            assert!(point[0] >= 0.0 && point[0] < period);
+            assert!(
+                (point[0] - (period - expected)).abs() <= 2.0 * ulp_max,
+                "period {period:e}: {}",
+                point[0]
+            );
         }
     }
 
