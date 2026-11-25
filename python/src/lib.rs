@@ -224,9 +224,6 @@ impl PyPeriodicSpace {
     /// Construct from one positive period or `None` per dimension.
     #[new]
     fn new(periods: Vec<Option<f64>>) -> PyResult<Self> {
-        if periods.is_empty() {
-            return Err(PyValueError::new_err("periods must not be empty"));
-        }
         if periods
             .iter()
             .flatten()

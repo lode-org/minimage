@@ -63,8 +63,13 @@ def test_batches_and_box_bound():
     assert metric.aabb_min_dist2([9.5, 4.0], [0.0, 1.0], [1.0, 3.0]) == 1.25
 
 
+def test_zero_dimension_space_reports_empty_input():
+    with pytest.raises(ValueError, match="^empty input$"):
+        PeriodicSpace([])
+
+
 def test_invalid_periods_shapes_and_bounds():
-    for periods in ([], [0.0], [-1.0], [math.nan]):
+    for periods in ([0.0], [-1.0], [math.nan]):
         with pytest.raises(ValueError, match="period"):
             PeriodicSpace(periods)
 
