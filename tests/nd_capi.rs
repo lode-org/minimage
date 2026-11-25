@@ -215,3 +215,35 @@ fn nd_capi_huge_image_counts_keep_a_representable_separation() {
     );
     assert_eq!(out, expected * expected);
 }
+
+#[test]
+fn nd_capi_distances_use_the_exact_minimum_image() {
+    let micro = [1e-6];
+    let far = 4.525_188_817_411_374e-16_f64;
+    let (from, to) = (-10.0, 0.0);
+    let mut out = 0.0;
+    assert_eq!(
+        unsafe { minimage_nd_dist2(micro.as_ptr(), 1, &from, &to, &mut out) },
+        0
+    );
+    assert_eq!(out, far * far);
+    assert_eq!(
+        unsafe { minimage_nd_axis_min_dist2(micro.as_ptr(), 1, 0, to, from, from, &mut out) },
+        0
+    );
+    assert_eq!(out, far * far);
+
+    let ten = [10.0];
+    let two_54 = 18_014_398_509_481_984.0;
+    let edge = two_54 + 4.0;
+    assert_eq!(
+        unsafe { minimage_nd_dist2(ten.as_ptr(), 1, &two_54, &(two_54 - 4.0), &mut out) },
+        0
+    );
+    assert_eq!(out, 16.0);
+    assert_eq!(
+        unsafe { minimage_nd_aabb_min_dist2(ten.as_ptr(), 1, &two_54, &edge, &edge, &mut out) },
+        0
+    );
+    assert_eq!(out, 16.0);
+}

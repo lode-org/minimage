@@ -131,6 +131,24 @@ def test_huge_image_counts_keep_a_representable_separation():
     assert metric.aabb_min_dist2([b, 0.0], [a, -1.0], [a, 1.0]) == expected * expected
 
 
+def test_distances_use_the_exact_minimum_image():
+    micro = PeriodicSpace([1e-6])
+    far = 4.525188817411374e-16
+    assert micro.displacement([-10.0], [0.0]) == [far]
+    assert micro.dist2([-10.0], [0.0]) == far * far
+    assert micro.axis_min_dist2(0, 0.0, -10.0, -10.0) == far * far
+
+    two_30 = 2.0**30
+    near = 4.76837158203125e-7
+    assert micro.displacement([two_30], [two_30 + 4e-7]) == [near]
+
+    ten = PeriodicSpace([10.0])
+    two_54 = 2.0**54
+    assert ten.displacement([two_54], [two_54 - 4.0]) == [-4.0]
+    assert ten.dist2([two_54], [two_54 - 4.0]) == 16.0
+    assert ten.axis_min_dist2(0, two_54, two_54 + 4.0, two_54 + 4.0) == 16.0
+
+
 def test_property_extreme_and_negative_coordinates():
     rng = np.random.default_rng(0x50524F50)
     big = sys.float_info.max
