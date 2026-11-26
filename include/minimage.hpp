@@ -294,16 +294,41 @@ inline double fold_remainder(double rem, double length) noexcept {
   }
   return rem;
 }
+
+#if defined(_MSC_VER)
+__declspec(noinline)
+#elif defined(__GNUC__)
+__attribute__((noinline))
+#endif
+inline double wrap_ortho_half_strict_slow(double delta,
+                                           double length) noexcept {
+  if (!std::isfinite(delta) || !std::isfinite(length) || length <= 0.0) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  const double rem = std::fmod(delta, length);
+  // 0.5 * length is inexact for a subnormal length with an odd last bit.
+  constexpr double small_length = 0x1p-1000;
+  constexpr double small_scale = 0x1p64;
+  if (length < small_length) {
+    return fold_remainder(rem * small_scale, length * small_scale) /
+           small_scale;
+  }
+  return fold_remainder(rem, length);
+}
 } // namespace detail
 
 /// Wrap one orthorhombic component into the closed interval
 /// `[-length / 2, length / 2]`.
 ///
 /// The result is the nearest periodic image `delta - n * length` for an
-/// integer `n`, computed without rounding: `std::fmod(delta, length)` is
-/// exact, and at most one exact subtraction or addition of `length` folds
-/// it into the interval. Values just inside `+-length / 2` are kept, and
-/// multiples far larger than `length` still give a finite, in-range result.
+/// integer `n`, with no rounding error. A finite `delta` within two
+/// lengths, and a length from `2^-1000` through half the largest finite
+/// value, is reduced by exact additions and subtractions. Every other
+/// input uses `std::fmod`, which is exact, then at most one exact fold.
+/// A length below `2^-1000` is scaled by `2^64` before that fold so a
+/// subnormal half stays exact. Values just inside `+-length / 2` are
+/// kept, and multiples far larger than `length` still give a finite,
+/// in-range result.
 ///
 /// When the remainder equals `length / 2` exactly in binary, the result
 /// keeps the sign of `delta` (`15.0` and `-15.0` with length `10.0` give
@@ -316,18 +341,27 @@ inline double fold_remainder(double rem, double length) noexcept {
 /// `minimage::wrap_ortho_half_strict`.
 [[nodiscard]] inline double wrap_ortho_half_strict(double delta,
                                                     double length) noexcept {
-  if (!std::isfinite(delta) || !std::isfinite(length) || length <= 0.0) {
-    return std::numeric_limits<double>::quiet_NaN();
+  // 2*length and length/2 are exact for every length in this window.
+  constexpr double min_length = 0x1p-1000;
+  constexpr double max_length = 0x1.fffffffffffffp1022;
+  if (length >= min_length && length <= max_length) {
+    const double span = length + length;
+    if (std::fabs(delta) <= span) {
+      // Each pair of compares is mutually exclusive, so the updates are
+      // exact and the compiler can keep them branchless.
+      double wrapped = delta;
+      wrapped -= static_cast<double>(wrapped > length) * length;
+      wrapped += static_cast<double>(wrapped < -length) * length;
+      const double half = 0.5 * length;
+      wrapped -= static_cast<double>(wrapped > half) * length;
+      wrapped += static_cast<double>(wrapped < -half) * length;
+      if (wrapped == 0.0) {
+        wrapped = std::copysign(0.0, delta);
+      }
+      return wrapped;
+    }
   }
-  const double rem = std::fmod(delta, length);
-  // 0.5 * length is inexact for a subnormal length with an odd last bit.
-  constexpr double small_length = 0x1p-1000;
-  constexpr double small_scale = 0x1p64;
-  if (length < small_length) {
-    return detail::fold_remainder(rem * small_scale, length * small_scale) /
-           small_scale;
-  }
-  return detail::fold_remainder(rem, length);
+  return detail::wrap_ortho_half_strict_slow(delta, length);
 }
 
 /// Orthorhombic wrap of `n` precomputed SoA differences `(dx, dy, dz)`
