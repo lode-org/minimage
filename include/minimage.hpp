@@ -347,13 +347,14 @@ inline double wrap_ortho_half_strict_slow(double delta,
   if (length >= min_length && length <= max_length) {
     const double span = length + length;
     if (std::fabs(delta) <= span) {
-      const double down = static_cast<double>(delta > length) * length;
-      const double up = static_cast<double>(delta < -length) * length;
-      double wrapped = (delta - down) + up;
+      // Each pair of compares is mutually exclusive, so the updates are
+      // exact and the compiler can keep them branchless.
+      double wrapped = delta;
+      wrapped -= static_cast<double>(wrapped > length) * length;
+      wrapped += static_cast<double>(wrapped < -length) * length;
       const double half = 0.5 * length;
-      const double fold_down = static_cast<double>(wrapped > half) * length;
-      const double fold_up = static_cast<double>(wrapped < -half) * length;
-      wrapped = (wrapped - fold_down) + fold_up;
+      wrapped -= static_cast<double>(wrapped > half) * length;
+      wrapped += static_cast<double>(wrapped < -half) * length;
       if (wrapped == 0.0) {
         wrapped = std::copysign(0.0, delta);
       }
