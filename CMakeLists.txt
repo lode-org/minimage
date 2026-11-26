@@ -146,12 +146,21 @@ if(MINIMAGE_BUILD_EXAMPLES)
     BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}"
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON)
+  add_executable(wrap_ortho_half_strict_diff_cpp
+                 tests/cpp/wrap_ortho_half_strict_diff.cpp)
+  target_include_directories(wrap_ortho_half_strict_diff_cpp PRIVATE
+                             "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  set_target_properties(wrap_ortho_half_strict_diff_cpp PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON)
   enable_testing()
   add_test(NAME wrap-pair-c COMMAND wrap_pair)
   add_test(NAME wrap-pair-cpp COMMAND wrap_pair_cpp)
   add_test(NAME visitor-c COMMAND visitor_c)
   add_test(NAME visitor-cpp COMMAND visitor_cpp)
   add_test(NAME wrap-ortho-half-strict-cpp COMMAND wrap_ortho_half_strict_cpp)
+  add_test(NAME wrap-ortho-half-strict-diff-cpp
+           COMMAND wrap_ortho_half_strict_diff_cpp)
   if(UNIX AND NOT APPLE)
     set_tests_properties(wrap-pair-c wrap-pair-cpp visitor-c visitor-cpp
       wrap-ortho-half-strict-cpp PROPERTIES
