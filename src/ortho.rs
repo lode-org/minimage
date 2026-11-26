@@ -7,11 +7,14 @@ const SMALL_SCALE: f64 = 18_446_744_073_709_551_616.0;
 /// `[-length / 2, length / 2]`.
 ///
 /// The result is the nearest periodic image `delta - n * length` for an
-/// integer `n`, computed without rounding: the remainder `delta % length`
-/// is exact, and at most one exact subtraction or addition of `length`
-/// folds it into the interval. Values just inside `+-length / 2` are kept,
-/// and multiples far larger than `length` (such as `1e308` against `0.5`)
-/// still give a finite, in-range result.
+/// integer `n`, with no rounding error. A finite `delta` within two
+/// lengths, and a length from `2^-1000` through half the largest finite
+/// value, is reduced by exact additions and subtractions. Every other
+/// input uses the remainder operator, which is exact, then at most one
+/// exact fold. A length below `2^-1000` is scaled by `2^64` before that
+/// fold so a subnormal half stays exact. Values just inside `+-length / 2`
+/// are kept, and multiples far larger than `length` (such as `1e308`
+/// against `0.5`) still give a finite, in-range result.
 ///
 /// # Ties
 ///
@@ -37,15 +40,22 @@ const SMALL_SCALE: f64 = 18_446_744_073_709_551_616.0;
 /// ```
 #[inline]
 pub fn wrap_ortho_half_strict(delta: f64, length: f64) -> f64 {
-    if !delta.is_finite() || !length.is_finite() || length <= 0.0 {
-        return f64::NAN;
+    // `2 * length` and `length / 2` are exact for every length in this window.
+    const MAX_FAST_LENGTH: f64 = f64::from_bits(0x7fdfffffffffffff);
+    if length >= SMALL_LENGTH && length <= MAX_FAST_LENGTH && delta.abs() <= length + length {
+        let down = mask_length(delta > length, length);
+        let up = mask_length(delta < -length, length);
+        let mut wrapped = (delta - down) + up;
+        let half = 0.5 * length;
+        let fold_down = mask_length(wrapped > half, length);
+        let fold_up = mask_length(wrapped < -half, length);
+        wrapped = (wrapped - fold_down) + fold_up;
+        if wrapped == 0.0 {
+            wrapped = 0.0_f64.copysign(delta);
+        }
+        return wrapped;
     }
-    let rem = delta % length;
-    if length < SMALL_LENGTH {
-        fold_remainder(rem * SMALL_SCALE, length * SMALL_SCALE) / SMALL_SCALE
-    } else {
-        fold_remainder(rem, length)
-    }
+    wrap_ortho_half_strict_slow(delta, length)
 }
 
 /// Fold `|rem| < length` into `[-length / 2, length / 2]`. Each branch
@@ -60,6 +70,24 @@ fn fold_remainder(rem: f64, length: f64) -> f64 {
         rem + length
     } else {
         rem
+    }
+}
+
+#[inline(always)]
+fn mask_length(cond: bool, length: f64) -> f64 {
+    f64::from_bits(u64::from(cond).wrapping_neg() & length.to_bits())
+}
+
+#[inline(never)]
+fn wrap_ortho_half_strict_slow(delta: f64, length: f64) -> f64 {
+    if !delta.is_finite() || !length.is_finite() || length <= 0.0 {
+        return f64::NAN;
+    }
+    let rem = delta % length;
+    if length < SMALL_LENGTH {
+        fold_remainder(rem * SMALL_SCALE, length * SMALL_SCALE) / SMALL_SCALE
+    } else {
+        fold_remainder(rem, length)
     }
 }
 

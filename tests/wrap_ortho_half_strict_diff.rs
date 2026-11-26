@@ -124,7 +124,10 @@ impl Rng {
 
 #[test]
 fn differential_matches_main_body() {
-    assert_eq!(next_after(0.5, f64::INFINITY).to_bits(), 0.5000000000000001f64.to_bits());
+    assert_eq!(
+        next_after(0.5, f64::INFINITY).to_bits(),
+        0.5000000000000001f64.to_bits()
+    );
     assert_eq!(
         next_after(0.5, f64::NEG_INFINITY).to_bits(),
         0.49999999999999994f64.to_bits()
@@ -242,7 +245,12 @@ fn differential_matches_main_body() {
         if signal & 0x000f_ffff_ffff_ffff == 0 {
             continue;
         }
-        for word in [quiet, quiet | 0x8000_0000_0000_0000, signal, signal | 0x8000_0000_0000_0000] {
+        for word in [
+            quiet,
+            quiet | 0x8000_0000_0000_0000,
+            signal,
+            signal | 0x8000_0000_0000_0000,
+        ] {
             let value = f64::from_bits(word);
             check(value, 10.0, &mut fails);
             check(1.0, value, &mut fails);
@@ -290,7 +298,8 @@ fn differential_matches_main_body() {
             }
             (delta, length)
         } else if kind == 3 {
-            let length = f64::from_bits(((900 + 1023) as u64) << 52 | (rng.next() & ((1u64 << 52) - 1)));
+            let length =
+                f64::from_bits(((900 + 1023) as u64) << 52 | (rng.next() & ((1u64 << 52) - 1)));
             let mut delta = f64::from_bits(rng.next() & 0x000f_ffff_ffff_ffff);
             if rng.next() & 1 == 1 {
                 delta = -delta;
@@ -325,6 +334,9 @@ fn differential_matches_main_body() {
         check(delta, length, &mut fails);
     }
 
-    eprintln!("diff_edges={edges} diff_random={randoms} diff_fail={}", fails.0);
+    eprintln!(
+        "diff_edges={edges} diff_random={randoms} diff_fail={}",
+        fails.0
+    );
     assert_eq!(fails.0, 0);
 }
