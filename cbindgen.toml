@@ -30,6 +30,9 @@ header = """
  * Memory ownership
  *   - Constructor calls write one mi_cell or mi_pbc_cell into a
  *     caller-owned out.
+ *   - minimage_lattice_diagonal and minimage_lattice_general return an
+ *     opaque handle the library owns; release it with
+ *     minimage_lattice_free.
  *   - Distance, displacement, wrap, fixed-point, filter, centroid, and
  *     pair-reduction calls write into caller-owned buffers.
  *   - minimage_last_error returns a thread-local pointer. Do not free.
@@ -43,6 +46,27 @@ header = """
  *   - minimage_last_error is a thread-local slot, cleared on the next
  *     successful call on that thread. Read it on the same thread that
  *     received a nonzero return.
+ *
+ * Loading at run time
+ *   - A host that loads the library by path resolves minimage_abi_stamp,
+ *     minimage_abi_compatible, and minimage_ops_get by name, checks the
+ *     ABI, and takes every other entry from the minimage_ops table. A
+ *     null member of the table is an operation this library lacks.
+ *   - Status word of every int32_t-returning function: 0 is success, a
+ *     positive MINIMAGE_STATUS_* code is a failure the caller can recover
+ *     from, and a negative one is a misuse of the interface or a fault
+ *     inside the library. Branch on the code, never on the error text.
+ *   - minimage_abi is frozen. Every other struct of this layer starts
+ *     with a uint32_t size that the host sets before the call, and grows
+ *     only at its end. A library serves a host with the same
+ *     MINIMAGE_ABI_MAJOR and MINIMAGE_ABI_LAYOUT_REVISION; the minor is
+ *     informational.
+ *   - minimage_last_error is valid until the next minimage_* call on the
+ *     same thread.
+ *   - Every function of this layer may be called from any thread. A
+ *     minimage_lattice is immutable once built: any number of threads may
+ *     read one handle at once, and minimage_lattice_free must not run
+ *     while another thread still uses it.
  */
 """
 include_guard = "MINIMAGE_H"
@@ -105,6 +129,19 @@ usize_is_size_t = true
 [export]
 include = [
     "mi_cell",
+    "minimage_abi_compatible",
+    "minimage_abi_stamp",
+    "minimage_capabilities",
+    "minimage_lattice_diagonal",
+    "minimage_lattice_free",
+    "minimage_lattice_general",
+    "minimage_lattice_get_info",
+    "minimage_lattice_nearest_diffs",
+    "minimage_lattice_nearest_pairs",
+    "minimage_lattice_wrap_diffs",
+    "minimage_lattice_wrap_pairs",
+    "minimage_lattice_wrap_points",
+    "minimage_ops_get",
     "mi_image_pair",
     "mi_image_pair_visitor",
     "mi_pbc_cell",

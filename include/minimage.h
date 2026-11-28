@@ -16,6 +16,9 @@
  * Memory ownership
  *   - Constructor calls write one mi_cell or mi_pbc_cell into a
  *     caller-owned out.
+ *   - minimage_lattice_diagonal and minimage_lattice_general return an
+ *     opaque handle the library owns; release it with
+ *     minimage_lattice_free.
  *   - Distance, displacement, wrap, fixed-point, filter, centroid, and
  *     pair-reduction calls write into caller-owned buffers.
  *   - minimage_last_error returns a thread-local pointer. Do not free.
@@ -29,6 +32,27 @@
  *   - minimage_last_error is a thread-local slot, cleared on the next
  *     successful call on that thread. Read it on the same thread that
  *     received a nonzero return.
+ *
+ * Loading at run time
+ *   - A host that loads the library by path resolves minimage_abi_stamp,
+ *     minimage_abi_compatible, and minimage_ops_get by name, checks the
+ *     ABI, and takes every other entry from the minimage_ops table. A
+ *     null member of the table is an operation this library lacks.
+ *   - Status word of every int32_t-returning function: 0 is success, a
+ *     positive MINIMAGE_STATUS_* code is a failure the caller can recover
+ *     from, and a negative one is a misuse of the interface or a fault
+ *     inside the library. Branch on the code, never on the error text.
+ *   - minimage_abi is frozen. Every other struct of this layer starts
+ *     with a uint32_t size that the host sets before the call, and grows
+ *     only at its end. A library serves a host with the same
+ *     MINIMAGE_ABI_MAJOR and MINIMAGE_ABI_LAYOUT_REVISION; the minor is
+ *     informational.
+ *   - minimage_last_error is valid until the next minimage_* call on the
+ *     same thread.
+ *   - Every function of this layer may be called from any thread. A
+ *     minimage_lattice is immutable once built: any number of threads may
+ *     read one handle at once, and minimage_lattice_free must not run
+ *     while another thread still uses it.
  */
 
 
@@ -58,6 +82,172 @@
  * [`pairs_within_images`].
  */
 #define MAX_IMAGE_EXTENT 1024
+
+/**
+ * Revision of the frozen layouts: `minimage_abi`, the leading
+ * `uint32_t size` of every other struct, and the offsets of the
+ * members those structs already have. A library serves a host compiled
+ * against the same revision.
+ */
+#define MINIMAGE_ABI_LAYOUT_REVISION 1
+
+/**
+ * Major version of the negotiated C ABI. A library serves a host
+ * compiled against the same major.
+ */
+#define MINIMAGE_ABI_MAJOR 1
+
+/**
+ * Minor version of the negotiated C ABI. It grows when a capability or
+ * an operation is added, and is informational: a host learns what a
+ * library has from `minimage_caps` and from the null members of
+ * `minimage_ops`, not from this number.
+ */
+#define MINIMAGE_ABI_MINOR 0
+
+/**
+ * The cell is not a lattice: a zero, infinite, or NaN edge on a
+ * periodic axis, periodic vectors that are not linearly independent,
+ * or a non-finite origin.
+ */
+#define MINIMAGE_STATUS_BAD_CELL 2
+
+/**
+ * A row count whose buffer would not fit in the address space.
+ */
+#define MINIMAGE_STATUS_BAD_COUNT (0 - 3)
+
+/**
+ * The output buffer overlaps an input without being that input.
+ */
+#define MINIMAGE_STATUS_BAD_OVERLAP (0 - 4)
+
+/**
+ * The `size` a host wrote into a struct is smaller than the `size`
+ * member itself.
+ */
+#define MINIMAGE_STATUS_BAD_SIZE (0 - 2)
+
+/**
+ * A failure with no code of its own. The entry points that predate the
+ * negotiated ABI return this for every failure; the functions of the
+ * operations table never do.
+ */
+#define MINIMAGE_STATUS_ERROR 1
+
+/**
+ * `minimage_abi_compatible`: the host was compiled against another
+ * major version or another layout revision.
+ */
+#define MINIMAGE_STATUS_INCOMPATIBLE 4
+
+/**
+ * A required pointer is null.
+ */
+#define MINIMAGE_STATUS_NULL_POINTER (0 - 1)
+
+/**
+ * Success.
+ */
+#define MINIMAGE_STATUS_OK 0
+
+/**
+ * A fault inside the library was caught at the boundary. The call
+ * wrote nothing a host may rely on.
+ */
+#define MINIMAGE_STATUS_PANIC (0 - 5)
+
+/**
+ * This library cannot do what was asked for this lattice. The matching
+ * member of `minimage_caps` is zero. Nothing was written.
+ */
+#define MINIMAGE_STATUS_UNSUPPORTED 3
+
+/**
+ * A lattice: three vectors, an origin, and which axes are periodic.
+ *
+ * Opaque. Built by `minimage_lattice_diagonal` or
+ * `minimage_lattice_general`, released by `minimage_lattice_free`, and
+ * immutable in between.
+ */
+typedef struct minimage_lattice minimage_lattice;
+
+/**
+ * The C ABI a header or a library was built for. Frozen: three
+ * `uint32_t` and nothing else, in every revision.
+ */
+typedef struct minimage_abi {
+    /**
+     * `MINIMAGE_ABI_MAJOR`.
+     */
+    uint32_t major;
+    /**
+     * `MINIMAGE_ABI_MINOR`.
+     */
+    uint32_t minor;
+    /**
+     * `MINIMAGE_ABI_LAYOUT_REVISION`.
+     */
+    uint32_t layout_revision;
+} minimage_abi;
+
+/**
+ * What this library can do, for a host to read before it calls.
+ *
+ * The host sets `size` to `sizeof(minimage_caps)` as it compiled it.
+ * The library zeroes that many bytes, writes the members that fit, and
+ * sets `size` to the bytes it wrote, so a member the host knows and the
+ * library does not reads as zero. Each flag is 1 when supported and 0
+ * when not. This struct is outside the frozen layout revision: it grows
+ * at its end.
+ */
+typedef struct minimage_caps {
+    /**
+     * Bytes of this struct: in, the host's; out, those written.
+     */
+    uint32_t size;
+    /**
+     * Lattice handles: `minimage_lattice_diagonal`,
+     * `minimage_lattice_general`, `minimage_lattice_get_info`, and
+     * `minimage_lattice_free`.
+     */
+    uint32_t lattice;
+    /**
+     * A lattice may be open along any of its axes.
+     */
+    uint32_t open_axes;
+    /**
+     * `minimage_lattice_wrap_diffs`.
+     */
+    uint32_t wrap_diffs;
+    /**
+     * `minimage_lattice_wrap_pairs`.
+     */
+    uint32_t wrap_pairs;
+    /**
+     * `minimage_lattice_nearest_diffs`.
+     */
+    uint32_t nearest_diffs;
+    /**
+     * `minimage_lattice_nearest_pairs`.
+     */
+    uint32_t nearest_pairs;
+    /**
+     * `minimage_lattice_wrap_points`.
+     */
+    uint32_t wrap_points;
+    /**
+     * The output of a batch call may be one of its inputs.
+     */
+    uint32_t in_place;
+    /**
+     * The engine wrap (`wrap_diffs`, `wrap_pairs`) of a sheared lattice
+     * with an open axis. Zero in this library: those calls return
+     * `MINIMAGE_STATUS_UNSUPPORTED` for such a lattice, and
+     * `nearest_diffs` and `nearest_pairs` serve it.
+     */
+    uint32_t wrap_open_sheared;
+} minimage_caps;
 
 /**
  * Periodic parallelepiped.
@@ -140,6 +330,147 @@ typedef struct mi_pbc_cell {
 } mi_pbc_cell;
 
 /**
+ * What a lattice handle stores, read back with
+ * `minimage_lattice_get_info`.
+ *
+ * The host sets `size` to `sizeof(minimage_lattice_info)` as it
+ * compiled it. The library zeroes that many bytes, writes the members
+ * that fit, and sets `size` to the bytes it wrote. This struct grows at
+ * its end.
+ */
+typedef struct minimage_lattice_info {
+    /**
+     * Bytes of this struct: in, the host's; out, those written.
+     */
+    uint32_t size;
+    /**
+     * 1 when every periodic vector lies along its own Cartesian axis.
+     */
+    uint32_t orthorhombic;
+    /**
+     * 1 for a periodic axis and 0 for an open one, for a, b, c.
+     */
+    uint32_t periodic[3];
+    /**
+     * Zero.
+     */
+    uint32_t reserved;
+    /**
+     * The stored lattice vectors a, b, c, row-major. An orthorhombic
+     * lattice stores each periodic vector with a positive diagonal
+     * entry, whatever sign it was built with. The vector of an open
+     * axis is carried as given and never read.
+     */
+    double rows[9];
+    /**
+     * The origin of the cell.
+     */
+    double origin[3];
+    /**
+     * The spacing of the lattice planes across each periodic vector,
+     * and zero for an open axis.
+     */
+    double widths[3];
+} minimage_lattice_info;
+
+/**
+ * The operations of this library, as function pointers.
+ *
+ * A host that loads the library at run time resolves
+ * `minimage_abi_stamp`, `minimage_abi_compatible`, and
+ * `minimage_ops_get` by name and takes every other entry from this
+ * table. The host sets `size` to `sizeof(minimage_ops)` as it compiled
+ * it. The library zeroes that many bytes, writes the members that fit,
+ * and sets `size` to the bytes it wrote. A null member is an operation
+ * this library does not have: one the host's header knows and an older
+ * library lacks. Each member is the entry point of the same name with
+ * the `minimage_` prefix. This struct is outside the frozen layout
+ * revision: it grows at its end.
+ */
+typedef struct minimage_ops {
+    /**
+     * Bytes of this struct: in, the host's; out, those written.
+     */
+    uint32_t size;
+    /**
+     * Zero.
+     */
+    uint32_t reserved;
+    /**
+     * `minimage_last_error`.
+     */
+    const char *(*last_error)(void);
+    /**
+     * `minimage_version`.
+     */
+    const char *(*version)(void);
+    /**
+     * `minimage_capabilities`.
+     */
+    int32_t (*capabilities)(struct minimage_caps*);
+    /**
+     * `minimage_lattice_diagonal`.
+     */
+    int32_t (*lattice_diagonal)(const double*,
+                                const uint32_t*,
+                                const double*,
+                                struct minimage_lattice**);
+    /**
+     * `minimage_lattice_general`.
+     */
+    int32_t (*lattice_general)(const double*,
+                               const uint32_t*,
+                               const double*,
+                               struct minimage_lattice**);
+    /**
+     * `minimage_lattice_free`.
+     */
+    void (*lattice_free)(struct minimage_lattice*);
+    /**
+     * `minimage_lattice_get_info`.
+     */
+    int32_t (*lattice_get_info)(const struct minimage_lattice*,
+                                struct minimage_lattice_info*);
+    /**
+     * `minimage_lattice_wrap_diffs`.
+     */
+    int32_t (*lattice_wrap_diffs)(const struct minimage_lattice*,
+                                  const double*,
+                                  size_t,
+                                  double*);
+    /**
+     * `minimage_lattice_wrap_pairs`.
+     */
+    int32_t (*lattice_wrap_pairs)(const struct minimage_lattice*,
+                                  const double*,
+                                  const double*,
+                                  size_t,
+                                  double*);
+    /**
+     * `minimage_lattice_nearest_diffs`.
+     */
+    int32_t (*lattice_nearest_diffs)(const struct minimage_lattice*,
+                                     const double*,
+                                     size_t,
+                                     double*);
+    /**
+     * `minimage_lattice_nearest_pairs`.
+     */
+    int32_t (*lattice_nearest_pairs)(const struct minimage_lattice*,
+                                     const double*,
+                                     const double*,
+                                     size_t,
+                                     double*);
+    /**
+     * `minimage_lattice_wrap_points`.
+     */
+    int32_t (*lattice_wrap_points)(const struct minimage_lattice*,
+                                   const double*,
+                                   size_t,
+                                   double*);
+} minimage_ops;
+
+/**
  * One periodic image of pair `(i, j)` within a cutoff.
  *
  * `d` is `(xyz[i] - xyz[j]) - H shift`, and `dist2` is `|d|^2`.
@@ -182,6 +513,55 @@ typedef int (*mi_image_pair_visitor)(void *userdata,
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Whether this library serves a host compiled against `host`: the same
+ * major and the same layout revision. The minor is not compared.
+ *
+ * Returns `MINIMAGE_STATUS_OK` when it does,
+ * `MINIMAGE_STATUS_INCOMPATIBLE` when it does not, and
+ * `MINIMAGE_STATUS_NULL_POINTER` when `host` is null.
+ *
+ * Threads: any thread at any time; reads no shared state. Sets or
+ * clears the calling thread's error slot.
+ *
+ * # Safety
+ *
+ * `host` is null or one readable `minimage_abi`.
+ */
+int32_t minimage_abi_compatible(const struct minimage_abi *host);
+
+/**
+ * Write the ABI this library was built for into `out`: the
+ * `MINIMAGE_ABI_*` constants of its own header.
+ *
+ * Returns `MINIMAGE_STATUS_OK`, or `MINIMAGE_STATUS_NULL_POINTER` when
+ * `out` is null.
+ *
+ * Threads: any thread at any time; reads no shared state. Sets or clears
+ * the calling thread's error slot.
+ *
+ * # Safety
+ *
+ * `out` is null or one writable `minimage_abi`.
+ */
+int32_t minimage_abi_stamp(struct minimage_abi *out);
+
+/**
+ * Fill `out` with the capabilities of this library.
+ *
+ * Returns `MINIMAGE_STATUS_OK`, `MINIMAGE_STATUS_NULL_POINTER` when
+ * `out` is null, or `MINIMAGE_STATUS_BAD_SIZE` when `out->size` is
+ * smaller than the `size` member.
+ *
+ * Threads: any thread at any time; reads no shared state. Sets or
+ * clears the calling thread's error slot.
+ *
+ * # Safety
+ *
+ * `out` is null or writable for `out->size` bytes, which the host set.
+ */
+int32_t minimage_capabilities(struct minimage_caps *out);
 
 /**
  * Fill `out` from an ASE-style row-major 3x3 cell (`[a, b, c]`) in
@@ -689,6 +1069,219 @@ int minimage_fixed_many(const struct mi_cell *simbox,
 const char *minimage_last_error(void);
 
 /**
+ * Build a lattice from three edge lengths along x, y, z.
+ *
+ * `edges` is three doubles. `periodic` is three `uint32_t`, nonzero for
+ * a periodic axis, or null for all three periodic. `origin` is three
+ * doubles, or null for zero. A negative edge is stored as its
+ * magnitude: `-L` and `L` span one lattice. The edge of an open axis is
+ * carried and never read.
+ *
+ * Returns `MINIMAGE_STATUS_OK` and writes a handle to `*out`, to be
+ * released with `minimage_lattice_free`. On failure `*out` is null:
+ * `MINIMAGE_STATUS_BAD_CELL` for a zero, infinite, or NaN edge on a
+ * periodic axis or a non-finite origin, and
+ * `MINIMAGE_STATUS_NULL_POINTER` for a null `edges` or `out`.
+ *
+ * Threads: any thread at any time. Two builds share no state; the new
+ * handle belongs to the caller. Sets or clears the calling thread's
+ * error slot.
+ *
+ * # Safety
+ *
+ * `edges` is null or three readable doubles, `periodic` null or three
+ * readable `uint32_t`, `origin` null or three readable doubles, and
+ * `out` null or one writable pointer.
+ */
+int32_t minimage_lattice_diagonal(const double *edges,
+                                  const uint32_t *periodic,
+                                  const double *origin,
+                                  struct minimage_lattice **out);
+
+/**
+ * Release a lattice. Null is accepted and ignored. Does not touch
+ * `minimage_last_error`.
+ *
+ * Threads: exclusive per handle. No other call may use `lattice` while
+ * or after it is released.
+ *
+ * # Safety
+ *
+ * `lattice` is null or a handle from `minimage_lattice_diagonal` or
+ * `minimage_lattice_general` that has not been released, and no other
+ * thread is using it.
+ */
+void minimage_lattice_free(struct minimage_lattice *lattice);
+
+/**
+ * Build a lattice from three lattice vectors.
+ *
+ * `rows` is nine doubles, the vectors a, b, c one after another.
+ * `periodic` and `origin` are as in `minimage_lattice_diagonal`. The
+ * vector of an open axis is carried and never read. When every
+ * periodic vector lies along its own axis the lattice is orthorhombic
+ * and stores positive edges; a sheared lattice keeps the vectors it
+ * was given. Read the stored vectors back with `minimage_lattice_get_info`.
+ *
+ * Returns `MINIMAGE_STATUS_OK` and writes a handle to `*out`, to be
+ * released with `minimage_lattice_free`. On failure `*out` is null:
+ * `MINIMAGE_STATUS_BAD_CELL` for a zero or non-finite periodic vector,
+ * periodic vectors that are not linearly independent, or a non-finite
+ * origin, and `MINIMAGE_STATUS_NULL_POINTER` for a null `rows` or
+ * `out`.
+ *
+ * Threads: as `minimage_lattice_diagonal`.
+ *
+ * # Safety
+ *
+ * `rows` is null or nine readable doubles, `periodic` null or three
+ * readable `uint32_t`, `origin` null or three readable doubles, and
+ * `out` null or one writable pointer.
+ */
+int32_t minimage_lattice_general(const double *rows,
+                                 const uint32_t *periodic,
+                                 const double *origin,
+                                 struct minimage_lattice **out);
+
+/**
+ * Fill `out` with what `lattice` stores: the vectors, the origin, the
+ * periodicity, and the widths.
+ *
+ * Returns `MINIMAGE_STATUS_OK`, `MINIMAGE_STATUS_NULL_POINTER` when
+ * either pointer is null, or `MINIMAGE_STATUS_BAD_SIZE` when
+ * `out->size` is smaller than the `size` member.
+ *
+ * Threads: shared read of the handle; any number of threads may call
+ * this and the batch calls on one handle at once. Sets or clears the
+ * calling thread's error slot.
+ *
+ * # Safety
+ *
+ * `lattice` is null or a live handle. `out` is null or writable for
+ * `out->size` bytes, which the host set.
+ */
+int32_t minimage_lattice_get_info(const struct minimage_lattice *lattice,
+                                  struct minimage_lattice_info *out);
+
+/**
+ * Nearest image of `n` packed difference vectors into `out`: the
+ * shortest vector that differs from each by a combination of the
+ * periodic lattice vectors. Defined for every lattice. For a fully
+ * periodic one this is `minimage_displacement_euclidean`; with an open
+ * axis it is `minimage_displacement_euclidean_pbc`. On an exact tie it
+ * keeps the engine wrap. `out` may be `diffs`.
+ *
+ * Returns `MINIMAGE_STATUS_OK`, or `MINIMAGE_STATUS_NULL_POINTER`,
+ * `MINIMAGE_STATUS_BAD_COUNT`, or `MINIMAGE_STATUS_BAD_OVERLAP` for a
+ * misuse. When `n` is zero the buffers are not read.
+ *
+ * Threads: as `minimage_lattice_wrap_diffs`.
+ *
+ * # Safety
+ *
+ * `lattice` is null or a live handle. `diffs` and `out` are null or
+ * `n * 3` doubles.
+ */
+int32_t minimage_lattice_nearest_diffs(const struct minimage_lattice *lattice,
+                                       const double *diffs,
+                                       size_t n,
+                                       double *out);
+
+/**
+ * Nearest image of `q[k] - p[k]` for `n` packed pairs into `out`: the
+ * displacement from `p[k]` to `q[k]`, by the search of
+ * `minimage_lattice_nearest_diffs`. `out` may be `p` or `q`.
+ *
+ * Returns as `minimage_lattice_nearest_diffs` does.
+ *
+ * Threads: as `minimage_lattice_wrap_diffs`.
+ *
+ * # Safety
+ *
+ * `lattice` is null or a live handle. `p`, `q`, and `out` are null or
+ * `n * 3` doubles.
+ */
+int32_t minimage_lattice_nearest_pairs(const struct minimage_lattice *lattice,
+                                       const double *p,
+                                       const double *q,
+                                       size_t n,
+                                       double *out);
+
+/**
+ * Engine wrap of `n` packed difference vectors into `out`.
+ *
+ * Each difference is wrapped in fractional coordinates: a component in
+ * `[-L/2, L/2)` along every periodic axis of an orthorhombic lattice,
+ * and the fractional wrap `H wrap(Hinv d)` of a sheared one. For a
+ * fully periodic lattice this is `minimage_wrap_many`. The component
+ * along an open axis is returned as given. `out` may be `diffs`.
+ *
+ * Returns `MINIMAGE_STATUS_OK`; `MINIMAGE_STATUS_UNSUPPORTED` for a
+ * sheared lattice with an open axis, which has no engine wrap
+ * (`minimage_caps.wrap_open_sheared`; use
+ * `minimage_lattice_nearest_diffs`); `MINIMAGE_STATUS_NULL_POINTER`,
+ * `MINIMAGE_STATUS_BAD_COUNT`, or `MINIMAGE_STATUS_BAD_OVERLAP` for a
+ * misuse. When `n` is zero the buffers are not read.
+ *
+ * Threads: shared read of the handle, as `minimage_lattice_get_info`. Two
+ * calls must not write one output buffer.
+ *
+ * # Safety
+ *
+ * `lattice` is null or a live handle. `diffs` and `out` are null or
+ * `n * 3` doubles.
+ */
+int32_t minimage_lattice_wrap_diffs(const struct minimage_lattice *lattice,
+                                    const double *diffs,
+                                    size_t n,
+                                    double *out);
+
+/**
+ * Engine wrap of `q[k] - p[k]` for `n` packed pairs into `out`: the
+ * displacement from `p[k]` to `q[k]`, by the wrap of
+ * `minimage_lattice_wrap_diffs`. `out` may be `p` or `q`.
+ *
+ * Returns as `minimage_lattice_wrap_diffs` does.
+ *
+ * Threads: as `minimage_lattice_wrap_diffs`.
+ *
+ * # Safety
+ *
+ * `lattice` is null or a live handle. `p`, `q`, and `out` are null or
+ * `n * 3` doubles.
+ */
+int32_t minimage_lattice_wrap_pairs(const struct minimage_lattice *lattice,
+                                    const double *p,
+                                    const double *q,
+                                    size_t n,
+                                    double *out);
+
+/**
+ * Wrap `n` packed points into the cell, into `out`.
+ *
+ * Each point moves by an integer count of every periodic lattice
+ * vector, so that its fractional coordinate along that vector, measured
+ * from the origin, is in `[0, 1)` to within rounding. A point already
+ * inside is returned bit for bit, and the coordinate along an open axis
+ * is never changed. `out` may be `points`.
+ *
+ * Returns `MINIMAGE_STATUS_OK`, or `MINIMAGE_STATUS_NULL_POINTER`,
+ * `MINIMAGE_STATUS_BAD_COUNT`, or `MINIMAGE_STATUS_BAD_OVERLAP` for a
+ * misuse. When `n` is zero the buffers are not read.
+ *
+ * Threads: as `minimage_lattice_wrap_diffs`.
+ *
+ * # Safety
+ *
+ * `lattice` is null or a live handle. `points` and `out` are null or
+ * `n * 3` doubles.
+ */
+int32_t minimage_lattice_wrap_points(const struct minimage_lattice *lattice,
+                                     const double *points,
+                                     size_t n,
+                                     double *out);
+
+/**
  * Squared lower-bound distance from a point to an axis-aligned box.
  *
  * Box intervals are ordinary non-crossing `[lower, upper]` intervals.
@@ -796,6 +1389,22 @@ int minimage_nd_wrap_point(const double *periods,
                            size_t dimensions,
                            const double *point,
                            double *out);
+
+/**
+ * Fill `out` with the operations of this library.
+ *
+ * Returns `MINIMAGE_STATUS_OK`, `MINIMAGE_STATUS_NULL_POINTER` when
+ * `out` is null, or `MINIMAGE_STATUS_BAD_SIZE` when `out->size` is
+ * smaller than the `size` member.
+ *
+ * Threads: any thread at any time; reads no shared state. Sets or clears
+ * the calling thread's error slot.
+ *
+ * # Safety
+ *
+ * `out` is null or writable for `out->size` bytes, which the host set.
+ */
+int32_t minimage_ops_get(struct minimage_ops *out);
 
 /**
  * Enumerate every periodic image of `n` points strictly inside `cutoff`.

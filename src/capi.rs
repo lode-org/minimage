@@ -2236,6 +2236,9 @@ pub unsafe extern "C" fn minimage_visit_pairs_within_images(
     }
 }
 
+mod abi;
+pub use abi::*;
+
 #[cfg(feature = "capi-compat-names")]
 mod compat_names {
     use super::*;
