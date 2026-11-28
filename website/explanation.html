@@ -90,6 +90,22 @@ addition or subtraction of <code>L</code>, which is exact by Sterbenz's lemma, s
 it never rounds a quotient: a value one ulp inside <code>L/2</code> stays put and
 <code>1e308</code> against <code>0.5</code> gives <code>0</code>. An exact binary tie keeps the sign of
 <code>d</code>, so <code>+L/2</code> and <code>-L/2</code> are both reachable.
+</p>
+
+<p>
+An edge <code>-L</code> spans the lattice the edge <code>+L</code> spans, so an orthorhombic
+cell stores each lattice vector with a positive diagonal entry:
+<code>Cell::ortho(-15, 10, 10)</code> is <code>Cell::ortho(15, 10, 10)</code>. The wrap, the
+fold into fractional coordinates, and a lattice shift all count in
+those stored vectors, and the integer shifts of <code>filter_shifted</code> and
+<code>pairs_within_images</code> count them too. Read the vectors back from the
+cell (<code>Cell::a</code>, <code>b</code>, <code>c</code>, or the <code>mi_cell</code> a <code>minimage_cell_from_*</code>
+call wrote) before applying an integer shift; a hand-filled <code>mi_cell</code>
+with a negative diagonal edge is read as the positive one. A sheared
+cell keeps the vectors it was given, whatever their signs or
+handedness, because its wrap goes through <code>H</code> and its inverse and has
+no separate width to disagree with. A zero, infinite, or NaN edge on a
+periodic axis is <code>Error::BadBox</code>.
 Two positions folded into the box are less than one length apart on
 every axis, so the wrap is two selects and the floor runs only past
 that. A squared distance needs no sign: for <code>|d| &lt; L</code> the wrapped
