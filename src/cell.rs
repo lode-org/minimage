@@ -19,6 +19,15 @@ pub(crate) use crate::kernel::mul;
 
 /// Periodic parallelepiped: columns of H, origin, and an ortho flag.
 ///
+/// A lattice vector and its negative span one lattice. An orthorhombic
+/// cell (diagonal within the [`Cell::is_ortho`] tolerance) stores each
+/// vector with a positive diagonal entry, so `Cell::ortho(-15.0, 10.0,
+/// 10.0)` is `Cell::ortho(15.0, 10.0, 10.0)`: [`Cell::a`], [`Cell::h`],
+/// [`Cell::hinv`], [`Cell::widths`], [`Cell::fractional`], and
+/// [`Cell::lattice_shift`] all name that one basis, and an integer
+/// shift counts its vectors. A sheared cell keeps the vectors it was
+/// given, whatever their signs or handedness.
+///
 /// ```
 /// # use minimage::Cell;
 /// # fn main() -> Result<(), minimage::Error> {
@@ -57,12 +66,14 @@ impl Cell {
     ///
     /// Edge lengths `(lx, ly, lz)` use any consistent length unit. Sets
     /// [`Self::is_ortho`] so [`Self::dist2`] and [`Self::lattice_shift`]
-    /// skip the two 3x3 matvecs.
+    /// skip the two 3x3 matvecs. A negative edge is stored as its
+    /// magnitude, since both name the same lattice.
     ///
     /// # Errors
     ///
     /// Returns [`Error::BadBox`] if `lx * ly * lz` is non-finite or
-    /// `|lx * ly * lz| < 1e-18`.
+    /// `|lx * ly * lz| < 1e-18`, which covers a zero, infinite, or NaN
+    /// edge.
     ///
     /// ```
     /// use minimage::{Cell, Error};
@@ -71,6 +82,7 @@ impl Cell {
     /// let cell = Cell::ortho(10.0, 11.0, 12.0)?;
     /// assert!(cell.is_ortho());
     /// assert_eq!(Cell::ortho(0.0, 10.0, 10.0), Err(Error::BadBox));
+    /// assert_eq!(Cell::ortho(-10.0, 11.0, -12.0)?, cell);
     /// # Ok(())
     /// # }
     /// ```
@@ -84,7 +96,8 @@ impl Cell {
     }
 
     /// Diagonal box with an explicit dump-cell origin in the same length
-    /// units as `(lx, ly, lz)`.
+    /// units as `(lx, ly, lz)`. A negative edge is stored as its
+    /// magnitude.
     ///
     /// # Errors
     ///
@@ -98,7 +111,11 @@ impl Cell {
     /// all in consistent length units.
     ///
     /// Vectors are the columns of `H`, so `r = H s + origin`. A
-    /// non-diagonal `H` clears [`Self::is_ortho`].
+    /// non-diagonal `H` clears [`Self::is_ortho`]. When `H` is diagonal
+    /// within that tolerance, a vector whose diagonal entry is negative
+    /// is stored negated, which is the same lattice; read the stored
+    /// vectors back with [`Self::a`], [`Self::b`], and [`Self::c`]
+    /// before counting integer shifts along them.
     ///
     /// Inlined so the caller writes the cell once. An outlined return
     /// stores it and then copies it.
@@ -188,6 +205,9 @@ impl Cell {
         let off = larger(larger(larger(lower, bx.abs()), cx.abs()), cy.abs());
         let scale = larger(wa + wb + wc, 1.0);
         let ortho = off <= 1e-12 * scale;
+        if ortho && (ax < 0.0 || by < 0.0 || cz < 0.0) {
+            return Self::positive_diagonal(a, b, c, origin);
+        }
         let restricted =
             lower <= 1e-10 * scale && ax.abs() >= 1e-18 && by.abs() >= 1e-18 && cz.abs() >= 1e-18;
         let tri_inv = if restricted {
@@ -211,13 +231,21 @@ impl Cell {
     }
 
     /// Exactly diagonal H: three reciprocals, no cross products and no
-    /// square roots. The widths are the edge lengths themselves.
+    /// square roots. The widths are the edge lengths themselves, and a
+    /// negative edge is stored as its magnitude.
     #[inline(always)]
     fn diagonal(lx: f64, ly: f64, lz: f64, origin: [f64; 3]) -> Result<Self, Error> {
         let det = lx * ly * lz;
         if !det.is_finite() || det.abs() < 1e-18 {
             return Err(Error::BadBox);
         }
+        // The edge -L spans the lattice the edge +L spans, and the
+        // orthorhombic wrap, fold, and shift count in widths. Storing
+        // the positive edge keeps H, its inverse, and the widths on one
+        // basis.
+        let lx = lx.abs();
+        let ly = ly.abs();
+        let lz = lz.abs();
         let inv_lx = 1.0 / lx;
         let inv_ly = 1.0 / ly;
         let inv_lz = 1.0 / lz;
@@ -225,7 +253,7 @@ impl Cell {
             h: [[lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz]],
             hinv: [[inv_lx, 0.0, 0.0], [0.0, inv_ly, 0.0], [0.0, 0.0, inv_lz]],
             origin,
-            widths: [lx.abs(), ly.abs(), lz.abs()],
+            widths: [lx, ly, lz],
             ortho: true,
             restricted: true,
             tri_inv: [inv_lx, inv_ly, inv_lz],
@@ -265,6 +293,10 @@ impl Cell {
         let inv_yz = inv_ly * inv_lz;
         let scale = larger(wa + wb + wc, 1.0);
         let tol = 1e-12 * scale;
+        let ortho = larger(larger(xy.abs(), xz.abs()), yz.abs()) <= tol;
+        if ortho && (lx < 0.0 || ly < 0.0 || lz < 0.0) {
+            return Self::positive_diagonal(a, b, c, origin);
+        }
         Ok(Self {
             h: [[lx, 0.0, 0.0], [xy, ly, 0.0], [xz, yz, lz]],
             hinv: [
@@ -274,10 +306,33 @@ impl Cell {
             ],
             origin,
             widths: [wa, wb, wc],
-            ortho: larger(larger(xy.abs(), xz.abs()), yz.abs()) <= tol,
+            ortho,
             restricted: true,
             tri_inv: [inv_lx, inv_ly, inv_lz],
         })
+    }
+
+    /// A cell that is diagonal within tolerance and has a negative
+    /// diagonal entry, rebuilt on the vectors whose diagonal entries are
+    /// positive. Negating a lattice vector keeps the lattice. The
+    /// orthorhombic wrap, fold, and shift count in widths, so they
+    /// agree with H only on this basis.
+    #[cold]
+    #[inline(never)]
+    fn positive_diagonal(
+        a: [f64; 3],
+        b: [f64; 3],
+        c: [f64; 3],
+        origin: [f64; 3],
+    ) -> Result<Self, Error> {
+        let facing = |v: [f64; 3], axis: usize| {
+            if v[axis] < 0.0 {
+                [-v[0], -v[1], -v[2]]
+            } else {
+                v
+            }
+        };
+        Self::from_rows(facing(a, 0), facing(b, 1), facing(c, 2), origin)
     }
 
     /// ASE-style 3x3 cell: rows are lattice vectors `a`, `b`, `c`.
@@ -500,6 +555,9 @@ impl Cell {
     }
 
     /// Lattice vector `a` (first column of `H`), in cell length units.
+    ///
+    /// The stored vector: on an orthorhombic cell its diagonal entry is
+    /// positive, whatever sign the constructor was given.
     pub fn a(&self) -> [f64; 3] {
         self.h[0]
     }
@@ -1718,6 +1776,14 @@ mod tests {
             let h = [[sign * lx, 0.0, 0.0], [xy, ly, 0.0], [xz, yz, sign * lz]];
             let cell = Cell::from_vectors(h[0], h[1], h[2], [0.5, -0.25, 1.0]).unwrap();
             assert!(cell.is_restricted());
+            // A diagonal cell stores the positive edges; a sheared one
+            // keeps the vectors it was given.
+            let h = if k % 4 == 0 {
+                [[lx, 0.0, 0.0], [0.0, ly, 0.0], [0.0, 0.0, lz]]
+            } else {
+                h
+            };
+            assert_eq!(cell.h(), h);
             let (inv, det) = kernel::invert_columns(h).unwrap();
             for (want_col, got_col) in inv.iter().zip(cell.hinv()) {
                 for (want, got) in want_col.iter().zip(got_col) {
