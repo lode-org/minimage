@@ -176,6 +176,8 @@ jobs:
       - run: meson setup build
       - run: meson compile -C build
       - run: meson test -C build --print-errorlogs
+      - name: Hosts built from the headers alone, with no Rust toolchain
+        run: bash scripts/check-headers-only.sh build/libminimage.so "$RUNNER_TEMP/headers-only"
       - run: meson install -C build --destdir "$PWD/destdir"
       - name: pkg-config after meson install
         run: |
@@ -186,6 +188,7 @@ jobs:
           pkg-config --cflags --libs minimage
           test -f "$prefix/include/minimage.h"
           test -f "$prefix/include/minimage.hpp"
+          test -f "$prefix/include/minimage_abi.hpp"
           test -f "$prefix/lib/x86_64-linux-gnu/libminimage.a" \
             -o -f "$prefix/lib/libminimage.a"
           test -f "$prefix/lib/x86_64-linux-gnu/libminimage.so" \
