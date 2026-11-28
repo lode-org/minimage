@@ -133,8 +133,17 @@ minimage_dep = declare_dependency(
 )
 meson.override_dependency('minimage', minimage_dep)
 
+# The headers alone, for a host that loads the library at run time and
+# links nothing. packaging/minimage-headers/meson.build declares the same
+# dependency without cargo, for a host that builds no Rust.
+minimage_headers_dep = declare_dependency(
+  include_directories: include_directories('include'),
+  version: meson.project_version(),
+)
+meson.override_dependency('minimage-headers', minimage_headers_dep)
+
 if _install
-  install_headers('include/minimage.h', 'include/minimage.hpp')
+  install_headers('include/minimage.h', 'include/minimage.hpp', 'include/minimage_abi.hpp')
   pkg = import('pkgconfig')
   pkg.generate(
     name: 'minimage',
@@ -155,6 +164,37 @@ if get_option('with_tests')
     args: ['test', '--manifest-path', _msproot / 'Cargo.toml'],
     timeout: 300,
   )
+  # Hosts that have the headers and no library on their link line: they
+  # load the shared library by path, negotiate the ABI, and compare the
+  # operations table with the direct entry points.
+  if host_machine.system() != 'windows'
+    _dl = cc.find_library('dl', required: false)
+    _abi_host_c = executable(
+      'abi_host_c',
+      'tests/c/abi_host.c',
+      c_args: ['-D_DEFAULT_SOURCE'],
+      dependencies: [minimage_headers_dep, _dl, cc.find_library('m', required: false)],
+      install: false,
+    )
+    _abi_host_cpp = executable(
+      'abi_host_cpp',
+      'tests/cpp/abi_host.cpp',
+      dependencies: [minimage_headers_dep, _dl],
+      install: false,
+    )
+    test(
+      'abi-host-c',
+      _abi_host_c,
+      args: [minimage_cargo[0].full_path()],
+      depends: minimage_cargo,
+    )
+    test(
+      'abi-host-cpp',
+      _abi_host_cpp,
+      args: [minimage_cargo[0].full_path()],
+      depends: minimage_cargo,
+    )
+  endif
 endif
 
 if get_option('with_examples')

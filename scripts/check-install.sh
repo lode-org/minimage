@@ -89,6 +89,10 @@ check_headers() {
     echo "missing $prefix/include/minimage.hpp"
     exit 1
   fi
+  if [[ ! -f "$prefix/include/minimage_abi.hpp" ]]; then
+    echo "missing $prefix/include/minimage_abi.hpp"
+    exit 1
+  fi
 }
 
 if [[ "${MINIMAGE_SKIP_BUILD:-0}" != "1" ]]; then

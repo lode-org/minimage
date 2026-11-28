@@ -161,6 +161,23 @@ if(MINIMAGE_BUILD_EXAMPLES)
       wrap-ortho-half-strict-cpp PROPERTIES
       ENVIRONMENT "DYLD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}")
   endif()
+  # Hosts that have the headers and no library on their link line: they
+  # load the shared library by path and negotiate the ABI.
+  if(UNIX)
+    add_executable(abi_host_c tests/c/abi_host.c)
+    target_include_directories(abi_host_c PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_compile_definitions(abi_host_c PRIVATE _DEFAULT_SOURCE)
+    target_link_libraries(abi_host_c PRIVATE ${CMAKE_DL_LIBS} m)
+    set_target_properties(abi_host_c PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+    add_executable(abi_host_cpp tests/cpp/abi_host.cpp)
+    target_include_directories(abi_host_cpp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_link_libraries(abi_host_cpp PRIVATE ${CMAKE_DL_LIBS})
+    set_target_properties(abi_host_cpp PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    add_dependencies(abi_host_c minimage_cargo)
+    add_dependencies(abi_host_cpp minimage_cargo)
+    add_test(NAME abi-host-c COMMAND abi_host_c "${MINIMAGE_SHARED}")
+    add_test(NAME abi-host-cpp COMMAND abi_host_cpp "${MINIMAGE_SHARED}")
+  endif()
 endif()
 
 if(MINIMAGE_INSTALL)
@@ -198,6 +215,7 @@ if(MINIMAGE_INSTALL)
   install(FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/include/minimage.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/minimage.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/minimage_abi.hpp"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
   )
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/minimage.pc"

@@ -38,6 +38,7 @@ JSON_VERSION = rf'^  "version": "(?P<v>{V})",$'
 WRAPS = [
     "README.md",
     "packaging/wrapdb/minimage.wrap",
+    "packaging/wrapdb/minimage-headers.wrap",
     "docs/orgmode/getting-started.org",
     "website/getting-started.html",
 ]

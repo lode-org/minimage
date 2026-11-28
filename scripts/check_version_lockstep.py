@@ -38,6 +38,8 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parent.parent
 WRAP = "packaging/wrapdb/minimage.wrap"
+HEADERS_WRAP = "packaging/wrapdb/minimage-headers.wrap"
+HEADERS_MESON = "packaging/minimage-headers/meson.build"
 SNIPPETS = [
     "README.md",
     "docs/orgmode/getting-started.org",
@@ -217,11 +219,13 @@ def sources(root):
         ("codemeta.json", codemeta),
         (".zenodo.json", zenodo),
         (WRAP, wrap),
+        (HEADERS_WRAP, wrap),
         *((rel, snippet) for rel in SNIPPETS),
         (CONSUMER, cmake_consumer),
     ]
     if mparser is not None:
         found.append(("meson.build", meson_build))
+        found.append((HEADERS_MESON, meson_build))
     return found
 
 
