@@ -41,7 +41,7 @@ degrees. Displacements compute <code>wrap(q - p)</code>.
 </p>
 
 <p>
-Every <code>int</code>-returning function returns <code>0</code> on success and <code>1</code> on failure
+Every <code>int</code>-returning function in the first table returns <code>0</code> on success and <code>1</code> on failure
 (null pointer, invalid cell, buffer/index mismatch, or overflow). Read
 <code>minimage_last_error()</code> on the same thread immediately after a nonzero
 return; do not free the returned pointer. The next successful
@@ -314,6 +314,295 @@ feature exports deprecated thin <code>mi_</code> aliases for migration and must
 not be linked with mimalloc.
 </p>
 </div>
+
+<div id="outline-container-org166d108" class="outline-3">
+<h3 id="org166d108">Loading at run time</h3>
+<div class="outline-text-3" id="text-org166d108">
+<p>
+A host that opens the shared library by path, rather than linking it,
+resolves three symbols by name and takes every other operation from a
+table. These calls are additive: the entry points above keep their
+names, signatures, and <code>0</code> / <code>1</code> returns.
+</p>
+
+<ol class="org-ol">
+<li><code>minimage_abi_stamp(&amp;abi)</code> writes the ABI the library was built for.</li>
+<li><code>minimage_abi_compatible(&amp;host)</code> returns <code>MINIMAGE_STATUS_OK</code> when the
+library serves a host compiled against <code>host</code>: the same
+<code>MINIMAGE_ABI_MAJOR</code> and the same <code>MINIMAGE_ABI_LAYOUT_REVISION</code>. The
+minor is informational and is not compared.</li>
+<li><code>minimage_ops_get(&amp;ops)</code> fills the operations table. A null member is
+an operation the library lacks.</li>
+</ol>
+
+<p>
+Every <code>int32_t</code> this layer returns is a status: <code>0</code> is success, a
+positive code is a failure the caller can recover from, and a negative
+code is a misuse of the interface or a fault inside the library. Branch
+on the code. <code>minimage_last_error()</code> is text for a person, valid until
+the next <code>minimage_*</code> call on the same thread, and its wording is not
+stable. A panic inside the library is caught at the boundary and
+returned as <code>MINIMAGE_STATUS_PANIC</code>.
+</p>
+
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-right">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Code</th>
+<th scope="col" class="org-right">Value</th>
+<th scope="col" class="org-left">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_OK</code></td>
+<td class="org-right">0</td>
+<td class="org-left">Success</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_ERROR</code></td>
+<td class="org-right">1</td>
+<td class="org-left">Any failure of the entry points that predate this layer; never returned by the table</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_BAD_CELL</code></td>
+<td class="org-right">2</td>
+<td class="org-left">Zero, infinite, or NaN periodic edge, dependent periodic vectors, or non-finite origin</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_UNSUPPORTED</code></td>
+<td class="org-right">3</td>
+<td class="org-left">The matching capability is zero; nothing was written</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_INCOMPATIBLE</code></td>
+<td class="org-right">4</td>
+<td class="org-left">Another major version or layout revision</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_NULL_POINTER</code></td>
+<td class="org-right">-1</td>
+<td class="org-left">A required pointer is null</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_BAD_SIZE</code></td>
+<td class="org-right">-2</td>
+<td class="org-left">A struct's <code>size</code> is smaller than the <code>size</code> member</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_BAD_COUNT</code></td>
+<td class="org-right">-3</td>
+<td class="org-left">A row count whose buffer would not fit in the address space</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_BAD_OVERLAP</code></td>
+<td class="org-right">-4</td>
+<td class="org-left">The output overlaps an input without being that input</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>MINIMAGE_STATUS_PANIC</code></td>
+<td class="org-right">-5</td>
+<td class="org-left">A fault inside the library, caught at the boundary</td>
+</tr>
+</tbody>
+</table>
+
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Kind</th>
+<th scope="col" class="org-left">Type</th>
+<th scope="col" class="org-left">Layout</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">frozen</td>
+<td class="org-left"><code>minimage_abi</code></td>
+<td class="org-left">Three <code>uint32_t</code>: major, minor, layout revision. Written through a pointer</td>
+</tr>
+
+<tr>
+<td class="org-left">growable</td>
+<td class="org-left"><code>minimage_caps</code></td>
+<td class="org-left"><code>uint32_t size</code>, then one <code>uint32_t</code> flag per capability</td>
+</tr>
+
+<tr>
+<td class="org-left">growable</td>
+<td class="org-left"><code>minimage_ops</code></td>
+<td class="org-left"><code>uint32_t size</code>, <code>uint32_t reserved</code>, then function pointers</td>
+</tr>
+
+<tr>
+<td class="org-left">growable</td>
+<td class="org-left"><code>minimage_lattice_info</code></td>
+<td class="org-left"><code>uint32_t size</code>, flags, then the stored vectors, origin, and widths</td>
+</tr>
+
+<tr>
+<td class="org-left">opaque</td>
+<td class="org-left"><code>minimage_lattice</code></td>
+<td class="org-left">Incomplete type; only pointers cross the boundary</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+A growable struct starts with <code>uint32_t size</code>. The host sets it to
+<code>sizeof</code> as it compiled the struct. The library zeroes that many bytes,
+writes the whole members that fit, and sets <code>size</code> to the bytes it
+wrote, so a member the host knows and the library does not reads as
+zero, and a byte past the host's <code>size</code> is never touched. Members only
+ever append. <code>minimage_caps</code> and <code>minimage_ops</code> are outside the frozen
+layout revision; a new capability or operation is a new member at the
+end and a new minor.
+</p>
+
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Symbol</th>
+<th scope="col" class="org-left">Role</th>
+<th scope="col" class="org-left">Threads</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>minimage_abi_stamp</code></td>
+<td class="org-left">Write the library's <code>minimage_abi</code></td>
+<td class="org-left">Any</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_abi_compatible</code></td>
+<td class="org-left">Same major and layout revision as the host</td>
+<td class="org-left">Any</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_capabilities</code></td>
+<td class="org-left">Fill a size-prefixed <code>minimage_caps</code></td>
+<td class="org-left">Any</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_ops_get</code></td>
+<td class="org-left">Fill a size-prefixed <code>minimage_ops</code></td>
+<td class="org-left">Any</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_diagonal</code></td>
+<td class="org-left">Lattice from three edges, a <code>uint32_t</code> periodicity mask (<code>NULL</code> -&gt; all periodic), an origin (<code>NULL</code> -&gt; zero)</td>
+<td class="org-left">Any; builds share nothing</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_general</code></td>
+<td class="org-left">Lattice from vectors a, b, c (nine doubles), mask, origin</td>
+<td class="org-left">Any; builds share nothing</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_get_info</code></td>
+<td class="org-left">Read back the stored vectors, origin, periodicity, and widths</td>
+<td class="org-left">Shared read of the handle</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_wrap_diffs</code></td>
+<td class="org-left">Engine wrap of <code>n</code> packed differences; open axes kept; <code>out</code> may be the input</td>
+<td class="org-left">Shared read</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_wrap_pairs</code></td>
+<td class="org-left">Engine wrap of <code>q[k] - p[k]</code>; <code>out</code> may be <code>p</code> or <code>q</code></td>
+<td class="org-left">Shared read</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_nearest_diffs</code></td>
+<td class="org-left">Nearest image of <code>n</code> packed differences over the periodic axes</td>
+<td class="org-left">Shared read</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_nearest_pairs</code></td>
+<td class="org-left">Nearest image of <code>q[k] - p[k]</code></td>
+<td class="org-left">Shared read</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_wrap_points</code></td>
+<td class="org-left">Fold <code>n</code> packed points into the cell; open coordinates kept</td>
+<td class="org-left">Shared read</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage_lattice_free</code></td>
+<td class="org-left">Release a handle; <code>NULL</code> is ignored</td>
+<td class="org-left">Exclusive per handle</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+A lattice is immutable once built, so any number of threads may read one
+handle at once; <code>minimage_lattice_free</code> must not run while another
+thread uses it. An orthorhombic lattice stores each periodic vector with
+a positive diagonal entry, whatever sign it was built with: the edge
+<code>-L</code> spans the lattice the edge <code>+L</code> spans. A sheared lattice keeps the
+vectors it was given. The engine wrap of a sheared lattice with an open
+axis is not provided (<code>minimage_caps.wrap_open_sheared</code> is <code>0</code>): the
+wrap calls return <code>MINIMAGE_STATUS_UNSUPPORTED</code> and the nearest-image
+calls serve it. A call with <code>n =</code> 0= reads no buffer.
+</p>
+
+<p>
+The C11 test <code>tests/c/abi_host.c</code> pins the frozen layouts with
+<code>_Static_assert</code> on <code>sizeof</code> and <code>offsetof</code>, and loads the library with
+<code>dlopen</code>.
+</p>
+</div>
+</div>
 </section>
 
 <section id="outline-container-orgc185f49" class="outline-2">
@@ -410,6 +699,78 @@ throws <code>minimage::Error</code> (with <code>status()</code> and <code>what()
 </tr>
 </tbody>
 </table>
+</div>
+</section>
+
+<section id="outline-container-orgf8227bd" class="outline-2">
+<h2 id="orgf8227bd">C++ over the loaded library (<code>include/minimage_abi.hpp</code>)</h2>
+<div class="outline-text-2" id="text-orgf8227bd">
+<p>
+Header-only, C++17. Refers to no <code>minimage_*</code> symbol at link time:
+every call goes through the <code>minimage_ops</code> table a <code>Library</code> holds, so
+a host compiles against the <code>minimage-headers</code> dependency alone.
+</p>
+
+<table>
+
+
+<colgroup>
+<col  class="org-left">
+
+<col  class="org-left">
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">Symbol</th>
+<th scope="col" class="org-left">Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>minimage::abi::Library::open</code></td>
+<td class="org-left"><code>dlopen</code> a path, check the stamp, fill the table</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::abi::Library</code> (<code>EntryPoints</code>)</td>
+<td class="org-left">Negotiate through three entry points the host resolved itself</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::abi::Library::stamp</code>, <code>version</code>, <code>capabilities</code>, <code>ops</code></td>
+<td class="org-left">What the loaded library is and can do</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::abi::Library::diagonal</code>, <code>general</code></td>
+<td class="org-left">Build a <code>Lattice</code></td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::abi::Lattice::info</code></td>
+<td class="org-left">Stored vectors, origin, periodicity, widths</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::abi::Lattice::wrap_diffs</code>, <code>wrap_pairs</code>, <code>nearest_diffs</code>, <code>nearest_pairs</code>, <code>wrap_points</code></td>
+<td class="org-left">Batch calls, as pointers (output may be an input) or as <code>Rows</code></td>
+</tr>
+
+<tr>
+<td class="org-left"><code>minimage::abi::Error</code></td>
+<td class="org-left"><code>status()</code> is the <code>MINIMAGE_STATUS_*</code> code; <code>recoverable()</code> is <code>status() &gt; 0</code></td>
+</tr>
+</tbody>
+</table>
+
+<p>
+A missing entry point, an incompatible ABI, or a null table member
+throws <code>Error</code> with <code>MINIMAGE_STATUS_UNSUPPORTED</code> or
+<code>MINIMAGE_STATUS_INCOMPATIBLE</code> instead of calling through a null
+pointer. A moved-from <code>Lattice</code> throws <code>MINIMAGE_STATUS_NULL_POINTER</code>.
+The loaded library stays open while the <code>Library</code> or any <code>Lattice</code> built
+from it lives.
+</p>
 </div>
 </section>
 

@@ -169,6 +169,22 @@ if (minimage_displacement_euclidean(&cell, p, q, dr) != 0) {
 }
 ```
 
+### Loading at run time
+
+A host that opens the library by path compiles against the headers alone
+(Meson: `dependency('minimage-headers')`, no cargo needed), resolves
+`minimage_abi_stamp`, `minimage_abi_compatible`, and `minimage_ops_get`
+with `dlsym`, and takes every other call from the `minimage_ops` table: lattice
+handles (`lattice_diagonal`, `lattice_general`, per-axis periodicity), engine
+wrap and nearest image of many differences or pairs, and wrapping many
+points into the cell. Each returns an `int32_t` status: `0` success, a
+positive `MINIMAGE_STATUS_*` code for a recoverable failure, a negative one
+for misuse or a fault caught inside the library. Compatible means the same
+`MINIMAGE_ABI_MAJOR` and `MINIMAGE_ABI_LAYOUT_REVISION`; the minor is
+informational. `include/minimage_abi.hpp` wraps the table for C++ and throws
+`minimage::abi::Error`. The entry points above are unchanged. See the
+reference and the how-to for the layouts, the codes, and the thread rules.
+
 ## Conventions and error behaviour
 
 - **Units and storage**: coordinates, lattice vectors, and origins share

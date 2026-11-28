@@ -23,7 +23,7 @@ caller-owned. Coordinates, lattice vectors, and origins share one
 consistent length unit; =minimage_cell_from_con_box= takes angles in
 degrees. Displacements compute =wrap(q - p)=.
 
-Every =int=-returning function returns =0= on success and =1= on failure
+Every =int=-returning function in the first table returns =0= on success and =1= on failure
 (null pointer, invalid cell, buffer/index mismatch, or overflow). Read
 =minimage_last_error()= on the same thread immediately after a nonzero
 return; do not free the returned pointer. The next successful
@@ -87,6 +87,89 @@ mimalloc's =mi_= namespace. The non-default =capi-compat-names= Cargo
 feature exports deprecated thin =mi_= aliases for migration and must
 not be linked with mimalloc.
 
+** Loading at run time
+
+A host that opens the shared library by path, rather than linking it,
+resolves three symbols by name and takes every other operation from a
+table. These calls are additive: the entry points above keep their
+names, signatures, and =0= / =1= returns.
+
+1. =minimage_abi_stamp(&abi)= writes the ABI the library was built for.
+2. =minimage_abi_compatible(&host)= returns =MINIMAGE_STATUS_OK= when the
+   library serves a host compiled against =host=: the same
+   =MINIMAGE_ABI_MAJOR= and the same =MINIMAGE_ABI_LAYOUT_REVISION=. The
+   minor is informational and is not compared.
+3. =minimage_ops_get(&ops)= fills the operations table. A null member is
+   an operation the library lacks.
+
+Every =int32_t= this layer returns is a status: =0= is success, a
+positive code is a failure the caller can recover from, and a negative
+code is a misuse of the interface or a fault inside the library. Branch
+on the code. =minimage_last_error()= is text for a person, valid until
+the next =minimage_*= call on the same thread, and its wording is not
+stable. A panic inside the library is caught at the boundary and
+returned as =MINIMAGE_STATUS_PANIC=.
+
+| Code | Value | Meaning |
+|------+-------+---------|
+| =MINIMAGE_STATUS_OK= | 0 | Success |
+| =MINIMAGE_STATUS_ERROR= | 1 | Any failure of the entry points that predate this layer; never returned by the table |
+| =MINIMAGE_STATUS_BAD_CELL= | 2 | Zero, infinite, or NaN periodic edge, dependent periodic vectors, or non-finite origin |
+| =MINIMAGE_STATUS_UNSUPPORTED= | 3 | The matching capability is zero; nothing was written |
+| =MINIMAGE_STATUS_INCOMPATIBLE= | 4 | Another major version or layout revision |
+| =MINIMAGE_STATUS_NULL_POINTER= | -1 | A required pointer is null |
+| =MINIMAGE_STATUS_BAD_SIZE= | -2 | A struct's =size= is smaller than the =size= member |
+| =MINIMAGE_STATUS_BAD_COUNT= | -3 | A row count whose buffer would not fit in the address space |
+| =MINIMAGE_STATUS_BAD_OVERLAP= | -4 | The output overlaps an input without being that input |
+| =MINIMAGE_STATUS_PANIC= | -5 | A fault inside the library, caught at the boundary |
+
+| Kind | Type | Layout |
+|------+------+--------|
+| frozen | =minimage_abi= | Three =uint32_t=: major, minor, layout revision. Written through a pointer |
+| growable | =minimage_caps= | =uint32_t size=, then one =uint32_t= flag per capability |
+| growable | =minimage_ops= | =uint32_t size=, =uint32_t reserved=, then function pointers |
+| growable | =minimage_lattice_info= | =uint32_t size=, flags, then the stored vectors, origin, and widths |
+| opaque | =minimage_lattice= | Incomplete type; only pointers cross the boundary |
+
+A growable struct starts with =uint32_t size=. The host sets it to
+=sizeof= as it compiled the struct. The library zeroes that many bytes,
+writes the whole members that fit, and sets =size= to the bytes it
+wrote, so a member the host knows and the library does not reads as
+zero, and a byte past the host's =size= is never touched. Members only
+ever append. =minimage_caps= and =minimage_ops= are outside the frozen
+layout revision; a new capability or operation is a new member at the
+end and a new minor.
+
+| Symbol | Role | Threads |
+|--------+------+---------|
+| =minimage_abi_stamp= | Write the library's =minimage_abi= | Any |
+| =minimage_abi_compatible= | Same major and layout revision as the host | Any |
+| =minimage_capabilities= | Fill a size-prefixed =minimage_caps= | Any |
+| =minimage_ops_get= | Fill a size-prefixed =minimage_ops= | Any |
+| =minimage_lattice_diagonal= | Lattice from three edges, a =uint32_t= periodicity mask (=NULL= -> all periodic), an origin (=NULL= -> zero) | Any; builds share nothing |
+| =minimage_lattice_general= | Lattice from vectors a, b, c (nine doubles), mask, origin | Any; builds share nothing |
+| =minimage_lattice_get_info= | Read back the stored vectors, origin, periodicity, and widths | Shared read of the handle |
+| =minimage_lattice_wrap_diffs= | Engine wrap of =n= packed differences; open axes kept; =out= may be the input | Shared read |
+| =minimage_lattice_wrap_pairs= | Engine wrap of =q[k] - p[k]=; =out= may be =p= or =q= | Shared read |
+| =minimage_lattice_nearest_diffs= | Nearest image of =n= packed differences over the periodic axes | Shared read |
+| =minimage_lattice_nearest_pairs= | Nearest image of =q[k] - p[k]= | Shared read |
+| =minimage_lattice_wrap_points= | Fold =n= packed points into the cell; open coordinates kept | Shared read |
+| =minimage_lattice_free= | Release a handle; =NULL= is ignored | Exclusive per handle |
+
+A lattice is immutable once built, so any number of threads may read one
+handle at once; =minimage_lattice_free= must not run while another
+thread uses it. An orthorhombic lattice stores each periodic vector with
+a positive diagonal entry, whatever sign it was built with: the edge
+=-L= spans the lattice the edge =+L= spans. A sheared lattice keeps the
+vectors it was given. The engine wrap of a sheared lattice with an open
+axis is not provided (=minimage_caps.wrap_open_sheared= is =0=): the
+wrap calls return =MINIMAGE_STATUS_UNSUPPORTED= and the nearest-image
+calls serve it. A call with =n == 0= reads no buffer.
+
+The C11 test =tests/c/abi_host.c= pins the frozen layouts with
+=_Static_assert= on =sizeof= and =offsetof=, and loads the library with
+=dlopen=.
+
 * C++ (=include/minimage.hpp=)
 
 Requires C++17 or later. Wraps =minimage.h= in namespace =minimage= and
@@ -108,6 +191,29 @@ throws =minimage::Error= (with =status()= and =what()=) on failure.
 | =minimage::wrap_ortho_half_strict= | =noexcept= scalar wrap into the closed interval =[-L/2, L/2]=; NaN on invalid input |
 | =minimage::visit_pairs_within_images=, =pairs_within_images= | Single-pass visitor and vector collector for periodic images within =cutoff=; an exception thrown by the visitor stops the walk and is rethrown to the caller |
 | =minimage::reduce_pairs= | Sorted unique pairs with self images dropped |
+
+* C++ over the loaded library (=include/minimage_abi.hpp=)
+
+Header-only, C++17. Refers to no =minimage_*= symbol at link time:
+every call goes through the =minimage_ops= table a =Library= holds, so
+a host compiles against the =minimage-headers= dependency alone.
+
+| Symbol | Role |
+|--------+------|
+| =minimage::abi::Library::open= | =dlopen= a path, check the stamp, fill the table |
+| =minimage::abi::Library= (=EntryPoints=) | Negotiate through three entry points the host resolved itself |
+| =minimage::abi::Library::stamp=, =version=, =capabilities=, =ops= | What the loaded library is and can do |
+| =minimage::abi::Library::diagonal=, =general= | Build a =Lattice= |
+| =minimage::abi::Lattice::info= | Stored vectors, origin, periodicity, widths |
+| =minimage::abi::Lattice::wrap_diffs=, =wrap_pairs=, =nearest_diffs=, =nearest_pairs=, =wrap_points= | Batch calls, as pointers (output may be an input) or as =Rows= |
+| =minimage::abi::Error= | =status()= is the =MINIMAGE_STATUS_*= code; =recoverable()= is =status() > 0= |
+
+A missing entry point, an incompatible ABI, or a null table member
+throws =Error= with =MINIMAGE_STATUS_UNSUPPORTED= or
+=MINIMAGE_STATUS_INCOMPATIBLE= instead of calling through a null
+pointer. A moved-from =Lattice= throws =MINIMAGE_STATUS_NULL_POINTER=.
+The loaded library stays open while the =Library= or any =Lattice= built
+from it lives.
 
 * Rust
 

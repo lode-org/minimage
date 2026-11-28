@@ -84,6 +84,65 @@ whose =what()= carries =minimage_last_error()=. =Cell::ortho= is
 displacement method is called; the other constructors validate
 immediately.
 
+* Load at run time
+
+A host that cannot link a Rust library, or that picks the library at
+run time, compiles against the headers alone and opens the shared
+library by path. Meson provides the headers as =minimage-headers=,
+which needs no cargo: inside this project it is declared next to
+=minimage_dep=, and a host that builds no Rust takes it from
+=packaging/wrapdb/minimage-headers.wrap= with
+=packaging/minimage-headers= as its =patch_directory= (copy that
+directory to =subprojects/packagefiles/minimage-headers=).
+
+#+begin_src c
+#include <dlfcn.h>
+#include "minimage.h"
+
+void *lib = dlopen("libminimage.so", RTLD_NOW | RTLD_LOCAL);
+int32_t (*compatible)(const minimage_abi *);
+int32_t (*ops_get)(minimage_ops *);
+*(void **)&compatible = dlsym(lib, "minimage_abi_compatible");
+*(void **)&ops_get = dlsym(lib, "minimage_ops_get");
+
+const minimage_abi host = {MINIMAGE_ABI_MAJOR, MINIMAGE_ABI_MINOR,
+                           MINIMAGE_ABI_LAYOUT_REVISION};
+minimage_ops ops = {0};
+ops.size = sizeof ops;
+if (compatible(&host) != MINIMAGE_STATUS_OK || ops_get(&ops) != MINIMAGE_STATUS_OK) {
+    /* another ABI: do not call anything else */
+}
+
+/* diffs: n packed rows of three doubles */
+const double edges[3] = {-15.0, -15.0, 15.0}; /* the lattice of +15 */
+const uint32_t slab[3] = {1, 1, 0};
+minimage_lattice *box = NULL;
+int32_t status = ops.lattice_diagonal(edges, slab, NULL, &box);
+if (status == MINIMAGE_STATUS_OK) {
+    status = ops.lattice_wrap_diffs(box, diffs, n, diffs); /* in place */
+}
+if (status < 0) { /* a bug in the caller, or a fault in the library */ }
+ops.lattice_free(box);
+#+end_src
+
+A null member of =ops= is an operation the library lacks. A recoverable
+failure is a positive status, such as =MINIMAGE_STATUS_BAD_CELL= for a
+zero edge on a periodic axis or =MINIMAGE_STATUS_UNSUPPORTED= for the
+engine wrap of a sheared lattice with an open axis.
+
+From C++, =minimage_abi.hpp= does the same and throws:
+
+#+begin_src cpp
+#include "minimage_abi.hpp"
+
+const auto lib = minimage::abi::Library::open("libminimage.so");
+const auto box = lib.diagonal({-15.0, -15.0, 15.0}, {true, true, false});
+const minimage::abi::Rows wrapped = box.wrap_diffs(diffs);
+#+end_src
+
+=scripts/check-headers-only.sh= builds both test hosts this way, with no
+cargo and no rustc on =PATH=, and runs them against a built library.
+
 * Embed from Python
 
 #+begin_src python

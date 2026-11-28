@@ -112,6 +112,78 @@ immediately.
 </div>
 </section>
 
+<section id="outline-container-org0a9093a" class="outline-2">
+<h2 id="org0a9093a">Load at run time</h2>
+<div class="outline-text-2" id="text-org0a9093a">
+<p>
+A host that cannot link a Rust library, or that picks the library at
+run time, compiles against the headers alone and opens the shared
+library by path. Meson provides the headers as <code>minimage-headers</code>,
+which needs no cargo: inside this project it is declared next to
+<code>minimage_dep</code>, and a host that builds no Rust takes it from
+<code>packaging/wrapdb/minimage-headers.wrap</code> with
+<code>packaging/minimage-headers</code> as its <code>patch_directory</code> (copy that
+directory to <code>subprojects/packagefiles/minimage-headers</code>).
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c">#include &lt;dlfcn.h&gt;
+#include "minimage.h"
+
+void *lib = dlopen("libminimage.so", RTLD_NOW | RTLD_LOCAL);
+int32_t (*compatible)(const minimage_abi *);
+int32_t (*ops_get)(minimage_ops *);
+*(void **)&amp;compatible = dlsym(lib, "minimage_abi_compatible");
+*(void **)&amp;ops_get = dlsym(lib, "minimage_ops_get");
+
+const minimage_abi host = {MINIMAGE_ABI_MAJOR, MINIMAGE_ABI_MINOR,
+                           MINIMAGE_ABI_LAYOUT_REVISION};
+minimage_ops ops = {0};
+ops.size = sizeof ops;
+if (compatible(&amp;host) != MINIMAGE_STATUS_OK || ops_get(&amp;ops) != MINIMAGE_STATUS_OK) {
+    /* another ABI: do not call anything else */
+}
+
+/* diffs: n packed rows of three doubles */
+const double edges[3] = {-15.0, -15.0, 15.0}; /* the lattice of +15 */
+const uint32_t slab[3] = {1, 1, 0};
+minimage_lattice *box = NULL;
+int32_t status = ops.lattice_diagonal(edges, slab, NULL, &amp;box);
+if (status == MINIMAGE_STATUS_OK) {
+    status = ops.lattice_wrap_diffs(box, diffs, n, diffs); /* in place */
+}
+if (status &lt; 0) { /* a bug in the caller, or a fault in the library */ }
+ops.lattice_free(box);
+</pre>
+</div>
+
+<p>
+A null member of <code>ops</code> is an operation the library lacks. A recoverable
+failure is a positive status, such as <code>MINIMAGE_STATUS_BAD_CELL</code> for a
+zero edge on a periodic axis or <code>MINIMAGE_STATUS_UNSUPPORTED</code> for the
+engine wrap of a sheared lattice with an open axis.
+</p>
+
+<p>
+From C++, <code>minimage_abi.hpp</code> does the same and throws:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-cpp">#include "minimage_abi.hpp"
+
+const auto lib = minimage::abi::Library::open("libminimage.so");
+const auto box = lib.diagonal({-15.0, -15.0, 15.0}, {true, true, false});
+const minimage::abi::Rows wrapped = box.wrap_diffs(diffs);
+</pre>
+</div>
+
+<p>
+<code>scripts/check-headers-only.sh</code> builds both test hosts this way, with no
+cargo and no rustc on <code>PATH</code>, and runs them against a built library.
+</p>
+</div>
+</section>
+
 <section id="outline-container-orgdeb9d03" class="outline-2">
 <h2 id="orgdeb9d03">Embed from Python</h2>
 <div class="outline-text-2" id="text-orgdeb9d03">
